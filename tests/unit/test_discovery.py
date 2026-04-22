@@ -57,6 +57,25 @@ class TestDiscovery:
         assert plan.snaps[0].name == "mysnap"
         assert plan.snaps[0].source == "snap_dir"
 
+    def test_snap_under_snap_subdir(self, tmp_path: Path) -> None:
+        """snapcraft.yaml under snap/ → source is the parent directory."""
+        _write(
+            tmp_path / "myproject" / "snap" / "snapcraft.yaml",
+            "name: mysnap\n",
+        )
+        plan = discover_artifacts(tmp_path)
+        assert len(plan.snaps) == 1
+        assert plan.snaps[0].name == "mysnap"
+        assert plan.snaps[0].source == "myproject"
+
+    def test_snap_under_snap_subdir_at_root(self, tmp_path: Path) -> None:
+        """snap/snapcraft.yaml at repo root → source is '.'."""
+        _write(tmp_path / "snap" / "snapcraft.yaml", "name: mysnap\n")
+        plan = discover_artifacts(tmp_path)
+        assert len(plan.snaps) == 1
+        assert plan.snaps[0].name == "mysnap"
+        assert plan.snaps[0].source == "."
+
     def test_monorepo(self, tmp_path: Path) -> None:
         _write(tmp_path / "charmcraft.yaml", "name: main-charm\ntype: charm\n")
         _write(tmp_path / "rock_a" / "rockcraft.yaml", "name: rock-a\n")
