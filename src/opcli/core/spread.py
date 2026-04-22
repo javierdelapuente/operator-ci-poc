@@ -36,7 +36,9 @@ _yaml.default_flow_style = False
 
 _SPREAD_YAML = "spread.yaml"
 _TASK_YAML_REL = "tests/integration/run/task.yaml"
+_TUTORIAL_TASK_YAML_REL = "tests/tutorial/run/task.yaml"
 _VIRTUAL_BACKEND = "integration-test"
+_TUTORIAL_BACKEND = "tutorial-test"
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +93,7 @@ def _generate_spread_yaml(
         "suites": {
             "tests/integration/": {
                 "summary": "integration tests",
+                "backends": [_VIRTUAL_BACKEND],
                 "environment": suite_env,
             },
         },
@@ -105,6 +108,13 @@ summary: integration tests
 
 execute: |
     $( opcli pytest run -- -k $MODULE )
+"""
+
+_TUTORIAL_TASK_YAML_CONTENT = """\
+summary: tutorial test
+
+execute: |
+    eval "$(opcli tutorial expand "$TUTORIAL")"
 """
 
 
@@ -249,6 +259,22 @@ if [ -f "$CONCIERGE" ]; then
 fi
 """
 
+# Tutorial backend: install opcli from the synced project so that
+# ``opcli tutorial expand`` is available inside the VM.
+_TUTORIAL_LOCAL_PREPARE = """\
+pip install /home/ubuntu/proj --quiet
+"""
+
+
+# Map each virtual backend name to:
+#   (concrete_local, concrete_ci, local_prepare, ci_prepare)
+# The CI prepare for tutorial-test is empty — workflows are expected to
+# install opcli before invoking spread.
+_BACKEND_CONFIGS: dict[str, tuple[str, str, str, str]] = {
+    _VIRTUAL_BACKEND: ("local", "ci", _LOCAL_PREPARE, _CI_PREPARE),
+    _TUTORIAL_BACKEND: ("local-tutorial", "ci-tutorial", _TUTORIAL_LOCAL_PREPARE, ""),
+}
+
 
 def _is_ci() -> bool:
     """Return True when running inside CI (truthy ``CI`` env var)."""
@@ -286,25 +312,81 @@ def _inject_username(
     return result
 
 
+def _build_concrete_backend(
+    virtual: object,
+    *,
+    use_ci: bool,
+    local_prepare: str,
+    ci_prepare: str,
+) -> dict[str, object]:
+    """Return a concrete adhoc backend dict built from a virtual backend entry."""
+    backend_def: dict[str, object] = (
+        deepcopy(virtual) if isinstance(virtual, dict) else {}
+    )
+    backend_def["type"] = "adhoc"
+
+    if use_ci:
+        backend_def["allocate"] = "ADDRESS localhost"
+        if ci_prepare:
+            backend_def["prepare"] = ci_prepare
+    else:
+        backend_def["allocate"] = _LOCAL_ALLOCATE
+        backend_def["discard"] = _LOCAL_DISCARD
+        if local_prepare:
+            backend_def["prepare"] = local_prepare
+
+        systems = backend_def.get("systems")
+        if isinstance(systems, list):
+            backend_def["systems"] = _inject_username(systems, "ubuntu")
+
+    return backend_def
+
+
+def _replace_suite_backend_name(
+    data: dict[str, object],
+    virtual_name: str,
+    concrete_name: str,
+) -> None:
+    """Replace *virtual_name* with *concrete_name* in all suite ``backends:`` lists."""
+    suites = data.get("suites")
+    if not isinstance(suites, dict):
+        return
+    for suite_cfg in suites.values():
+        if isinstance(suite_cfg, dict):
+            suite_backends = suite_cfg.get("backends")
+            if isinstance(suite_backends, list):
+                suite_cfg["backends"] = [
+                    concrete_name if b == virtual_name else b for b in suite_backends
+                ]
+
+
 def _expand_backend(
     spread_data: dict[str, object],
     *,
     ci: bool | None = None,
 ) -> dict[str, object]:
-    """Replace the virtual backend with a concrete one.
+    """Replace all known virtual backends with concrete ones.
 
-    The virtual ``integration-test`` backend is removed and replaced with
-    ``local:`` (LXD VM via adhoc) or ``ci:`` (adhoc localhost).  All
-    user-defined fields in the virtual backend (``systems``, ``environment``,
-    ``prepare-each``, ``kill-timeout``, etc.) are preserved — only the
-    opcli-managed fields are overwritten.
+    Recognises ``integration-test`` and ``tutorial-test`` virtual backends.
+    Each is removed from the YAML and replaced with its concrete counterpart
+    (``local`` / ``ci`` for integration, ``local-tutorial`` / ``ci-tutorial``
+    for tutorials).  All user-defined fields (``systems``, ``environment``,
+    ``prepare-each``, ``kill-timeout``, etc.) are preserved.
+
+    Suite-level ``backends:`` lists are also updated so that any reference to
+    a virtual backend name is replaced with the corresponding concrete name.
+    This prevents suites from accidentally running on the wrong backend when
+    both virtual backends are declared in the same ``spread.yaml``.
 
     Args:
         spread_data: Parsed spread.yaml (mutated in place on a deep copy).
         ci: Force CI mode if True, local if False, auto-detect if None.
 
     Returns:
-        New dict with the backend replaced.
+        New dict with the backends replaced.
+
+    Raises:
+        ConfigurationError: If no known virtual backend is found.
     """
     data = deepcopy(spread_data)
     backends = data.get("backends")
@@ -312,37 +394,37 @@ def _expand_backend(
         msg = "spread.yaml has no 'backends' section"
         raise ConfigurationError(msg)
 
-    virtual = backends.pop(_VIRTUAL_BACKEND, None)
-    if virtual is None:
+    use_ci = ci if ci is not None else _is_ci()
+    found_any = False
+
+    for virtual_name, (
+        concrete_local,
+        concrete_ci,
+        local_prepare,
+        ci_prepare,
+    ) in _BACKEND_CONFIGS.items():
+        virtual = backends.pop(virtual_name, None)
+        if virtual is None:
+            continue
+        found_any = True
+
+        concrete_name = concrete_ci if use_ci else concrete_local
+        backends[concrete_name] = _build_concrete_backend(
+            virtual,
+            use_ci=use_ci,
+            local_prepare=local_prepare,
+            ci_prepare=ci_prepare,
+        )
+        _replace_suite_backend_name(data, virtual_name, concrete_name)
+
+    if not found_any:
+        known = ", ".join(f"'{n}'" for n in _BACKEND_CONFIGS)
         msg = (
-            f"spread.yaml has no '{_VIRTUAL_BACKEND}' virtual backend. "
+            f"spread.yaml contains no known virtual backend ({known}). "
             "Nothing to expand."
         )
         raise ConfigurationError(msg)
 
-    # Start from a copy of the virtual backend to preserve user fields.
-    backend_def: dict[str, object] = (
-        deepcopy(virtual) if isinstance(virtual, dict) else {}
-    )
-
-    use_ci = ci if ci is not None else _is_ci()
-
-    backend_def["type"] = "adhoc"
-    if use_ci:
-        backend_def["allocate"] = "ADDRESS localhost"
-        backend_def["prepare"] = _CI_PREPARE
-    else:
-        backend_def["allocate"] = _LOCAL_ALLOCATE
-        backend_def["discard"] = _LOCAL_DISCARD
-        backend_def["prepare"] = _LOCAL_PREPARE
-
-        # Inject username: ubuntu into system definitions for the local backend
-        systems = backend_def.get("systems")
-        if isinstance(systems, list):
-            backend_def["systems"] = _inject_username(systems, "ubuntu")
-
-    backend_name = "ci" if use_ci else "local"
-    backends[backend_name] = backend_def
     data["backends"] = backends
     return data
 
