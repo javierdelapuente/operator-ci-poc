@@ -267,6 +267,20 @@ class TestSpreadRun:
         # ../custom/path normalised
         assert written_yaml[0]["reroot"] == "../custom/path"
 
+    def test_non_string_reroot_raises(self, tmp_path: Path) -> None:
+        spread_with_bad_reroot = _MINIMAL_SPREAD + "reroot: 42\n"
+        _write(tmp_path / "spread.yaml", spread_with_bad_reroot)
+
+        with pytest.raises(ConfigurationError, match="must be a string"):
+            spread_run(tmp_path, ci=False)
+
+    def test_absolute_reroot_raises(self, tmp_path: Path) -> None:
+        spread_with_abs_reroot = _MINIMAL_SPREAD + "reroot: /absolute/path\n"
+        _write(tmp_path / "spread.yaml", spread_with_abs_reroot)
+
+        with pytest.raises(ConfigurationError, match="must be a relative path"):
+            spread_run(tmp_path, ci=False)
+
     def test_expand_output_has_no_reroot(self, tmp_path: Path) -> None:
         """spread_expand() for display should not include reroot."""
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
