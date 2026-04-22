@@ -81,6 +81,21 @@ def _source_relative(marker_path: Path, root: Path) -> str:
     return str(rel) if str(rel) != "." else "."
 
 
+def _snap_source_relative(marker_path: Path, root: Path) -> str:
+    """Return the snap project root relative to *root*.
+
+    Snapcraft supports ``snapcraft.yaml`` in the project root **or** under
+    a ``snap/`` subdirectory.  When the marker lives at ``*/snap/snapcraft.yaml``
+    the project root (where ``snapcraft pack`` should run) is the parent of
+    ``snap/``.
+    """
+    if marker_path.parent.name == "snap":
+        rel = marker_path.parent.parent.relative_to(root)
+    else:
+        rel = marker_path.parent.relative_to(root)
+    return str(rel) if str(rel) != "." else "."
+
+
 def _process_marker(
     path: Path,
     root: Path,
@@ -97,7 +112,8 @@ def _process_marker(
         rocks.append(RockArtifact(name=name, source=source))
     elif kind == "snap":
         name = _read_yaml_name(path)
-        snaps.append(SnapArtifact(name=name, source=source))
+        snap_source = _snap_source_relative(path, root)
+        snaps.append(SnapArtifact(name=name, source=snap_source))
     elif kind == "charm":
         name = _read_yaml_name(path)
         raw_resources = _read_charm_resources(path)
