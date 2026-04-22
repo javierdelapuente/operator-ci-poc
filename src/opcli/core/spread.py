@@ -259,10 +259,11 @@ if [ -f "$CONCIERGE" ]; then
 fi
 """
 
-# Tutorial backend: install opcli from the synced project so that
-# ``opcli tutorial expand`` is available inside the VM.
+# Tutorial backend: install pip then opcli from the GitHub repo main branch so
+# that ``opcli tutorial expand`` is available inside the VM.
 _TUTORIAL_LOCAL_PREPARE = """\
-pip install /home/ubuntu/proj --quiet
+sudo apt-get install -y python3-pip --quiet
+pip install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
 """
 
 
