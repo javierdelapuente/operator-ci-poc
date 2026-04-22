@@ -138,7 +138,7 @@ def _extract_commands_from_markdown(file_path: Path) -> list[str]:
         if lang.strip().startswith("{"):
             continue
 
-        is_excluded = any(s <= start < e2 and end <= e2 for s, e2 in excluded)
+        is_excluded = any(start < e2 and end > s for s, e2 in excluded)
         if is_excluded:
             continue
 

@@ -86,6 +86,24 @@ class TestMarkdownExtraction:
         assert "skipped command" not in result
         assert "after skip" in result
 
+    def test_spread_skip_overlap_excluded(self, tmp_path: Path) -> None:
+        """A code block that overlaps a SPREAD SKIP range is excluded.
+
+        This covers the case where the code block starts inside the skip
+        region — regardless of whether it ends inside or outside.
+        """
+        # The code block starts inside the SPREAD SKIP region.
+        # The overlap detection (start < e and end > s) must catch it.
+        doc = tmp_path / "tutorial.md"
+        _write(
+            doc,
+            "<!-- SPREAD SKIP -->\n"
+            "```\noverlapping block\n```\n"
+            "<!-- SPREAD SKIP END -->\n",
+        )
+        result = expand_tutorial(doc)
+        assert "overlapping block" not in result
+
     def test_four_backtick_fence_excluded(self, tmp_path: Path) -> None:
         doc = tmp_path / "tutorial.md"
         _write(
