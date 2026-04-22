@@ -19,7 +19,7 @@ def init(
         False, "--force", help="Overwrite existing spread.yaml and task.yaml."
     ),
 ) -> None:
-    """Generate spread.yaml and tests/run/task.yaml."""
+    """Generate spread.yaml and tests/integration/run/task.yaml."""
     spread_path, task_path = spread_init(Path.cwd(), force=force)
     typer.echo(f"Wrote {spread_path}")
     typer.echo(f"Wrote {task_path}")

@@ -50,7 +50,7 @@ exclude:
   - .git
 
 suites:
-  tests/:
+  tests/integration/:
     summary: integration tests
     environment:
       MODULE/test_basic: test_basic
@@ -75,7 +75,7 @@ class TestSpreadLxdLocal:
         spread_path = tmp_path / "spread.yaml"  # type: ignore[operator]
         spread_path.write_text(_SPREAD_YAML)
 
-        task_dir = tmp_path / "tests" / "run"  # type: ignore[operator]
+        task_dir = tmp_path / "tests" / "integration" / "run"  # type: ignore[operator]
         task_dir.mkdir(parents=True)
         (task_dir / "task.yaml").write_text(_TASK_YAML)
 
@@ -87,7 +87,7 @@ class TestSpreadLxdLocal:
         spread_path = tmp_path / "spread.yaml"  # type: ignore[operator]
         spread_path.write_text(_SPREAD_YAML)
 
-        task_dir = tmp_path / "tests" / "run"  # type: ignore[operator]
+        task_dir = tmp_path / "tests" / "integration" / "run"  # type: ignore[operator]
         task_dir.mkdir(parents=True)
         (task_dir / "task.yaml").write_text(_TASK_YAML)
 

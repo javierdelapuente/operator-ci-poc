@@ -1,7 +1,7 @@
 """Core logic for ``opcli spread init``, ``expand``, and ``run``.
 
 ``init`` discovers integration test modules and generates ``spread.yaml``
-plus ``tests/run/task.yaml``.
+plus ``tests/integration/run/task.yaml``.
 
 ``expand`` reads ``spread.yaml``, replaces the virtual ``integration-test``
 backend with a concrete ``local:`` or ``ci:`` backend, and returns the
@@ -35,7 +35,7 @@ _yaml = YAML()
 _yaml.default_flow_style = False
 
 _SPREAD_YAML = "spread.yaml"
-_TASK_YAML_REL = "tests/run/task.yaml"
+_TASK_YAML_REL = "tests/integration/run/task.yaml"
 _VIRTUAL_BACKEND = "integration-test"
 
 
@@ -89,7 +89,7 @@ def _generate_spread_yaml(
         "environment": root_env,
         "exclude": [".git", ".tox", ".venv", ".*_cache"],
         "suites": {
-            "tests/": {
+            "tests/integration/": {
                 "summary": "integration tests",
                 "environment": suite_env,
             },
@@ -109,7 +109,7 @@ execute: |
 
 
 def spread_init(root: Path, *, force: bool = False) -> tuple[Path, Path]:
-    """Generate ``spread.yaml`` and ``tests/run/task.yaml``.
+    """Generate ``spread.yaml`` and ``tests/integration/run/task.yaml``.
 
     Returns:
         Tuple of (spread.yaml path, task.yaml path).

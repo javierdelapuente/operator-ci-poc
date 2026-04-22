@@ -30,7 +30,7 @@ backends:
 environment:
   CONCIERGE: concierge.yaml
 suites:
-  tests/:
+  tests/integration/:
     summary: integration tests
     environment:
       MODULE/test_charm: test_charm
@@ -45,7 +45,7 @@ class TestSpreadInit:
 
         assert spread_path.exists()
         assert task_path.exists()
-        assert task_path == tmp_path / "tests" / "run" / "task.yaml"
+        assert task_path == tmp_path / "tests" / "integration" / "run" / "task.yaml"
 
         content = spread_path.read_text()
         assert "integration-test" in content
@@ -59,7 +59,7 @@ class TestSpreadInit:
         parsed = _yaml.load(StringIO(spread_path.read_text()))
         assert parsed["path"] == "/home/ubuntu/proj"
         assert parsed["kill-timeout"] == "60m"
-        assert "summary" in parsed["suites"]["tests/"]
+        assert "summary" in parsed["suites"]["tests/integration/"]
 
     def test_generates_exclude_list(self, tmp_path: Path) -> None:
         spread_path, _ = spread_init(tmp_path)
@@ -93,7 +93,7 @@ class TestSpreadInit:
         spread_path, _ = spread_init(tmp_path)
 
         parsed = _yaml.load(StringIO(spread_path.read_text()))
-        suite_env = parsed["suites"]["tests/"]["environment"]
+        suite_env = parsed["suites"]["tests/integration/"]["environment"]
         assert suite_env["MODULE/test_charm"] == "test_charm"
         assert suite_env["MODULE/test_actions"] == "test_actions"
         # Also not in root environment
@@ -109,7 +109,7 @@ class TestSpreadInit:
         spread_path, _ = spread_init(tmp_path)
 
         parsed = _yaml.load(StringIO(spread_path.read_text()))
-        suite_env = parsed["suites"]["tests/"]["environment"]
+        suite_env = parsed["suites"]["tests/integration/"]["environment"]
         assert "MODULE/test_charm" in suite_env
         assert "MODULE/test_actions" in suite_env
         assert not any("conftest" in k for k in suite_env)
@@ -122,7 +122,7 @@ class TestSpreadInit:
 
     def test_overwrites_with_force(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", "old\n")
-        _write(tmp_path / "tests" / "run" / "task.yaml", "old\n")
+        _write(tmp_path / "tests" / "integration" / "run" / "task.yaml", "old\n")
 
         spread_path, task_path = spread_init(tmp_path, force=True)
         assert "integration-test" in spread_path.read_text()
@@ -209,10 +209,9 @@ backends:
 environment:
   MODULE/test_charm: test_charm
 suites:
-  tests/: {}
+  tests/integration/: {}
 """
         _write(tmp_path / "spread.yaml", spread_with_extras)
-
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
         local = parsed["backends"]["local"]
@@ -322,7 +321,7 @@ backends:
 environment:
   MODULE/test_charm: test_charm
 suites:
-  tests/:
+  tests/integration/:
     summary: integration tests
 """
         _write(tmp_path / "spread.yaml", spread_with_mapping)
@@ -351,7 +350,7 @@ backends:
 environment:
   MODULE/test_charm: test_charm
 suites:
-  tests/:
+  tests/integration/:
     summary: integration tests
 """
         _write(tmp_path / "spread.yaml", spread_with_user)
@@ -415,19 +414,16 @@ class TestSpreadRun:
     def test_extra_args_forwarded(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
+        _SELECTOR = "local:ubuntu-24.04:tests/integration/run:test_charm"
         with patch("opcli.core.spread.run_command") as mock_run:
             spread_run(
                 tmp_path,
-                extra_args=["-v", "local:ubuntu-24.04:tests/run:test_charm"],
+                extra_args=["-v", _SELECTOR],
                 ci=False,
             )
 
         cmd = mock_run.call_args[0][0]
-        assert cmd == [
-            "spread",
-            "-v",
-            "local:ubuntu-24.04:tests/run:test_charm",
-        ]
+        assert cmd == ["spread", "-v", _SELECTOR]
 
     def test_temp_dir_cleaned_up_on_success(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
