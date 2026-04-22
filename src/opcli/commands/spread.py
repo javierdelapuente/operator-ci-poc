@@ -1,6 +1,10 @@
 """CLI commands for spread-based test execution."""
 
+from pathlib import Path
+
 import typer
+
+from opcli.core.spread import spread_expand, spread_init, spread_run
 
 app = typer.Typer(
     help="Generate, expand, and run spread-based integration tests.",
@@ -12,11 +16,13 @@ app = typer.Typer(
 def init(
     *,
     force: bool = typer.Option(
-        False, "--force", help="Overwrite existing spread.yaml."
+        False, "--force", help="Overwrite existing spread.yaml and task.yaml."
     ),
 ) -> None:
     """Generate spread.yaml and tests/run/task.yaml."""
-    raise NotImplementedError("Implement in core/spread.py")
+    spread_path, task_path = spread_init(Path.cwd(), force=force)
+    typer.echo(f"Wrote {spread_path}")
+    typer.echo(f"Wrote {task_path}")
 
 
 @app.command(
@@ -30,11 +36,11 @@ def run(ctx: typer.Context) -> None:
 
     Extra args after -- are forwarded to spread.
     """
-    _extra_args = ctx.args
-    raise NotImplementedError("Implement in core/spread.py")
+    spread_run(Path.cwd(), extra_args=ctx.args or None)
 
 
 @app.command()
 def expand() -> None:
     """Print the fully expanded spread.yaml to stdout."""
-    raise NotImplementedError("Implement in core/spread.py — expand logic")
+    content = spread_expand(Path.cwd())
+    typer.echo(content, nl=False)
