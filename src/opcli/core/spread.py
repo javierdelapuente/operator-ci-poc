@@ -7,17 +7,22 @@ plus ``tests/run/task.yaml``.
 backend with a concrete ``local:`` or ``ci:`` backend, and returns the
 expanded YAML.  The original file is **never** modified.
 
-``run`` expands to a temporary file and invokes ``spread`` as a subprocess.
+``run`` creates a temporary directory inside the project root containing
+the expanded ``spread.yaml`` with ``reroot: ..`` and runs ``spread`` from
+that directory.  Spread discovers ``spread.yaml`` in the temp dir and
+uses ``reroot`` to locate the actual project tree one level up.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import posixpath
 import tempfile
 from copy import deepcopy
 from io import StringIO
 from pathlib import Path
+from typing import Any
 
 from ruamel.yaml import YAML
 
@@ -196,15 +201,14 @@ def _expand_backend(
     return data
 
 
-def spread_expand(
-    root: Path,
-    *,
-    ci: bool | None = None,
-) -> str:
-    """Read ``spread.yaml`` and return the expanded content as a string.
+def _load_spread_yaml(root: Path) -> dict[str, Any]:
+    """Load and validate ``spread.yaml`` from *root*.
+
+    Returns:
+        Parsed YAML mapping.
 
     Raises:
-        ConfigurationError: If ``spread.yaml`` is missing or malformed.
+        ConfigurationError: If the file is missing or not a YAML mapping.
     """
     spread_path = root / _SPREAD_YAML
     if not spread_path.exists():
@@ -218,7 +222,42 @@ def spread_expand(
         msg = f"{_SPREAD_YAML} does not contain a YAML mapping"
         raise ConfigurationError(msg)
 
-    expanded = _expand_backend(data, ci=ci)
+    return data
+
+
+def _expand(root: Path, *, ci: bool | None = None) -> dict[str, Any]:
+    """Load ``spread.yaml``, expand its virtual backend, return the dict."""
+    data = _load_spread_yaml(root)
+    return _expand_backend(data, ci=ci)
+
+
+def _compose_reroot(existing_reroot: str | None) -> str:
+    """Return a ``reroot`` value that accounts for the temp sub-directory.
+
+    The expanded ``spread.yaml`` lives one directory below the project root,
+    so we need ``..`` to point back.  If the user already specified a
+    ``reroot`` in their original ``spread.yaml``, we compose ``../`` with
+    that existing value (normalised).
+    """
+    if existing_reroot:
+        return posixpath.normpath(posixpath.join("..", existing_reroot))
+    return ".."
+
+
+def spread_expand(
+    root: Path,
+    *,
+    ci: bool | None = None,
+) -> str:
+    """Read ``spread.yaml`` and return the expanded content as a string.
+
+    The output is for display / debugging; it does **not** include the
+    ``reroot`` field that ``spread_run`` injects.
+
+    Raises:
+        ConfigurationError: If ``spread.yaml`` is missing or malformed.
+    """
+    expanded = _expand(root, ci=ci)
     buf = StringIO()
     _yaml.dump(expanded, buf)
     return buf.getvalue()
@@ -237,28 +276,28 @@ def spread_run(
 ) -> None:
     """Expand ``spread.yaml`` and run ``spread``.
 
-    The expanded file is written to a temporary location — the original
-    ``spread.yaml`` is never modified.
+    A temporary directory is created **inside** *root* containing the
+    expanded ``spread.yaml`` with ``reroot: ..`` so that ``spread``
+    discovers the config in the temp dir and resolves the project tree
+    from the parent.  The original ``spread.yaml`` is never modified.
 
     Raises:
         ConfigurationError: If ``spread.yaml`` is missing or malformed.
         SubprocessError: If spread exits non-zero.
     """
-    expanded_content = spread_expand(root, ci=ci)
+    expanded = _expand(root, ci=ci)
+    expanded["reroot"] = _compose_reroot(expanded.get("reroot"))
 
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".yaml",
-        prefix="spread-expanded-",
-        delete=False,
-    ) as tmp:
-        tmp.write(expanded_content)
-        tmp_path = tmp.name
+    with tempfile.TemporaryDirectory(
+        prefix=".opcli-spread-",
+        dir=root,
+    ) as temp_dir:
+        temp_dir_path = Path(temp_dir)
+        spread_file = temp_dir_path / _SPREAD_YAML
+        with spread_file.open("w") as fh:
+            _yaml.dump(expanded, fh)
 
-    try:
-        cmd = ["spread", f"-spread={tmp_path}"]
+        cmd = ["spread"]
         if extra_args:
             cmd.extend(extra_args)
-        run_command(cmd, cwd=str(root))
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
+        run_command(cmd, cwd=str(temp_dir_path))
