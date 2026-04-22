@@ -1,0 +1,171 @@
+"""Tests for artifact discovery and YAML I/O."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from opcli.core.discovery import discover_artifacts
+from opcli.core.exceptions import DiscoveryError
+from opcli.core.yaml_io import (
+    dump_artifacts_generated,
+    dump_artifacts_plan,
+    load_artifacts_generated,
+    load_artifacts_plan,
+)
+from opcli.models.artifacts import ArtifactsPlan
+from opcli.models.artifacts_generated import (
+    ArtifactOutput,
+    ArtifactsGenerated,
+    GeneratedRock,
+)
+
+
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+
+
+class TestDiscovery:
+    """Tests for discover_artifacts()."""
+
+    def test_empty_repo(self, tmp_path: Path) -> None:
+        plan = discover_artifacts(tmp_path)
+        assert plan.rocks == []
+        assert plan.charms == []
+        assert plan.snaps == []
+
+    def test_single_charm(self, tmp_path: Path) -> None:
+        _write(tmp_path / "charmcraft.yaml", "name: mycharm\ntype: charm\n")
+        plan = discover_artifacts(tmp_path)
+        assert len(plan.charms) == 1
+        assert plan.charms[0].name == "mycharm"
+        assert plan.charms[0].source == "."
+
+    def test_single_rock(self, tmp_path: Path) -> None:
+        _write(tmp_path / "myrock" / "rockcraft.yaml", "name: myrock\n")
+        plan = discover_artifacts(tmp_path)
+        assert len(plan.rocks) == 1
+        assert plan.rocks[0].name == "myrock"
+        assert plan.rocks[0].source == "myrock"
+
+    def test_single_snap(self, tmp_path: Path) -> None:
+        _write(tmp_path / "snap_dir" / "snapcraft.yaml", "name: mysnap\n")
+        plan = discover_artifacts(tmp_path)
+        assert len(plan.snaps) == 1
+        assert plan.snaps[0].name == "mysnap"
+        assert plan.snaps[0].source == "snap_dir"
+
+    def test_monorepo(self, tmp_path: Path) -> None:
+        _write(tmp_path / "charmcraft.yaml", "name: main-charm\ntype: charm\n")
+        _write(tmp_path / "rock_a" / "rockcraft.yaml", "name: rock-a\n")
+        _write(tmp_path / "rock_b" / "rockcraft.yaml", "name: rock-b\n")
+        _write(tmp_path / "snap_c" / "snapcraft.yaml", "name: snap-c\n")
+        plan = discover_artifacts(tmp_path)
+        assert len(plan.rocks) == 2  # noqa: PLR2004
+        assert len(plan.charms) == 1
+        assert len(plan.snaps) == 1
+
+    def test_deep_nested_artifact(self, tmp_path: Path) -> None:
+        _write(tmp_path / "a" / "b" / "c" / "rockcraft.yaml", "name: deep-rock\n")
+        plan = discover_artifacts(tmp_path)
+        assert len(plan.rocks) == 1
+        assert plan.rocks[0].source == "a/b/c"
+
+    def test_pruned_directories_skipped(self, tmp_path: Path) -> None:
+        _write(tmp_path / ".venv" / "rockcraft.yaml", "name: venv-rock\n")
+        _write(tmp_path / ".git" / "rockcraft.yaml", "name: git-rock\n")
+        _write(tmp_path / ".tox" / "rockcraft.yaml", "name: tox-rock\n")
+        plan = discover_artifacts(tmp_path)
+        assert plan.rocks == []
+
+    def test_charm_with_oci_resource_auto_links_rock(self, tmp_path: Path) -> None:
+        _write(tmp_path / "rock_dir" / "rockcraft.yaml", "name: myrock\n")
+        _write(
+            tmp_path / "charmcraft.yaml",
+            "name: mycharm\ntype: charm\nresources:\n  myrock:\n    type: oci-image\n",
+        )
+        plan = discover_artifacts(tmp_path)
+        assert plan.charms[0].resources["myrock"].rock == "myrock"
+
+    def test_charm_resource_no_match_leaves_rock_none(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "charmcraft.yaml",
+            "name: mycharm\ntype: charm\n"
+            "resources:\n"
+            "  unknown-img:\n"
+            "    type: oci-image\n",
+        )
+        plan = discover_artifacts(tmp_path)
+        assert plan.charms[0].resources["unknown-img"].rock is None
+
+    def test_malformed_yaml_raises(self, tmp_path: Path) -> None:
+        _write(tmp_path / "charmcraft.yaml", "- just a list\n")
+        with pytest.raises(DiscoveryError, match="not contain a YAML mapping"):
+            discover_artifacts(tmp_path)
+
+    def test_missing_name_raises(self, tmp_path: Path) -> None:
+        _write(tmp_path / "rockcraft.yaml", "version: 1\n")
+        with pytest.raises(DiscoveryError, match="missing a valid 'name'"):
+            discover_artifacts(tmp_path)
+
+
+class TestYamlIO:
+    """Tests for YAML round-trip helpers."""
+
+    def test_artifacts_plan_round_trip(self, tmp_path: Path) -> None:
+        plan = ArtifactsPlan.model_validate(
+            {
+                "version": 1,
+                "rocks": [{"name": "r1", "source": "rd"}],
+                "charms": [{"name": "c1", "source": "."}],
+            }
+        )
+        path = tmp_path / "artifacts.yaml"
+        dump_artifacts_plan(plan, path)
+        loaded = load_artifacts_plan(path)
+        assert loaded == plan
+
+    def test_artifacts_generated_round_trip(self, tmp_path: Path) -> None:
+        gen = ArtifactsGenerated(
+            rocks=[
+                GeneratedRock(
+                    name="r1",
+                    source="rd",
+                    output=ArtifactOutput(file="./r1.rock"),
+                )
+            ],
+        )
+        path = tmp_path / "artifacts-generated.yaml"
+        dump_artifacts_generated(gen, path)
+        loaded = load_artifacts_generated(path)
+        assert loaded == gen
+
+    def test_run_id_alias_survives_round_trip(self, tmp_path: Path) -> None:
+        gen = ArtifactsGenerated(
+            rocks=[
+                GeneratedRock(
+                    name="r1",
+                    source="rd",
+                    output=ArtifactOutput(artifact="a1", run_id="42"),
+                )
+            ],
+        )
+        path = tmp_path / "gen.yaml"
+        dump_artifacts_generated(gen, path)
+        raw = path.read_text()
+        assert "run-id" in raw
+        loaded = load_artifacts_generated(path)
+        assert loaded.rocks[0].output.run_id == "42"
+
+    def test_load_invalid_yaml_raises(self, tmp_path: Path) -> None:
+        path = tmp_path / "bad.yaml"
+        path.write_text("- just a list\n")
+        with pytest.raises(ValueError, match="YAML mapping"):
+            load_artifacts_plan(path)
+
+    def test_dump_creates_parent_dirs(self, tmp_path: Path) -> None:
+        path = tmp_path / "sub" / "dir" / "artifacts.yaml"
+        dump_artifacts_plan(ArtifactsPlan(), path)
+        assert path.exists()
