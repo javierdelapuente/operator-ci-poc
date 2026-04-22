@@ -130,16 +130,92 @@ def spread_init(root: Path, *, force: bool = False) -> tuple[Path, Path]:
 #  spread expand
 # ---------------------------------------------------------------------------
 
+# -- Inline shell scripts for adhoc backends --------------------------------
+#
+# Spread prepends ``set -eu`` and defines helper functions (``ADDRESS``,
+# ``FATAL``, ``ERROR``) in every script it runs.  Scripts must call
+# ``ADDRESS <ip>`` to tell spread where to SSH.
+#
+# The local allocate script mirrors craft-application's .extension but is
+# fully self-contained (no external script file).
+
+_LOCAL_ALLOCATE = """\
+DISTRO=$(echo "$SPREAD_SYSTEM" | cut -d- -f1)
+SERIES=$(echo "$SPREAD_SYSTEM" | cut -d- -f2)
+VM_NAME="spread-${DISTRO}-${SERIES}-$$-${RANDOM}"
+VM_NAME=$(echo "$VM_NAME" | tr . -)
+
+DISK="${DISK:-20}"
+CPU="${CPU:-4}"
+MEM="${MEM:-8}"
+
+CLOUD_CONFIG=$(mktemp)
+cat > "$CLOUD_CONFIG" <<ENDCLOUD
+#cloud-config
+ssh_pwauth: true
+disable_root: false
+ENDCLOUD
+
+CLEANUP_VM=true
+cleanup() {
+  rm -f "$CLOUD_CONFIG" 2>/dev/null || true
+  if [ "$CLEANUP_VM" = true ] && [ -n "${VM_NAME:-}" ]; then
+    lxc delete --force "${VM_NAME}" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+lxc launch --vm \\
+  "${DISTRO}:${SERIES}" \\
+  "${VM_NAME}" \\
+  --config "user.user-data=$(cat "$CLOUD_CONFIG")" \\
+  --config "limits.cpu=${CPU}" \\
+  --config "limits.memory=${MEM}GiB" \\
+  --device "root,size=${DISK}GiB" >&2
+
+# Wait for LXD agent to be ready inside the VM
+while ! lxc exec "${VM_NAME}" -- true &>/dev/null; do sleep 0.5; done
+
+# Wait for cloud-init and snap seeding
+lxc exec "${VM_NAME}" -- cloud-init status --wait >&2
+lxc exec "${VM_NAME}" -- snap wait system seed.loaded >&2
+
+# Configure SSH root access (mirrors spread's native LXD tuneSSH)
+lxc exec "${VM_NAME}" -- sed -i \\
+  's/^\\s*#\\?\\s*\\(PermitRootLogin\\|PasswordAuthentication\\)\\>.*/\\1 yes/' \\
+  /etc/ssh/sshd_config
+lxc exec "${VM_NAME}" -- bash -c \\
+  'if [ -d /etc/ssh/sshd_config.d ]; then
+     printf "PermitRootLogin yes\\nPasswordAuthentication yes\\n" \\
+       > /etc/ssh/sshd_config.d/00-spread.conf
+   fi'
+lxc exec "${VM_NAME}" -- bash -c "echo root:${SPREAD_PASSWORD} | chpasswd"
+lxc exec "${VM_NAME}" -- killall -HUP sshd 2>/dev/null || true
+
+# Get and report the VM's IPv4 address
+while true; do
+  ADDR=$(lxc ls --format csv --columns 4 "name=${VM_NAME}" | head -1)
+  if [ -n "$ADDR" ]; then
+    CLEANUP_VM=false
+    ADDRESS "$ADDR"
+    break
+  fi
+  sleep 0.5
+done
+"""
+
+_LOCAL_DISCARD = """\
+instance_name=$(lxc ls --format csv --columns n4 \\
+  "ipv4=$SPREAD_SYSTEM_ADDRESS" | cut -f1 -d',' | head -n 1)
+lxc delete --force "$instance_name"
+"""
+
 _LOCAL_PREPARE = """\
-#!/bin/bash
-set -eu
 sudo concierge prepare -c "$CONCIERGE"
 opcli provision load
 """
 
 _CI_PREPARE = """\
-#!/bin/bash
-set -eu
 sudo concierge prepare -c "$CONCIERGE"
 """
 
@@ -155,6 +231,12 @@ def _expand_backend(
     ci: bool | None = None,
 ) -> dict[str, object]:
     """Replace the virtual backend with a concrete one.
+
+    The virtual ``integration-test`` backend is removed and replaced with
+    ``local:`` (LXD VM via adhoc) or ``ci:`` (adhoc localhost).  All
+    user-defined fields in the virtual backend (``systems``, ``environment``,
+    ``prepare-each``, ``kill-timeout``, etc.) are preserved — only the
+    opcli-managed fields are overwritten.
 
     Args:
         spread_data: Parsed spread.yaml (mutated in place on a deep copy).
@@ -177,23 +259,21 @@ def _expand_backend(
         )
         raise ConfigurationError(msg)
 
+    # Start from a copy of the virtual backend to preserve user fields.
+    backend_def: dict[str, object] = (
+        deepcopy(virtual) if isinstance(virtual, dict) else {}
+    )
+
     use_ci = ci if ci is not None else _is_ci()
 
+    backend_def["type"] = "adhoc"
     if use_ci:
-        backend_def: dict[str, object] = {
-            "type": "adhoc",
-            "allocate": "ADDRESS localhost",
-            "prepare": _CI_PREPARE,
-        }
+        backend_def["allocate"] = "ADDRESS localhost"
+        backend_def["prepare"] = _CI_PREPARE
     else:
-        backend_def = {
-            "prepare": _LOCAL_PREPARE,
-        }
-
-    if isinstance(virtual, dict):
-        systems = virtual.get("systems")
-        if systems:
-            backend_def["systems"] = systems
+        backend_def["allocate"] = _LOCAL_ALLOCATE
+        backend_def["discard"] = _LOCAL_DISCARD
+        backend_def["prepare"] = _LOCAL_PREPARE
 
     backend_name = "ci" if use_ci else "local"
     backends[backend_name] = backend_def

@@ -94,20 +94,31 @@ class TestSpreadExpand:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
 
-        assert "local:" in result or "local" in result
         assert "integration-test" not in result
-        assert "concierge" in result
+        local = parsed["backends"]["local"]
+        assert local["type"] == "adhoc"
+        assert "lxc launch --vm" in local["allocate"]
+        assert "SPREAD_PASSWORD" in local["allocate"]
+        assert "lxc delete --force" in local["discard"]
+        assert "concierge" in local["prepare"]
+        assert "opcli provision load" in local["prepare"]
+        assert local["systems"] == ["ubuntu-24.04"]
 
     def test_expand_ci(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         result = spread_expand(tmp_path, ci=True)
+        parsed = _yaml.load(StringIO(result))
 
-        assert "ci:" in result or "ci" in result
         assert "integration-test" not in result
-        assert "adhoc" in result
-        assert "localhost" in result
+        ci = parsed["backends"]["ci"]
+        assert ci["type"] == "adhoc"
+        assert ci["allocate"] == "ADDRESS localhost"
+        assert "concierge" in ci["prepare"]
+        assert "discard" not in ci
+        assert ci["systems"] == ["ubuntu-24.04"]
 
     def test_preserves_other_sections(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
@@ -125,7 +136,62 @@ class TestSpreadExpand:
 
         assert "ubuntu-24.04" in result
 
-    def test_no_virtual_backend_raises(self, tmp_path: Path) -> None:
+    def test_preserves_user_defined_backend_fields(self, tmp_path: Path) -> None:
+        """User fields in the virtual backend survive expansion."""
+        spread_with_extras = """\
+project: test-project
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04
+    environment:
+      EXTRA_VAR: hello
+    prepare-each: |
+      echo extra setup
+    kill-timeout: 30m
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/: {}
+"""
+        _write(tmp_path / "spread.yaml", spread_with_extras)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        local = parsed["backends"]["local"]
+
+        assert local["environment"] == {"EXTRA_VAR": "hello"}
+        assert "extra setup" in local["prepare-each"]
+        assert local["kill-timeout"] == "30m"
+        assert local["systems"] == ["ubuntu-24.04"]
+        # opcli fields are set
+        assert local["type"] == "adhoc"
+        assert "lxc launch --vm" in local["allocate"]
+
+    def test_local_allocate_has_cleanup_trap(self, tmp_path: Path) -> None:
+        """The local allocate script must clean up the VM on failure."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        allocate = parsed["backends"]["local"]["allocate"]
+
+        assert "CLEANUP_VM=true" in allocate
+        assert "trap cleanup EXIT" in allocate
+        assert "CLEANUP_VM=false" in allocate
+
+    def test_local_allocate_waits_for_agent(self, tmp_path: Path) -> None:
+        """The local allocate script waits for LXD agent before cloud-init."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        allocate = parsed["backends"]["local"]["allocate"]
+
+        # Agent readiness must come before cloud-init
+        agent_pos = allocate.index('lxc exec "${VM_NAME}" -- true')
+        cloudinit_pos = allocate.index("cloud-init status --wait")
+        assert agent_pos < cloudinit_pos
         _write(
             tmp_path / "spread.yaml",
             "project: x\nbackends:\n  lxd:\n    systems: []\n",
@@ -138,11 +204,15 @@ class TestSpreadExpand:
 
         with patch.dict("os.environ", {"CI": "true"}):
             result = spread_expand(tmp_path)
-        assert "adhoc" in result
+        parsed = _yaml.load(StringIO(result))
+        assert "ci" in parsed["backends"]
+        assert parsed["backends"]["ci"]["allocate"] == "ADDRESS localhost"
 
         with patch.dict("os.environ", {"CI": ""}, clear=False):
             result = spread_expand(tmp_path)
-        assert "adhoc" not in result
+        parsed = _yaml.load(StringIO(result))
+        assert "local" in parsed["backends"]
+        assert "lxc launch --vm" in parsed["backends"]["local"]["allocate"]
 
     def test_expanded_is_valid_yaml(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
