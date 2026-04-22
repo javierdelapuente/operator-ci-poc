@@ -59,6 +59,24 @@ def _generate_spread_yaml(
 ) -> str:
     """Build the default ``spread.yaml`` content."""
     buf = StringIO()
+
+    # Root environment: project-wide vars (CONCIERGE, standard vars)
+    root_env: dict[str, str] = {
+        "SUDO_USER": "",
+        "SUDO_UID": "",
+        "LANG": "C.UTF-8",
+        "LANGUAGE": "en",
+        "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
+    }
+
+    # Suite environment: MODULE variants (scoped to this suite)
+    suite_env: dict[str, str] = {}
+    if modules:
+        for mod in modules:
+            suite_env[f"MODULE/{mod}"] = mod
+    else:
+        suite_env["MODULE/tests"] = "tests"
+
     data: dict[str, object] = {
         "project": project_name,
         "path": "/home/ubuntu/proj",
@@ -68,27 +86,13 @@ def _generate_spread_yaml(
                 "systems": ["ubuntu-24.04"],
             },
         },
-    }
-
-    env: dict[str, str] = {
-        "SUDO_USER": "",
-        "SUDO_UID": "",
-        "LANG": "C.UTF-8",
-        "LANGUAGE": "en",
-        "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
-    }
-    if modules:
-        for mod in modules:
-            env[f"MODULE/{mod}"] = mod
-    else:
-        env["MODULE/tests"] = "tests"
-    data["environment"] = env
-
-    data["exclude"] = [".git", ".tox", ".venv", ".*_cache"]
-
-    data["suites"] = {
-        "tests/": {
-            "summary": "integration tests",
+        "environment": root_env,
+        "exclude": [".git", ".tox", ".venv", ".*_cache"],
+        "suites": {
+            "tests/": {
+                "summary": "integration tests",
+                "environment": suite_env,
+            },
         },
     }
 

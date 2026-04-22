@@ -45,7 +45,6 @@ backends:
 
 environment:
   CONCIERGE: concierge.yaml
-  MODULE/test_basic: test_basic
 
 exclude:
   - .git
@@ -53,6 +52,8 @@ exclude:
 suites:
   tests/:
     summary: integration tests
+    environment:
+      MODULE/test_basic: test_basic
 """
 
 _TASK_YAML = """\
