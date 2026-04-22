@@ -1,6 +1,10 @@
 """CLI commands for artifact discovery and building."""
 
+from pathlib import Path
+
 import typer
+
+from opcli.core.artifacts import artifacts_build, artifacts_init
 
 app = typer.Typer(
     help="Discover and build charms, rocks, and snaps.",
@@ -16,7 +20,8 @@ def init(
     ),
 ) -> None:
     """Discover artifacts and generate artifacts.yaml."""
-    raise NotImplementedError("Implement in core/artifacts.py")
+    path = artifacts_init(Path.cwd(), force=force)
+    typer.echo(f"Wrote {path}")
 
 
 @app.command()
@@ -28,6 +33,15 @@ def build(
     rock: list[str] = typer.Option(
         [], "--rock", help="Build only this rock. Repeatable."
     ),
+    snap: list[str] = typer.Option(
+        [], "--snap", help="Build only this snap. Repeatable."
+    ),
 ) -> None:
     """Build artifacts and produce artifacts-generated.yaml."""
-    raise NotImplementedError("Implement in core/artifacts.py")
+    path = artifacts_build(
+        Path.cwd(),
+        charm_names=charm or None,
+        rock_names=rock or None,
+        snap_names=snap or None,
+    )
+    typer.echo(f"Wrote {path}")
