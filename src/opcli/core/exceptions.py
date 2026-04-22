@@ -4,6 +4,8 @@ All user-facing errors inherit from OpcliError so that CLI commands can
 catch a single base type and produce friendly output.
 """
 
+import shlex
+
 
 class OpcliError(Exception):
     """Base exception for all opcli errors."""
@@ -16,7 +18,9 @@ class SubprocessError(OpcliError):
         self.cmd = cmd
         self.returncode = returncode
         self.stderr = stderr
-        super().__init__(f"Command {cmd} failed with exit code {returncode}:\n{stderr}")
+        super().__init__(
+            f"Command {shlex.join(cmd)} failed with exit code {returncode}:\n{stderr}"
+        )
 
 
 class ValidationError(OpcliError):

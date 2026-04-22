@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from opcli.core.exceptions import SubprocessError
 
-_DEFAULT_TIMEOUT_SECONDS = 600
+_DEFAULT_TIMEOUT_SECONDS = 3600
 
 
 @dataclass(frozen=True)
@@ -54,10 +54,17 @@ def run_command(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
+        partial_err = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
         raise SubprocessError(
             cmd=cmd,
             returncode=-1,
-            stderr=f"Command timed out after {timeout}s",
+            stderr=f"Command timed out after {timeout}s\n{partial_err}".strip(),
+        ) from exc
+    except OSError as exc:
+        raise SubprocessError(
+            cmd=cmd,
+            returncode=127 if isinstance(exc, FileNotFoundError) else -1,
+            stderr=str(exc),
         ) from exc
 
     result = SubprocessResult(

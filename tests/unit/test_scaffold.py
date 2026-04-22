@@ -1,5 +1,6 @@
 """Smoke tests for the opcli scaffold."""
 
+import subprocess as sp
 from unittest.mock import patch
 
 import pytest
@@ -46,6 +47,10 @@ class TestCLIEntryPoint:
 
 class TestExceptionHierarchy:
     """Verify exception types are catchable as OpcliError."""
+
+    def test_subprocess_error_formats_with_shlex(self) -> None:
+        err = SubprocessError(cmd=["echo", "hello world"], returncode=1, stderr="fail")
+        assert "echo 'hello world'" in str(err)
 
     def test_subprocess_error_is_opcli_error(self) -> None:
         err = SubprocessError(cmd=["false"], returncode=1, stderr="fail")
@@ -100,3 +105,20 @@ class TestSubprocessWrapper:
 
             result = run_command(["cmd"], check=False)
             assert result.returncode == 1
+
+    def test_run_command_file_not_found(self) -> None:
+        with patch("opcli.core.subprocess.subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("No such file")
+
+            with pytest.raises(SubprocessError) as exc_info:
+                run_command(["nonexistent-binary"])
+
+            assert exc_info.value.returncode == 127  # noqa: PLR2004
+            assert "No such file" in exc_info.value.stderr
+
+    def test_run_command_timeout(self) -> None:
+        with patch("opcli.core.subprocess.subprocess.run") as mock_run:
+            mock_run.side_effect = sp.TimeoutExpired(cmd=["slow"], timeout=5)
+
+            with pytest.raises(SubprocessError, match="timed out"):
+                run_command(["slow"], timeout=5)
