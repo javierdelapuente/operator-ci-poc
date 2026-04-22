@@ -28,10 +28,12 @@ backends:
     systems:
       - ubuntu-24.04
 environment:
-  MODULE/test_charm: test_charm
+  CONCIERGE: concierge.yaml
 suites:
   tests/:
     summary: integration tests
+    environment:
+      MODULE/test_charm: test_charm
 """
 
 
@@ -79,6 +81,23 @@ class TestSpreadInit:
         assert env["LANG"] == "C.UTF-8"
         assert env["LANGUAGE"] == "en"
         assert "CONCIERGE" in env
+        # MODULE variants belong in the suite, not the root environment
+        assert not any(k.startswith("MODULE") for k in env)
+
+    def test_module_vars_in_suite_environment(self, tmp_path: Path) -> None:
+        test_dir = tmp_path / "tests" / "integration"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_charm.py").write_text("")
+        (test_dir / "test_actions.py").write_text("")
+
+        spread_path, _ = spread_init(tmp_path)
+
+        parsed = _yaml.load(StringIO(spread_path.read_text()))
+        suite_env = parsed["suites"]["tests/"]["environment"]
+        assert suite_env["MODULE/test_charm"] == "test_charm"
+        assert suite_env["MODULE/test_actions"] == "test_actions"
+        # Also not in root environment
+        assert "MODULE/test_charm" not in parsed["environment"]
 
     def test_discovers_test_modules(self, tmp_path: Path) -> None:
         test_dir = tmp_path / "tests" / "integration"
@@ -89,10 +108,11 @@ class TestSpreadInit:
 
         spread_path, _ = spread_init(tmp_path)
 
-        content = spread_path.read_text()
-        assert "MODULE/test_charm" in content
-        assert "MODULE/test_actions" in content
-        assert "conftest" not in content
+        parsed = _yaml.load(StringIO(spread_path.read_text()))
+        suite_env = parsed["suites"]["tests/"]["environment"]
+        assert "MODULE/test_charm" in suite_env
+        assert "MODULE/test_actions" in suite_env
+        assert not any("conftest" in k for k in suite_env)
 
     def test_refuses_overwrite_without_force(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", "existing\n")
