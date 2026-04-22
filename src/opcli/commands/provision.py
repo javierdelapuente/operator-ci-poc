@@ -1,6 +1,10 @@
 """CLI commands for environment provisioning."""
 
+from pathlib import Path
+
 import typer
+
+from opcli.core.provision import provision_load, provision_run
 
 app = typer.Typer(
     help="Provision test environments with concierge.",
@@ -11,7 +15,8 @@ app = typer.Typer(
 @app.command()
 def run() -> None:
     """Run concierge prepare to provision the test environment."""
-    raise NotImplementedError("Implement in core/provision.py")
+    provision_run(Path.cwd())
+    typer.echo("Provisioning complete.")
 
 
 @app.command()
@@ -22,4 +27,9 @@ def load(
     ),
 ) -> None:
     """Load OCI image artifacts into a local image registry."""
-    raise NotImplementedError("Implement in core/provision.py — load logic")
+    pushed = provision_load(Path.cwd(), registry=registry)
+    if pushed:
+        for ref in pushed:
+            typer.echo(f"Pushed {ref}")
+    else:
+        typer.echo("No rock images to load.")
