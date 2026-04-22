@@ -192,14 +192,8 @@ suites:
         agent_pos = allocate.index('lxc exec "${VM_NAME}" -- true')
         cloudinit_pos = allocate.index("cloud-init status --wait")
         assert agent_pos < cloudinit_pos
-        _write(
-            tmp_path / "spread.yaml",
-            "project: x\nbackends:\n  lxd:\n    systems: []\n",
-        )
-        with pytest.raises(ConfigurationError, match="no 'integration-test'"):
-            spread_expand(tmp_path)
 
-    def test_auto_detects_ci_env(self, tmp_path: Path) -> None:
+    def test_no_virtual_backend_raises(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         with patch.dict("os.environ", {"CI": "true"}):

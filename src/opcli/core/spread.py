@@ -207,7 +207,9 @@ done
 _LOCAL_DISCARD = """\
 instance_name=$(lxc ls --format csv --columns n4 \\
   "ipv4=$SPREAD_SYSTEM_ADDRESS" | cut -f1 -d',' | head -n 1)
-lxc delete --force "$instance_name"
+if [ -n "$instance_name" ]; then
+  lxc delete --force "$instance_name"
+fi
 """
 
 _LOCAL_PREPARE = """\
