@@ -71,7 +71,7 @@ Not all YAML files should be modeled the same way:
 | `artifacts-generated.yaml` | opcli-generated, machine-consumed | **Yes** — full model in `src/opcli/models/` | Strongly validated at load time |
 | `spread.yaml` | User-owned, opcli-expanded | **No** — use `ruamel.yaml` dict | Preserve unknown keys, comments, custom backends. opcli only reads/transforms the `integration-test:` virtual backend. |
 | `concierge.yaml` | User-owned, opcli-patched in CI | **No** — use `ruamel.yaml` dict | Additive merge for CI patches. Preserve everything else. |
-| `tests/run/task.yaml` | opcli-generated, user-editable | **No** — use `ruamel.yaml` dict | Simple template, not worth a model. |
+| `tests/integration/run/task.yaml` | opcli-generated, user-editable | **No** — use `ruamel.yaml` dict | Simple template, not worth a model. |
 
 **Critical rule:** When `opcli spread expand` or `opcli spread run` transforms `spread.yaml`, it must **never rewrite the original file**. It produces a transformed copy (in memory or a temp file) and passes that to spread.
 
@@ -206,7 +206,7 @@ tests/
 
 ### `opcli spread init`
 
-- Discovers integration test modules and generates `spread.yaml` + `tests/run/task.yaml`.
+- Discovers integration test modules and generates `spread.yaml` + `tests/integration/run/task.yaml`.
 - **Non-destructive:** refuses to overwrite existing files unless `--force` is passed.
 
 ### `opcli spread run`
@@ -216,8 +216,8 @@ tests/
 - **Argument forwarding:** all tokens after `--` are forwarded **verbatim and in order** to the spread subprocess. `opcli` must not reinterpret, normalize, or swallow spread selectors or flags.
   ```bash
   opcli spread run -- -list
-  opcli spread run -- local:ubuntu-26.04:tests/run:test_charm
-  opcli spread run -- -v local:ubuntu-26.04:tests/run:test_charm
+  opcli spread run -- local:ubuntu-26.04:tests/integration/run:test_charm
+  opcli spread run -- -v local:ubuntu-26.04:tests/integration/run:test_charm
   ```
 
 ### `opcli spread expand`
