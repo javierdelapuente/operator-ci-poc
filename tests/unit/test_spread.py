@@ -554,6 +554,8 @@ suites:
         assert "lxc launch --vm" in backend["allocate"]
         assert "lxc delete" in backend["discard"]
         assert "pip install" in backend["prepare"]
+        assert "apt-get install" in backend["prepare"]
+        assert "operator-ci-poc" in backend["prepare"]
         # No concierge/provision in tutorial prepare
         assert "concierge" not in backend["prepare"]
         assert "opcli provision load" not in backend["prepare"]
