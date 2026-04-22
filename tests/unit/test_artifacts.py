@@ -173,3 +173,20 @@ class TestArtifactsBuild:
         gen = load_artifacts_generated(result)
         assert len(gen.rocks) == 1
         assert len(gen.charms) == 1
+
+    def test_build_prints_command_and_cwd(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n- name: mycharm\n  source: .\n",
+        )
+        _write(tmp_path / "mycharm_amd64.charm", "fake charm")
+
+        with patch("opcli.core.artifacts.run_command"):
+            artifacts_build(tmp_path)
+
+        captured = capsys.readouterr().out
+        assert "Building charm 'mycharm':" in captured
+        assert f"cwd: {tmp_path}" in captured
+        assert "cmd: charmcraft pack" in captured
