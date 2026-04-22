@@ -9,10 +9,7 @@ from __future__ import annotations
 
 import glob as globmod
 import logging
-import shlex
 from pathlib import Path
-
-import typer
 
 from opcli.core.discovery import discover_artifacts
 from opcli.core.exceptions import ConfigurationError, OpcliError
@@ -96,18 +93,9 @@ def _find_output_file(source_dir: Path, kind: str) -> str:
     return matches[0]
 
 
-def _log_build_command(name: str, kind: str, cmd: list[str], cwd: Path) -> None:
-    """Print the build command and working directory for reproducibility."""
-    typer.echo(f"Building {kind} '{name}':")
-    typer.echo(f"  cwd: {cwd}")
-    typer.echo(f"  cmd: {shlex.join(cmd)}")
-
-
 def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
     source_dir = root / rock.source
-    cmd = [*_PACK_COMMANDS["rock"]]
-    _log_build_command(rock.name, "rock", cmd, source_dir)
-    run_command(cmd, cwd=str(source_dir))
+    run_command([*_PACK_COMMANDS["rock"]], cwd=str(source_dir))
     output_file = _find_output_file(source_dir, "rock")
     return GeneratedRock(
         name=rock.name,
@@ -118,9 +106,7 @@ def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
 
 def _build_charm(charm: CharmArtifact, root: Path) -> GeneratedCharm:
     source_dir = root / charm.source
-    cmd = [*_PACK_COMMANDS["charm"]]
-    _log_build_command(charm.name, "charm", cmd, source_dir)
-    run_command(cmd, cwd=str(source_dir))
+    run_command([*_PACK_COMMANDS["charm"]], cwd=str(source_dir))
     output_file = _find_output_file(source_dir, "charm")
     return GeneratedCharm(
         name=charm.name,
@@ -131,9 +117,7 @@ def _build_charm(charm: CharmArtifact, root: Path) -> GeneratedCharm:
 
 def _build_snap(snap: SnapArtifact, root: Path) -> GeneratedSnap:
     source_dir = root / snap.source
-    cmd = [*_PACK_COMMANDS["snap"]]
-    _log_build_command(snap.name, "snap", cmd, source_dir)
-    run_command(cmd, cwd=str(source_dir))
+    run_command([*_PACK_COMMANDS["snap"]], cwd=str(source_dir))
     output_file = _find_output_file(source_dir, "snap")
     return GeneratedSnap(
         name=snap.name,

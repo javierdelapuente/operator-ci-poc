@@ -160,3 +160,29 @@ class TestSubprocessWrapper:
                 run_command(["missing-tool"])
 
             assert exc_info.value.returncode == 127  # noqa: PLR2004
+
+    def test_logs_command_and_cwd(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with patch("opcli.core.subprocess.subprocess.Popen") as mock_popen:
+            proc = mock_popen.return_value
+            proc.stdout = io.StringIO("")
+            proc.stderr = io.StringIO("")
+            proc.returncode = 0
+            proc.wait.return_value = 0
+
+            run_command(["charmcraft", "pack"], cwd="/some/dir")
+
+        captured = capsys.readouterr().out
+        assert "$ charmcraft pack" in captured
+        assert "cwd: /some/dir" in captured
+
+    def test_logs_command_without_cwd(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with patch("opcli.core.subprocess.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = "ok"
+            mock_run.return_value.stderr = ""
+            mock_run.return_value.returncode = 0
+
+            run_command(["echo", "hello"], stream=False)
+
+        captured = capsys.readouterr().out
+        assert "$ echo hello" in captured
+        assert "cwd:" not in captured

@@ -3,15 +3,21 @@
 All external command execution goes through :func:`run_command` so that
 tests can mock a single boundary and we get consistent timeout /
 error handling everywhere.
+
+Every invocation prints the command and working directory so that
+failures can be reproduced manually by copy-pasting from the output.
 """
 
 from __future__ import annotations
 
 import io
+import shlex
 import subprocess
 import sys
 import threading
 from dataclasses import dataclass
+
+import typer
 
 from opcli.core.exceptions import SubprocessError
 
@@ -69,6 +75,13 @@ def run_command(
     return _run_captured(cmd, cwd=cwd, timeout=timeout, check=check)
 
 
+def _log_command(cmd: list[str], cwd: str | None) -> None:
+    """Print the command and working directory for reproducibility."""
+    typer.echo(f"$ {shlex.join(cmd)}")
+    if cwd:
+        typer.echo(f"  cwd: {cwd}")
+
+
 def _run_streaming(
     cmd: list[str],
     *,
@@ -77,6 +90,7 @@ def _run_streaming(
     check: bool = True,
 ) -> SubprocessResult:
     """Run *cmd* with real-time output to the terminal."""
+    _log_command(cmd, cwd)
     try:
         proc = subprocess.Popen(
             cmd,
@@ -151,6 +165,7 @@ def _run_captured(
     check: bool = True,
 ) -> SubprocessResult:
     """Run *cmd* with fully buffered output (no terminal echo)."""
+    _log_command(cmd, cwd)
     try:
         proc = subprocess.run(
             cmd,
