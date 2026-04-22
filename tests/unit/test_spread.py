@@ -32,6 +32,8 @@ environment:
 suites:
   tests/integration/:
     summary: integration tests
+    backends:
+      - integration-test
     environment:
       MODULE/test_charm: test_charm
 """
@@ -250,7 +252,8 @@ suites:
         cloudinit_pos = allocate.index("cloud-init status --wait")
         assert agent_pos < cloudinit_pos
 
-    def test_no_virtual_backend_raises(self, tmp_path: Path) -> None:
+    def test_auto_detects_ci_env_var(self, tmp_path: Path) -> None:
+        """CI env var toggles between ci/local backend expansion."""
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         with patch.dict("os.environ", {"CI": "true"}):
@@ -497,3 +500,159 @@ class TestSpreadRun:
     def test_missing_spread_yaml_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ConfigurationError, match="not found"):
             spread_run(tmp_path)
+
+
+_MINIMAL_SPREAD_WITH_BOTH_BACKENDS = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04
+  tutorial-test:
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+  tests/tutorial/:
+    summary: tutorial tests
+    backends:
+      - tutorial-test
+    environment:
+      TUTORIAL/tutorial1: docs/tutorial1.rst
+"""
+
+
+class TestTutorialBackend:
+    """Tests for tutorial-test virtual backend expansion."""
+
+    def test_expand_tutorial_local(self, tmp_path: Path) -> None:
+        """tutorial-test expands to local-tutorial with minimal prepare."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  tutorial-test:
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/tutorial/: {}
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "tutorial-test" not in result
+        backend = parsed["backends"]["local-tutorial"]
+        assert backend["type"] == "adhoc"
+        assert "lxc launch --vm" in backend["allocate"]
+        assert "lxc delete" in backend["discard"]
+        assert "pip install" in backend["prepare"]
+        # No concierge/provision in tutorial prepare
+        assert "concierge" not in backend["prepare"]
+        assert "opcli provision load" not in backend["prepare"]
+
+    def test_expand_tutorial_ci(self, tmp_path: Path) -> None:
+        """tutorial-test CI expansion has no prepare."""
+        spread = """\
+project: test-project
+backends:
+  tutorial-test:
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/tutorial/: {}
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=True)
+        parsed = _yaml.load(StringIO(result))
+
+        backend = parsed["backends"]["ci-tutorial"]
+        assert backend["type"] == "adhoc"
+        assert backend["allocate"] == "ADDRESS localhost"
+        assert "prepare" not in backend
+
+    def test_tutorial_username_injected_local(self, tmp_path: Path) -> None:
+        """Ubuntu user is injected into tutorial backend systems for local."""
+        spread = """\
+project: test-project
+backends:
+  tutorial-test:
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/tutorial/: {}
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        systems = parsed["backends"]["local-tutorial"]["systems"]
+        assert systems[0]["ubuntu-24.04"]["username"] == "ubuntu"
+
+    def test_suite_backend_scoping_replaces_virtual_names(self, tmp_path: Path) -> None:
+        """Suite backends lists are updated from virtual to concrete names."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD_WITH_BOTH_BACKENDS)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "integration-test" not in result
+        assert "tutorial-test" not in result
+        assert parsed["suites"]["tests/integration/"]["backends"] == ["local"]
+        assert parsed["suites"]["tests/tutorial/"]["backends"] == ["local-tutorial"]
+
+    def test_both_backends_coexist(self, tmp_path: Path) -> None:
+        """Both virtual backends can be expanded from the same spread.yaml."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD_WITH_BOTH_BACKENDS)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "local" in parsed["backends"]
+        assert "local-tutorial" in parsed["backends"]
+
+    def test_no_known_virtual_backend_raises(self, tmp_path: Path) -> None:
+        """Raises ConfigurationError when no known virtual backend is found."""
+        spread = """\
+project: test-project
+backends:
+  custom-backend:
+    type: adhoc
+suites:
+  tests/: {}
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        with pytest.raises(ConfigurationError, match="no known virtual backend"):
+            spread_expand(tmp_path)
+
+    def test_generated_suite_has_backends_key(self, tmp_path: Path) -> None:
+        """spread_init generates suite with backends: [integration-test] for scoping."""
+        _write(tmp_path / "tests" / "integration" / "test_charm.py", "")
+        spread_path, _ = spread_init(tmp_path)
+
+        parsed = _yaml.load(StringIO(spread_path.read_text()))
+        suite = parsed["suites"]["tests/integration/"]
+        assert "backends" in suite
+        assert "integration-test" in suite["backends"]
+
+    def test_generated_suite_backends_replaced_after_expand(
+        self, tmp_path: Path
+    ) -> None:
+        """After expansion, suite backends reference the concrete backend name."""
+        _, _ = spread_init(tmp_path)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        suite = parsed["suites"]["tests/integration/"]
+        assert "integration-test" not in suite.get("backends", [])
+        assert "local" in suite["backends"]
