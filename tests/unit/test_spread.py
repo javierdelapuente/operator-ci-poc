@@ -22,6 +22,7 @@ def _write(path: Path, content: str) -> None:
 
 _MINIMAL_SPREAD = """\
 project: test-project
+path: /home/ubuntu/proj
 backends:
   integration-test:
     systems:
@@ -29,7 +30,8 @@ backends:
 environment:
   MODULE/test_charm: test_charm
 suites:
-  tests/: {}
+  tests/:
+    summary: integration tests
 """
 
 
@@ -48,6 +50,35 @@ class TestSpreadInit:
 
         task_content = task_path.read_text()
         assert "opcli pytest run" in task_content
+
+    def test_generates_required_fields(self, tmp_path: Path) -> None:
+        spread_path, _ = spread_init(tmp_path)
+
+        parsed = _yaml.load(StringIO(spread_path.read_text()))
+        assert parsed["path"] == "/home/ubuntu/proj"
+        assert parsed["kill-timeout"] == "60m"
+        assert "summary" in parsed["suites"]["tests/"]
+
+    def test_generates_exclude_list(self, tmp_path: Path) -> None:
+        spread_path, _ = spread_init(tmp_path)
+
+        parsed = _yaml.load(StringIO(spread_path.read_text()))
+        exclude = parsed["exclude"]
+        assert ".git" in exclude
+        assert ".tox" in exclude
+        assert ".venv" in exclude
+        assert ".*_cache" in exclude
+
+    def test_generates_standard_env_vars(self, tmp_path: Path) -> None:
+        spread_path, _ = spread_init(tmp_path)
+
+        parsed = _yaml.load(StringIO(spread_path.read_text()))
+        env = parsed["environment"]
+        assert env["SUDO_USER"] == ""
+        assert env["SUDO_UID"] == ""
+        assert env["LANG"] == "C.UTF-8"
+        assert env["LANGUAGE"] == "en"
+        assert "CONCIERGE" in env
 
     def test_discovers_test_modules(self, tmp_path: Path) -> None:
         test_dir = tmp_path / "tests" / "integration"
@@ -104,7 +135,12 @@ class TestSpreadExpand:
         assert "lxc delete --force" in local["discard"]
         assert "concierge" in local["prepare"]
         assert "opcli provision load" in local["prepare"]
-        assert local["systems"] == ["ubuntu-24.04"]
+
+        # Systems should have username: ubuntu injected
+        systems = local["systems"]
+        assert len(systems) == 1
+        assert "ubuntu-24.04" in systems[0]
+        assert systems[0]["ubuntu-24.04"]["username"] == "ubuntu"
 
     def test_expand_ci(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
@@ -118,6 +154,7 @@ class TestSpreadExpand:
         assert ci["allocate"] == "ADDRESS localhost"
         assert "concierge" in ci["prepare"]
         assert "discard" not in ci
+        # CI should NOT inject username — systems stay as plain strings
         assert ci["systems"] == ["ubuntu-24.04"]
 
     def test_preserves_other_sections(self, tmp_path: Path) -> None:
@@ -163,7 +200,8 @@ suites:
         assert local["environment"] == {"EXTRA_VAR": "hello"}
         assert "extra setup" in local["prepare-each"]
         assert local["kill-timeout"] == "30m"
-        assert local["systems"] == ["ubuntu-24.04"]
+        # Systems get username injected for local backend
+        assert local["systems"] == [{"ubuntu-24.04": {"username": "ubuntu"}}]
         # opcli fields are set
         assert local["type"] == "adhoc"
         assert "lxc launch --vm" in local["allocate"]
@@ -216,6 +254,93 @@ suites:
         parsed = _yaml.load(StringIO(result))
         assert isinstance(parsed, dict)
         assert "backends" in parsed
+
+    def test_local_allocate_uses_ubuntu_user(self, tmp_path: Path) -> None:
+        """The allocate script sets up ubuntu user, not root."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        allocate = parsed["backends"]["local"]["allocate"]
+
+        assert "echo ubuntu:${SPREAD_PASSWORD}" in allocate
+        assert "PermitRootLogin" not in allocate
+        assert "PasswordAuthentication yes" in allocate
+
+    def test_local_prepare_conditional(self, tmp_path: Path) -> None:
+        """Prepare script gates concierge and provision load on file existence."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        prepare = parsed["backends"]["local"]["prepare"]
+
+        assert '[ -f "$CONCIERGE" ]' in prepare
+        assert "[ -f artifacts-generated.yaml ]" in prepare
+
+    def test_ci_prepare_conditional(self, tmp_path: Path) -> None:
+        """CI prepare also gates concierge on file existence."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+
+        result = spread_expand(tmp_path, ci=True)
+        parsed = _yaml.load(StringIO(result))
+        prepare = parsed["backends"]["ci"]["prepare"]
+
+        assert '[ -f "$CONCIERGE" ]' in prepare
+
+    def test_local_username_injection_mapping_systems(self, tmp_path: Path) -> None:
+        """Username injection deep-merges with existing system properties."""
+        spread_with_mapping = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, noble]
+          workers: 2
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/:
+    summary: integration tests
+"""
+        _write(tmp_path / "spread.yaml", spread_with_mapping)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        systems = parsed["backends"]["local"]["systems"]
+
+        assert len(systems) == 1
+        sys_def = systems[0]["ubuntu-24.04"]
+        assert sys_def["username"] == "ubuntu"
+        assert sys_def["runner"] == ["self-hosted", "noble"]
+        _EXPECTED_WORKERS = 2
+        assert sys_def["workers"] == _EXPECTED_WORKERS
+
+    def test_local_username_preserves_user_set_username(self, tmp_path: Path) -> None:
+        """If user already set a username, it is not overridden."""
+        spread_with_user = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04:
+          username: custom-user
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/:
+    summary: integration tests
+"""
+        _write(tmp_path / "spread.yaml", spread_with_user)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        systems = parsed["backends"]["local"]["systems"]
+
+        assert systems[0]["ubuntu-24.04"]["username"] == "custom-user"
 
 
 class TestSpreadRun:

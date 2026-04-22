@@ -35,6 +35,9 @@ mypy_path = "src"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: marks tests that require external services (LXD, spread)",
+]
 
 [dependency-groups]
 dev = [

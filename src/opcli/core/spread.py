@@ -61,6 +61,8 @@ def _generate_spread_yaml(
     buf = StringIO()
     data: dict[str, object] = {
         "project": project_name,
+        "path": "/home/ubuntu/proj",
+        "kill-timeout": "60m",
         "backends": {
             _VIRTUAL_BACKEND: {
                 "systems": ["ubuntu-24.04"],
@@ -69,6 +71,10 @@ def _generate_spread_yaml(
     }
 
     env: dict[str, str] = {
+        "SUDO_USER": "",
+        "SUDO_UID": "",
+        "LANG": "C.UTF-8",
+        "LANGUAGE": "en",
         "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
     }
     if modules:
@@ -78,8 +84,12 @@ def _generate_spread_yaml(
         env["MODULE/tests"] = "tests"
     data["environment"] = env
 
+    data["exclude"] = [".git", ".tox", ".venv", ".*_cache"]
+
     data["suites"] = {
-        "tests/": {},
+        "tests/": {
+            "summary": "integration tests",
+        },
     }
 
     _yaml.dump(data, buf)
@@ -150,10 +160,14 @@ CPU="${CPU:-4}"
 MEM="${MEM:-8}"
 
 CLOUD_CONFIG=$(mktemp)
-cat > "$CLOUD_CONFIG" <<ENDCLOUD
+cat > "$CLOUD_CONFIG" <<'ENDCLOUD'
 #cloud-config
 ssh_pwauth: true
-disable_root: false
+users:
+  - name: ubuntu
+    lock_passwd: false
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
 ENDCLOUD
 
 CLEANUP_VM=true
@@ -180,21 +194,24 @@ while ! lxc exec "${VM_NAME}" -- true &>/dev/null; do sleep 0.5; done
 lxc exec "${VM_NAME}" -- cloud-init status --wait >&2
 lxc exec "${VM_NAME}" -- snap wait system seed.loaded >&2
 
-# Configure SSH root access (mirrors spread's native LXD tuneSSH)
-lxc exec "${VM_NAME}" -- sed -i \\
-  's/^\\s*#\\?\\s*\\(PermitRootLogin\\|PasswordAuthentication\\)\\>.*/\\1 yes/' \\
-  /etc/ssh/sshd_config
+# Set ubuntu user password (using lxc exec to avoid YAML escaping issues)
+lxc exec "${VM_NAME}" -- bash -c "echo ubuntu:${SPREAD_PASSWORD} | chpasswd"
+
+# Enable SSH password authentication
 lxc exec "${VM_NAME}" -- bash -c \\
   'if [ -d /etc/ssh/sshd_config.d ]; then
-     printf "PermitRootLogin yes\\nPasswordAuthentication yes\\n" \\
+     printf "PasswordAuthentication yes\\n" \\
        > /etc/ssh/sshd_config.d/00-spread.conf
    fi'
-lxc exec "${VM_NAME}" -- bash -c "echo root:${SPREAD_PASSWORD} | chpasswd"
+lxc exec "${VM_NAME}" -- sed -i \\
+  's/^\\s*#\\?\\s*PasswordAuthentication\\>.*/PasswordAuthentication yes/' \\
+  /etc/ssh/sshd_config
 lxc exec "${VM_NAME}" -- killall -HUP sshd 2>/dev/null || true
 
 # Get and report the VM's IPv4 address
 while true; do
-  ADDR=$(lxc ls --format csv --columns 4 "name=${VM_NAME}" | head -1)
+  RAW_ADDR=$(lxc ls --format csv --columns 4 "name=${VM_NAME}" | head -1)
+  ADDR=$(echo "$RAW_ADDR" | awk '{print $1}')
   if [ -n "$ADDR" ]; then
     CLEANUP_VM=false
     ADDRESS "$ADDR"
@@ -206,25 +223,63 @@ done
 
 _LOCAL_DISCARD = """\
 instance_name=$(lxc ls --format csv --columns n4 \\
-  "ipv4=$SPREAD_SYSTEM_ADDRESS" | cut -f1 -d',' | head -n 1)
+  | awk -F, -v addr="$SPREAD_SYSTEM_ADDRESS" \\
+    '{split($2,a," "); if(a[1]==addr) {print $1; exit}}')
 if [ -n "$instance_name" ]; then
   lxc delete --force "$instance_name"
 fi
 """
 
 _LOCAL_PREPARE = """\
-sudo concierge prepare -c "$CONCIERGE"
-opcli provision load
+if [ -f "$CONCIERGE" ]; then
+  sudo concierge prepare -c "$CONCIERGE"
+fi
+if [ -f artifacts-generated.yaml ]; then
+  opcli provision load
+fi
 """
 
 _CI_PREPARE = """\
-sudo concierge prepare -c "$CONCIERGE"
+if [ -f "$CONCIERGE" ]; then
+  sudo concierge prepare -c "$CONCIERGE"
+fi
 """
 
 
 def _is_ci() -> bool:
     """Return True when running inside CI (truthy ``CI`` env var)."""
     return bool(os.environ.get("CI"))
+
+
+def _inject_username(
+    systems: list[object],
+    username: str,
+) -> list[object]:
+    """Deep-merge ``username`` into each system entry.
+
+    Handles both scalar entries (``"ubuntu-24.04"``) and mapping entries
+    (``{"ubuntu-24.04": {"runner": [...]}}``) without dropping user-defined
+    fields.
+    """
+    result: list[object] = []
+    for entry in systems:
+        if isinstance(entry, str):
+            result.append({entry: {"username": username}})
+        elif isinstance(entry, dict):
+            merged: dict[str, object] = {}
+            for name, props in entry.items():
+                if isinstance(props, dict):
+                    new_props = dict(props)
+                    new_props.setdefault("username", username)
+                    merged[name] = new_props
+                elif props is None:
+                    merged[name] = {"username": username}
+                else:
+                    merged[name] = props
+            result.append(merged)
+        else:
+            result.append(entry)
+    return result
 
 
 def _expand_backend(
@@ -276,6 +331,11 @@ def _expand_backend(
         backend_def["allocate"] = _LOCAL_ALLOCATE
         backend_def["discard"] = _LOCAL_DISCARD
         backend_def["prepare"] = _LOCAL_PREPARE
+
+        # Inject username: ubuntu into system definitions for the local backend
+        systems = backend_def.get("systems")
+        if isinstance(systems, list):
+            backend_def["systems"] = _inject_username(systems, "ubuntu")
 
     backend_name = "ci" if use_ci else "local"
     backends[backend_name] = backend_def
