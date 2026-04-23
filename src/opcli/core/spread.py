@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from ruamel.yaml import YAML
+from ruamel.yaml.scalarstring import LiteralScalarString
 
 from opcli.core.exceptions import ConfigurationError
 from opcli.core.subprocess import run_command
@@ -39,6 +40,21 @@ _TASK_YAML_REL = "tests/integration/run/task.yaml"
 _TUTORIAL_TASK_YAML_REL = "tests/tutorial/run/task.yaml"
 _VIRTUAL_BACKEND = "integration-test"
 _TUTORIAL_BACKEND = "tutorial-test"
+
+
+def _literalize(obj: Any) -> Any:
+    """Recursively convert multiline strings to ``LiteralScalarString``.
+
+    This ensures ruamel.yaml serialises shell scripts with the ``|`` block
+    style rather than as inline escaped strings.
+    """
+    if isinstance(obj, str) and "\n" in obj:
+        return LiteralScalarString(obj)
+    if isinstance(obj, dict):
+        return {k: _literalize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_literalize(item) for item in obj]
+    return obj
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +526,7 @@ def spread_expand(
     """
     expanded = _expand(root, ci=ci)
     buf = StringIO()
-    _yaml.dump(expanded, buf)
+    _yaml.dump(_literalize(expanded), buf)
     return buf.getvalue()
 
 
@@ -546,7 +562,7 @@ def spread_run(
         temp_dir_path = Path(temp_dir)
         spread_file = temp_dir_path / _SPREAD_YAML
         with spread_file.open("w") as fh:
-            _yaml.dump(expanded, fh)
+            _yaml.dump(_literalize(expanded), fh)
 
         cmd = ["spread"]
         if extra_args:
