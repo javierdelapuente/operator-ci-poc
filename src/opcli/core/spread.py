@@ -125,7 +125,8 @@ _TASK_YAML_CONTENT = (
     "execute: |\n"
     "    loginctl enable-linger ubuntu\n"
     '    cd "${SPREAD_PATH}"\n'
-    '    runuser -l ubuntu -c "cd \\"${SPREAD_PATH}\\" && $(opcli pytest expand -- -k \\"$MODULE\\")"\n'  # noqa: E501
+    '    PYTEST_CMD=$(opcli pytest expand -- -k "$MODULE") || exit 1\n'
+    '    runuser -l ubuntu -c "cd \\"${SPREAD_PATH}\\" && $PYTEST_CMD"\n'
 )
 
 _TUTORIAL_TASK_YAML_CONTENT = (
