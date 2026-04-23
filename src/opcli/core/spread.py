@@ -119,14 +119,14 @@ def _generate_spread_yaml(
     return buf.getvalue()
 
 
-_TASK_YAML_CONTENT = """\
-summary: integration tests
-
-execute: |
-    loginctl enable-linger ubuntu
-    cd "${SPREAD_PATH}"
-    runuser -l ubuntu -c "cd ${SPREAD_PATH} && $(opcli pytest expand -- -k "$MODULE")"
-"""
+_TASK_YAML_CONTENT = (
+    "summary: integration tests\n"
+    "\n"
+    "execute: |\n"
+    "    loginctl enable-linger ubuntu\n"
+    '    cd "${SPREAD_PATH}"\n'
+    '    runuser -l ubuntu -c "cd \\"${SPREAD_PATH}\\" && $(opcli pytest expand -- -k \\"$MODULE\\")"\n'  # noqa: E501
+)
 
 _TUTORIAL_TASK_YAML_CONTENT = (
     "summary: tutorial test\n"
