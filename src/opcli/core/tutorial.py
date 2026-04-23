@@ -278,4 +278,6 @@ def expand_tutorial(file_path: Path) -> str:
         msg = f"Unsupported file type '{ext}'. Supported: .md, .markdown, .rst, .rest"
         raise ValidationError(msg)
 
-    return "\n".join(commands)
+    if not commands:
+        return ""
+    return "set -e\n" + "\n".join(commands)

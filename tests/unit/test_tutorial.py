@@ -32,6 +32,12 @@ class TestMarkdownExtraction:
         result = expand_tutorial(doc)
         assert "echo hello" in result
 
+    def test_output_starts_with_set_e(self, tmp_path: Path) -> None:
+        doc = tmp_path / "tutorial.md"
+        _write(doc, "```\necho hello\n```\n")
+        result = expand_tutorial(doc)
+        assert result.startswith("set -e\n")
+
     def test_extracts_multiple_blocks_in_order(self, tmp_path: Path) -> None:
         doc = tmp_path / "tutorial.md"
         _write(
@@ -169,6 +175,12 @@ class TestRstExtraction:
         )
         result = expand_tutorial(doc)
         assert "echo hello" in result
+
+    def test_output_starts_with_set_e(self, tmp_path: Path) -> None:
+        doc = tmp_path / "tutorial.rst"
+        _write(doc, ".. code-block:: bash\n\n   echo hello\n\n")
+        result = expand_tutorial(doc)
+        assert result.startswith("set -e\n")
 
     def test_extracts_multiple_blocks_in_order(self, tmp_path: Path) -> None:
         doc = tmp_path / "tutorial.rst"
