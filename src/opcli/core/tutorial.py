@@ -259,9 +259,13 @@ def _extract_commands_from_rst(file_path: Path) -> list[str]:
 def expand_tutorial(file_path: Path) -> str:
     """Extract shell commands from *file_path* and return them as a shell script.
 
-    The returned string is suitable for use with ``eval`` in a spread task:
+    The returned string is suitable for sourcing in a spread task via bash
+    process substitution:
 
-        eval "$(opcli tutorial expand "$TUTORIAL")"
+        runuser -l ubuntu bash -ex -c ". <(opcli tutorial expand $TUTORIAL)"
+
+    Using ``bash -ex`` ensures commands are traced (``-x``) and the session
+    exits on the first failure (``-e``).
 
     Supports ``.md``/``.markdown`` (Markdown) and ``.rst``/``.rest``
     (reStructuredText) files.
