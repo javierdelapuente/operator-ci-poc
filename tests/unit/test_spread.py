@@ -53,7 +53,7 @@ class TestSpreadInit:
         assert "integration-test" in content
 
         task_content = task_path.read_text()
-        assert "opcli pytest run" in task_content
+        assert "opcli pytest expand" in task_content
 
     def test_generates_required_fields(self, tmp_path: Path) -> None:
         spread_path, _ = spread_init(tmp_path)
@@ -128,7 +128,7 @@ class TestSpreadInit:
 
         spread_path, task_path = spread_init(tmp_path, force=True)
         assert "integration-test" in spread_path.read_text()
-        assert "opcli pytest run" in task_path.read_text()
+        assert "opcli pytest expand" in task_path.read_text()
 
     def test_project_name_from_directory(self, tmp_path: Path) -> None:
         spread_path, _ = spread_init(tmp_path)

@@ -1,10 +1,11 @@
 """CLI commands for pytest/tox integration test execution."""
 
+import shlex
 from pathlib import Path
 
 import typer
 
-from opcli.core.pytest_args import assemble_pytest_args, run_pytest
+from opcli.core.pytest_args import assemble_tox_argv
 
 app = typer.Typer(
     help="Assemble pytest flags from build output and run integration tests.",
@@ -15,20 +16,14 @@ app = typer.Typer(
 @app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
-def run(
+def expand(
     ctx: typer.Context,
     *,
     tox_env: str = typer.Option("integration", "-e", help="Tox environment name."),
 ) -> None:
-    """Run integration tests via tox. Extra args after -- are forwarded to pytest."""
-    run_pytest(Path.cwd(), tox_env=tox_env, extra_args=ctx.args or None)
+    """Print the full tox command assembled from artifacts-generated.yaml.
 
-
-@app.command()
-def args() -> None:
-    """Print assembled tox/pytest flags from artifacts-generated.yaml."""
-    flags = assemble_pytest_args(Path.cwd())
-    if flags:
-        typer.echo(" ".join(flags))
-    else:
-        typer.echo("# No flags assembled (no charms/resources found)")
+    Extra args after -- are forwarded into the printed command.
+    """
+    argv = assemble_tox_argv(Path.cwd(), tox_env=tox_env, extra_args=ctx.args or None)
+    typer.echo(shlex.join(argv))
