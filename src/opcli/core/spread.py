@@ -238,8 +238,10 @@ done
 
 _LOCAL_DISCARD = """\
 instance_name=$(lxc ls --format json \
-  | jq -r --arg addr "$SPREAD_SYSTEM_ADDRESS" \
-    '[.[] | select(.state.network // {} | to_entries[]?.value.addresses[]? | .address == $addr)] | .[0].name // ""')
+  | jq -r --arg a "$SPREAD_SYSTEM_ADDRESS" \
+    '.[] | select(any(
+      .state.network[]?.addresses[]?; .address == $a
+    )) | .name' | head -1)
 if [ -n "$instance_name" ]; then
   lxc delete --force "$instance_name"
 fi
