@@ -267,6 +267,11 @@ fi
 """
 
 _LOCAL_PREPARE = """\
+sudo snap install concierge
+sudo apt-get update --quiet
+sudo apt-get install -y pipx --quiet
+sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
+    pipx install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
 if [ -f "$CONCIERGE" ]; then
   sudo concierge prepare -c "$CONCIERGE"
 fi
