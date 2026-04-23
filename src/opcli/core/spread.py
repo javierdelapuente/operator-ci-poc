@@ -237,9 +237,11 @@ done
 """
 
 _LOCAL_DISCARD = """\
-instance_name=$(lxc ls --format csv --columns n4 \\
-  | awk -F, -v addr="$SPREAD_SYSTEM_ADDRESS" \\
-    '{split($2,a," "); if(a[1]==addr) {print $1; exit}}')
+instance_name=$(lxc ls --format json \
+  | jq -r --arg a "$SPREAD_SYSTEM_ADDRESS" \
+    '.[] | select(any(
+      .state.network[]?.addresses[]?; .address == $a
+    )) | .name' | head -1)
 if [ -n "$instance_name" ]; then
   lxc delete --force "$instance_name"
 fi
