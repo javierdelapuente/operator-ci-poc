@@ -548,4 +548,4 @@ def spread_run(
         cmd = ["spread"]
         if extra_args:
             cmd.extend(extra_args)
-        run_command(cmd, cwd=str(temp_dir_path))
+        run_command(cmd, cwd=str(temp_dir_path), interactive=True)
