@@ -553,8 +553,8 @@ suites:
         assert backend["type"] == "adhoc"
         assert "lxc launch --vm" in backend["allocate"]
         assert "lxc delete" in backend["discard"]
-        assert "uv tool install" in backend["prepare"]
-        assert "astral.sh/uv" in backend["prepare"]
+        assert "pipx install" in backend["prepare"]
+        assert "astral.sh" not in backend["prepare"]
         assert "operator-ci-poc" in backend["prepare"]
         # No concierge/provision in tutorial prepare
         assert "concierge" not in backend["prepare"]

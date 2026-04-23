@@ -262,8 +262,8 @@ fi
 # Tutorial backend: install pip then opcli from the GitHub repo main branch so
 # that ``opcli tutorial expand`` is available inside the VM.
 _TUTORIAL_LOCAL_PREPARE = """\
-curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
-uv tool install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
+sudo apt-get install -y pipx --quiet
+pipx install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
 """
 
 
