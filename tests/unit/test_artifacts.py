@@ -82,6 +82,7 @@ class TestArtifactsBuild:
         assert gen.charms[0].name == "mycharm"
         assert gen.charms[0].output.file is not None
         assert gen.charms[0].output.file.endswith(".charm")
+        assert not Path(gen.charms[0].output.file).is_absolute()
 
     def test_build_single_rock(self, tmp_path: Path) -> None:
         _write(
@@ -100,6 +101,7 @@ class TestArtifactsBuild:
         gen = load_artifacts_generated(result)
         assert len(gen.rocks) == 1
         assert gen.rocks[0].output.file is not None
+        assert not Path(gen.rocks[0].output.file).is_absolute()
 
     def test_build_single_snap(self, tmp_path: Path) -> None:
         _write(
