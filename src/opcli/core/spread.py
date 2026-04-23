@@ -262,8 +262,10 @@ fi
 # Tutorial backend: install pip then opcli from the GitHub repo main branch so
 # that ``opcli tutorial expand`` is available inside the VM.
 _TUTORIAL_LOCAL_PREPARE = """\
+sudo apt-get update --quiet
 sudo apt-get install -y pipx --quiet
-pipx install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
+sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
+    pipx install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
 """
 
 
