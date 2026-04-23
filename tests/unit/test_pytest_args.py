@@ -1,14 +1,13 @@
-"""Tests for ``opcli pytest args`` and ``opcli pytest run``."""
+"""Tests for ``opcli pytest expand``."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from opcli.core.exceptions import ConfigurationError
-from opcli.core.pytest_args import assemble_pytest_args, run_pytest
+from opcli.core.pytest_args import assemble_pytest_args, assemble_tox_argv
 
 
 def _write(path: Path, content: str) -> None:
@@ -121,41 +120,57 @@ class TestAssemblePytestArgs:
         assert args == []
 
 
-class TestRunPytest:
-    """Tests for run_pytest()."""
+class TestAssembleToxArgv:
+    """Tests for assemble_tox_argv()."""
 
-    def test_runs_tox_with_assembled_args(self, tmp_path: Path) -> None:
+    def test_no_flags_no_extra_omits_separator(self, tmp_path: Path) -> None:
+        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
+
+        argv = assemble_tox_argv(tmp_path)
+
+        assert argv == ["tox", "-e", "integration"]
+        assert "--" not in argv
+
+    def test_assembled_flags_include_separator(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts.yaml", _PLAN_WITH_RESOURCES)
         _write(tmp_path / "artifacts-generated.yaml", _GENERATED_LOCAL)
 
-        with patch("opcli.core.pytest_args.run_command") as mock_run:
-            run_pytest(tmp_path)
+        argv = assemble_tox_argv(tmp_path)
 
-        cmd = mock_run.call_args[0][0]
-        assert cmd[:4] == ["tox", "-e", "integration", "--"]
-        assert "--charm-file" in cmd
-        assert "./mycharm.charm" in cmd
+        assert argv[:3] == ["tox", "-e", "integration"]
+        assert "--" in argv
+        assert "--charm-file" in argv
+        assert "./mycharm.charm" in argv
+
+    def test_extra_args_only_include_separator(self, tmp_path: Path) -> None:
+        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
+
+        argv = assemble_tox_argv(tmp_path, extra_args=["-k", "test_foo"])
+
+        assert "--" in argv
+        assert "-k" in argv
+        assert "test_foo" in argv
 
     def test_custom_tox_env(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
 
-        with patch("opcli.core.pytest_args.run_command") as mock_run:
-            run_pytest(tmp_path, tox_env="e2e")
+        argv = assemble_tox_argv(tmp_path, tox_env="e2e")
 
-        cmd = mock_run.call_args[0][0]
-        assert cmd[2] == "e2e"
+        assert argv[2] == "e2e"
 
-    def test_extra_args_forwarded(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
+    def test_extra_args_appended_after_assembled(self, tmp_path: Path) -> None:
+        _write(tmp_path / "artifacts.yaml", _PLAN_WITH_RESOURCES)
+        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_LOCAL)
 
-        with patch("opcli.core.pytest_args.run_command") as mock_run:
-            run_pytest(tmp_path, extra_args=["-k", "test_foo", "-v"])
+        argv = assemble_tox_argv(tmp_path, extra_args=["-v", "-k", "test_charm"])
 
-        cmd = mock_run.call_args[0][0]
-        assert "-k" in cmd
-        assert "test_foo" in cmd
-        assert "-v" in cmd
+        sep_idx = argv.index("--")
+        tail = argv[sep_idx + 1 :]
+        assert "--charm-file" in tail
+        assert "-v" in tail
+        assert "-k" in tail
+        assert "test_charm" in tail
 
     def test_missing_generated_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ConfigurationError, match="not found"):
-            run_pytest(tmp_path)
+            assemble_tox_argv(tmp_path)

@@ -1,4 +1,4 @@
-"""Core logic for ``opcli pytest args`` and ``opcli pytest run``.
+"""Core logic for ``opcli pytest expand``.
 
 Reads ``artifacts-generated.yaml`` and assembles the flags that tox/pytest
 need to locate built charms and their OCI-image resources.
@@ -15,7 +15,6 @@ import logging
 from pathlib import Path
 
 from opcli.core.exceptions import ConfigurationError
-from opcli.core.subprocess import run_command
 from opcli.core.yaml_io import load_artifacts_generated, load_artifacts_plan
 from opcli.models.artifacts import ArtifactsPlan
 from opcli.models.artifacts_generated import ArtifactsGenerated
@@ -86,21 +85,25 @@ def assemble_pytest_args(
     return args
 
 
-def run_pytest(
+def assemble_tox_argv(
     root: Path,
     *,
     tox_env: str = "integration",
     extra_args: list[str] | None = None,
-) -> None:
-    """Assemble flags and run ``tox -e <env> -- <flags> <extra>``.
+) -> list[str]:
+    """Build the full tox argv for running integration tests.
+
+    Returns a list of tokens suitable for shell execution or display via
+    ``shlex.join()``.  The ``--`` separator is included only when there are
+    pytest flags or forwarded extra args to pass.
 
     Raises:
         ConfigurationError: If required YAML files are missing.
-        SubprocessError: If tox exits non-zero.
     """
     assembled = assemble_pytest_args(root)
-    cmd = ["tox", "-e", tox_env, "--"]
-    cmd.extend(assembled)
-    if extra_args:
-        cmd.extend(extra_args)
-    run_command(cmd, cwd=str(root))
+    pytest_args = assembled + (extra_args or [])
+
+    cmd: list[str] = ["tox", "-e", tox_env]
+    if pytest_args:
+        cmd += ["--", *pytest_args]
+    return cmd
