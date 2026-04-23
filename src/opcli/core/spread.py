@@ -110,12 +110,14 @@ execute: |
     $( opcli pytest run -- -k $MODULE )
 """
 
-_TUTORIAL_TASK_YAML_CONTENT = """\
-summary: tutorial test
-
-execute: |
-    eval "$(opcli tutorial expand "$TUTORIAL")"
-"""
+_TUTORIAL_TASK_YAML_CONTENT = (
+    "summary: tutorial test\n"
+    "\n"
+    "execute: |\n"
+    "    loginctl enable-linger ubuntu\n"
+    '    runuser -l ubuntu -c "eval \\"\\$(opcli tutorial expand \\"${SPREAD_PATH}${TUTORIAL}\\")\\""'  # noqa: E501
+    "\n"
+)
 
 
 def spread_init(root: Path, *, force: bool = False) -> tuple[Path, Path]:
