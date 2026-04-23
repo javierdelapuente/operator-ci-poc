@@ -76,8 +76,8 @@ def artifacts_init(root: Path, *, force: bool = False) -> Path:
     return dest
 
 
-def _find_output_file(source_dir: Path, kind: str) -> str:
-    """Glob for the built artifact in *source_dir*."""
+def _find_output_file(source_dir: Path, kind: str, root: Path) -> str:
+    """Glob for the built artifact in *source_dir*, returning a relative path."""
     pattern = _OUTPUT_GLOBS[kind]
     matches = sorted(globmod.glob(str(source_dir / pattern)))
     if not matches:
@@ -90,13 +90,13 @@ def _find_output_file(source_dir: Path, kind: str) -> str:
             source_dir,
             matches[0],
         )
-    return matches[0]
+    return str(Path(matches[0]).relative_to(root))
 
 
 def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
     source_dir = root / rock.source
     run_command([*_PACK_COMMANDS["rock"]], cwd=str(source_dir))
-    output_file = _find_output_file(source_dir, "rock")
+    output_file = _find_output_file(source_dir, "rock", root)
     return GeneratedRock(
         name=rock.name,
         source=rock.source,
@@ -107,7 +107,7 @@ def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
 def _build_charm(charm: CharmArtifact, root: Path) -> GeneratedCharm:
     source_dir = root / charm.source
     run_command([*_PACK_COMMANDS["charm"]], cwd=str(source_dir))
-    output_file = _find_output_file(source_dir, "charm")
+    output_file = _find_output_file(source_dir, "charm", root)
     return GeneratedCharm(
         name=charm.name,
         source=charm.source,
@@ -118,7 +118,7 @@ def _build_charm(charm: CharmArtifact, root: Path) -> GeneratedCharm:
 def _build_snap(snap: SnapArtifact, root: Path) -> GeneratedSnap:
     source_dir = root / snap.source
     run_command([*_PACK_COMMANDS["snap"]], cwd=str(source_dir))
-    output_file = _find_output_file(source_dir, "snap")
+    output_file = _find_output_file(source_dir, "snap", root)
     return GeneratedSnap(
         name=snap.name,
         source=snap.source,
