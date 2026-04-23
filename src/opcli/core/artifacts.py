@@ -90,7 +90,12 @@ def _find_output_file(source_dir: Path, kind: str, root: Path) -> str:
             source_dir,
             matches[0],
         )
-    return str(Path(matches[0]).relative_to(root))
+    resolved = Path(matches[0]).resolve()
+    try:
+        return str(resolved.relative_to(root.resolve()))
+    except ValueError as exc:
+        msg = f"Built artifact {resolved} is outside repository root {root}"
+        raise OpcliError(msg) from exc
 
 
 def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
