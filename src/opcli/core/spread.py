@@ -123,7 +123,8 @@ _TASK_YAML_CONTENT = """\
 summary: integration tests
 
 execute: |
-    $( opcli pytest expand -- -k $MODULE )
+    loginctl enable-linger ubuntu
+    runuser -l ubuntu -c "$(opcli pytest expand -- -k $MODULE)"
 """
 
 _TUTORIAL_TASK_YAML_CONTENT = (
