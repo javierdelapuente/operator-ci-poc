@@ -186,3 +186,55 @@ class TestSubprocessWrapper:
         captured = capsys.readouterr().out
         assert "$ echo hello" in captured
         assert "cwd:" not in captured
+
+    # --- Interactive mode ---
+
+    def test_interactive_success(self) -> None:
+        with patch("opcli.core.subprocess.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+
+            result = run_command(["spread", "-shell"], interactive=True)
+
+            assert result.returncode == 0
+            assert result.stdout == ""
+            assert result.stderr == ""
+            mock_run.assert_called_once_with(
+                ["spread", "-shell"], cwd=None, check=False
+            )
+
+    def test_interactive_failure_raises(self) -> None:
+        with patch("opcli.core.subprocess.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 1
+
+            with pytest.raises(SubprocessError) as exc_info:
+                run_command(["spread", "-shell"], interactive=True)
+
+            assert exc_info.value.returncode == 1
+            assert "interactive mode" in exc_info.value.stderr
+
+    def test_interactive_no_check(self) -> None:
+        with patch("opcli.core.subprocess.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 1
+
+            result = run_command(["spread"], check=False, interactive=True)
+            assert result.returncode == 1
+
+    def test_interactive_file_not_found(self) -> None:
+        with patch("opcli.core.subprocess.subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("No such file")
+
+            with pytest.raises(SubprocessError) as exc_info:
+                run_command(["spread"], interactive=True)
+
+            assert exc_info.value.returncode == 127  # noqa: PLR2004
+            assert "No such file" in exc_info.value.stderr
+
+    def test_interactive_other_oserror(self) -> None:
+        with patch("opcli.core.subprocess.subprocess.run") as mock_run:
+            mock_run.side_effect = OSError("permission denied")
+
+            with pytest.raises(SubprocessError) as exc_info:
+                run_command(["spread"], interactive=True)
+
+            assert exc_info.value.returncode == -1
+            assert "permission denied" in exc_info.value.stderr

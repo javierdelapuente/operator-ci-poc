@@ -45,13 +45,14 @@ def _stream_pipe(
         dest.flush()
 
 
-def run_command(
+def run_command(  # noqa: PLR0913
     cmd: list[str],
     *,
     cwd: str | None = None,
     timeout: int = _DEFAULT_TIMEOUT_SECONDS,
     check: bool = True,
     stream: bool = True,
+    interactive: bool = False,
 ) -> SubprocessResult:
     """Execute *cmd* and return captured output.
 
@@ -59,17 +60,23 @@ def run_command(
         cmd: Command and arguments.
         cwd: Working directory for the subprocess.
         timeout: Maximum wall-clock seconds before the process is killed.
+            Ignored when *interactive* is ``True``.
         check: If ``True`` (default), raise :class:`SubprocessError` on
             non-zero exit codes.
         stream: If ``True`` (default), echo stdout/stderr to the terminal
             in real time while still capturing them. If ``False``, buffer
             all output silently (useful for commands whose stdout is
             consumed programmatically, like ``opcli pytest args``).
+        interactive: If ``True``, inherit the parent's stdin/stdout/stderr
+            so the subprocess has full TTY access. Required for commands
+            like ``spread -shell``. Output is not captured in this mode.
 
     Raises:
         SubprocessError: If the command fails and *check* is ``True``.
 
     """
+    if interactive:
+        return _run_interactive(cmd, cwd=cwd, check=check)
     if stream:
         return _run_streaming(cmd, cwd=cwd, timeout=timeout, check=check)
     return _run_captured(cmd, cwd=cwd, timeout=timeout, check=check)
@@ -80,6 +87,35 @@ def _log_command(cmd: list[str], cwd: str | None) -> None:
     typer.echo(f"$ {shlex.join(cmd)}")
     if cwd:
         typer.echo(f"  cwd: {cwd}")
+
+
+def _run_interactive(
+    cmd: list[str],
+    *,
+    cwd: str | None = None,
+    check: bool = True,
+) -> SubprocessResult:
+    """Run *cmd* with inherited stdin/stdout/stderr for full TTY access."""
+    _log_command(cmd, cwd)
+    try:
+        proc = subprocess.run(cmd, cwd=cwd, check=False)
+    except OSError as exc:
+        raise SubprocessError(
+            cmd=cmd,
+            returncode=127 if isinstance(exc, FileNotFoundError) else -1,
+            stderr=str(exc),
+        ) from exc
+
+    result = SubprocessResult(stdout="", stderr="", returncode=proc.returncode)
+
+    if check and result.returncode != 0:
+        raise SubprocessError(
+            cmd=cmd,
+            returncode=result.returncode,
+            stderr="(output not captured in interactive mode)",
+        )
+
+    return result
 
 
 def _run_streaming(
