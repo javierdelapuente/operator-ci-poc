@@ -115,8 +115,7 @@ _TUTORIAL_TASK_YAML_CONTENT = (
     "\n"
     "execute: |\n"
     "    loginctl enable-linger ubuntu\n"
-    '    runuser -l ubuntu -c "eval \\"\\$(opcli tutorial expand \\"${SPREAD_PATH}${TUTORIAL}\\")\\""'  # noqa: E501
-    "\n"
+    '    runuser -l ubuntu -c "eval \\"\\$(opcli tutorial expand ${SPREAD_PATH}${TUTORIAL})\\""\n'  # noqa: E501
 )
 
 
