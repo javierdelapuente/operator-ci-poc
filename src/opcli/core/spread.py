@@ -124,7 +124,8 @@ summary: integration tests
 
 execute: |
     loginctl enable-linger ubuntu
-    runuser -l ubuntu -c "cd ${SPREAD_PATH} && $(opcli pytest expand -- -k $MODULE)"
+    cd "${SPREAD_PATH}"
+    runuser -l ubuntu -c "cd ${SPREAD_PATH} && $(opcli pytest expand -- -k "$MODULE")"
 """
 
 _TUTORIAL_TASK_YAML_CONTENT = (
