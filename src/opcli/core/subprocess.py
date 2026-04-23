@@ -112,7 +112,7 @@ def _run_interactive(
         raise SubprocessError(
             cmd=cmd,
             returncode=result.returncode,
-            stderr="",
+            stderr="(output not captured in interactive mode)",
         )
 
     return result
