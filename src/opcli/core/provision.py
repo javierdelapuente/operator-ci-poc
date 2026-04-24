@@ -227,7 +227,9 @@ def provision_registry(
     if gen_path.exists():
         generated = load_artifacts_generated(gen_path)
         if not generated.rocks:
-            logger.info("No rocks in %s, skipping registry setup.", _ARTIFACTS_GENERATED_YAML)
+            logger.info(
+                "No rocks in %s, skipping registry setup.", _ARTIFACTS_GENERATED_YAML
+            )
             return "skipped"
 
     # Quick TCP probe — skip if something is already listening.
