@@ -67,7 +67,8 @@ class TestArtifactsBuild:
     def test_build_single_charm(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 1\ncharms:\n- name: mycharm\n  source: .\n",
+            "version: 2\ncharms:\n- name: mycharm\n"
+            "  charmcraft-yaml: charmcraft.yaml\n",
         )
         # Simulate charmcraft pack producing a .charm file
         _write(tmp_path / "mycharm_amd64.charm", "fake charm")
@@ -87,7 +88,8 @@ class TestArtifactsBuild:
     def test_build_single_rock(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 1\nrocks:\n- name: myrock\n  source: rock_dir\n",
+            "version: 2\nrocks:\n- name: myrock\n"
+            "  rockcraft-yaml: rock_dir/rockcraft.yaml\n",
         )
         rock_dir = tmp_path / "rock_dir"
         rock_dir.mkdir()
@@ -106,7 +108,8 @@ class TestArtifactsBuild:
     def test_build_single_snap(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 1\nsnaps:\n- name: mysnap\n  source: snap_dir\n",
+            "version: 2\nsnaps:\n- name: mysnap\n"
+            "  snapcraft-yaml: snap_dir/snapcraft.yaml\n",
         )
         snap_dir = tmp_path / "snap_dir"
         snap_dir.mkdir()
@@ -123,9 +126,9 @@ class TestArtifactsBuild:
     def test_build_filtered_by_charm_name(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 1\ncharms:\n"
-            "- name: charm-a\n  source: a\n"
-            "- name: charm-b\n  source: b\n",
+            "version: 2\ncharms:\n"
+            "- name: charm-a\n  charmcraft-yaml: a/charmcraft.yaml\n"
+            "- name: charm-b\n  charmcraft-yaml: b/charmcraft.yaml\n",
         )
         (tmp_path / "a").mkdir()
         _write(tmp_path / "a" / "charm-a.charm", "fake")
@@ -140,7 +143,7 @@ class TestArtifactsBuild:
     def test_unknown_charm_name_raises(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 1\ncharms:\n- name: real\n  source: .\n",
+            "version: 2\ncharms:\n- name: real\n  charmcraft-yaml: charmcraft.yaml\n",
         )
         with pytest.raises(ConfigurationError, match="Unknown charm"):
             artifacts_build(tmp_path, charm_names=["nonexistent"])
@@ -148,7 +151,8 @@ class TestArtifactsBuild:
     def test_no_output_file_raises(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 1\nrocks:\n- name: myrock\n  source: rock_dir\n",
+            "version: 2\nrocks:\n- name: myrock\n"
+            "  rockcraft-yaml: rock_dir/rockcraft.yaml\n",
         )
         (tmp_path / "rock_dir").mkdir()
 
@@ -161,9 +165,9 @@ class TestArtifactsBuild:
     def test_build_monorepo(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 1\n"
-            "rocks:\n- name: myrock\n  source: rock_dir\n"
-            "charms:\n- name: mycharm\n  source: .\n",
+            "version: 2\n"
+            "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
+            "charms:\n- name: mycharm\n  charmcraft-yaml: charmcraft.yaml\n",
         )
         (tmp_path / "rock_dir").mkdir()
         _write(tmp_path / "rock_dir" / "myrock.rock", "fake")
@@ -179,9 +183,9 @@ class TestArtifactsBuild:
     def test_build_propagates_resources_to_generated(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 1\n"
-            "rocks:\n- name: myrock\n  source: rock_dir\n"
-            "charms:\n- name: mycharm\n  source: .\n"
+            "version: 2\n"
+            "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
+            "charms:\n- name: mycharm\n  charmcraft-yaml: charmcraft.yaml\n"
             "  resources:\n"
             "    myrock-image:\n"
             "      type: oci-image\n"
@@ -209,8 +213,8 @@ class TestArtifactsBuild:
         """Resource referencing a rock not in artifacts.yaml has unresolved output."""
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 1\n"
-            "charms:\n- name: mycharm\n  source: .\n"
+            "version: 2\n"
+            "charms:\n- name: mycharm\n  charmcraft-yaml: charmcraft.yaml\n"
             "  resources:\n"
             "    myrock-image:\n"
             "      type: oci-image\n"
@@ -228,11 +232,94 @@ class TestArtifactsBuild:
         assert res.file is None
         assert res.image is None
 
-    def test_version_1_generated_is_rejected(self, tmp_path: Path) -> None:
+    def test_version_2_generated_is_rejected(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts-generated.yaml",
-            "version: 1\ncharms:\n- name: c\n  source: .\n"
+            "version: 2\ncharms:\n- name: c\n  source: .\n"
             "  output:\n    file: ./c.charm\n",
         )
         with pytest.raises(Exception, match="validation error"):
             load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+
+    def test_build_rock_with_pack_dir_creates_symlink(self, tmp_path: Path) -> None:
+        """pack-dir: a temporary rockcraft.yaml symlink is created and removed."""
+        rock_subdir = tmp_path / "rocks" / "myrock"
+        rock_subdir.mkdir(parents=True)
+        _write(rock_subdir / "rockcraft.yaml", "name: myrock\n")
+        # The .rock output lands in pack_dir (repo root), not rock_subdir
+        _write(tmp_path / "myrock_1.0_amd64.rock", "fake rock")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 2\n"
+            "rocks:\n- name: myrock\n"
+            "  rockcraft-yaml: rocks/myrock/rockcraft.yaml\n"
+            "  pack-dir: .\n",
+        )
+
+        created_symlinks: list[Path] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> None:
+            # Verify symlink exists during the build
+            symlink = tmp_path / "rockcraft.yaml"
+            assert symlink.is_symlink(), "symlink should exist while pack runs"
+            created_symlinks.append(symlink)
+
+        with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
+            result = artifacts_build(tmp_path)
+
+        # Symlink must be removed after build
+        assert not (tmp_path / "rockcraft.yaml").exists()
+        gen = load_artifacts_generated(result)
+        assert gen.rocks[0].output.file is not None
+
+    def test_build_rock_pack_dir_real_file_raises(self, tmp_path: Path) -> None:
+        """A real rockcraft.yaml at pack-dir raises ConfigurationError."""
+        rock_subdir = tmp_path / "rocks" / "myrock"
+        rock_subdir.mkdir(parents=True)
+        _write(rock_subdir / "rockcraft.yaml", "name: myrock\n")
+        # Real file at the pack-dir location (not a symlink)
+        _write(tmp_path / "rockcraft.yaml", "name: other\n")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 2\n"
+            "rocks:\n- name: myrock\n"
+            "  rockcraft-yaml: rocks/myrock/rockcraft.yaml\n"
+            "  pack-dir: .\n",
+        )
+
+        with (
+            patch("opcli.core.artifacts.run_command"),
+            pytest.raises(ConfigurationError, match="regular file already exists"),
+        ):
+            artifacts_build(tmp_path)
+
+    def test_build_rock_pack_dir_existing_symlink_replaced(
+        self, tmp_path: Path
+    ) -> None:
+        """An existing symlink at pack-dir is replaced without error."""
+        rock_subdir = tmp_path / "rocks" / "myrock"
+        rock_subdir.mkdir(parents=True)
+        _write(rock_subdir / "rockcraft.yaml", "name: myrock\n")
+        _write(tmp_path / "myrock_1.0_amd64.rock", "fake rock")
+
+        # Pre-existing symlink pointing somewhere else
+        existing_symlink = tmp_path / "rockcraft.yaml"
+        existing_symlink.symlink_to("/dev/null")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 2\n"
+            "rocks:\n- name: myrock\n"
+            "  rockcraft-yaml: rocks/myrock/rockcraft.yaml\n"
+            "  pack-dir: .\n",
+        )
+
+        with patch("opcli.core.artifacts.run_command"):
+            result = artifacts_build(tmp_path)
+
+        # Symlink removed after build
+        assert not existing_symlink.exists()
+        gen = load_artifacts_generated(result)
+        assert gen.rocks[0].output.file is not None

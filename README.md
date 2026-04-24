@@ -162,6 +162,47 @@ Different suites can each declare their own `TOX_ENV` value.
 | `spread.yaml` | Spread configuration with a virtual `integration-test` backend expanded by opcli. |
 | `tests/integration/run/task.yaml` | Spread task that runs integration tests via `opcli pytest expand`. |
 
+## `artifacts.yaml` schema (v2)
+
+Each artifact entry uses an explicit path to its craft YAML file rather than a directory:
+
+```yaml
+version: 2
+rocks:
+  - name: my-rock
+    rockcraft-yaml: rocks/my-rock/rockcraft.yaml
+charms:
+  - name: my-charm
+    charmcraft-yaml: charmcraft.yaml
+    resources:
+      my-rock-image:
+        type: oci-image
+        rock: my-rock
+snaps:
+  - name: my-snap
+    snapcraft-yaml: snap/snapcraft.yaml
+    pack-dir: .        # run snapcraft pack from the repo root
+```
+
+### `pack-dir` (rocks and snaps)
+
+By default `opcli artifacts build` runs the pack tool from the directory that contains
+the craft YAML file. Set `pack-dir` to run from a different directory. This is required
+for Go monorepos where `go.mod` lives at the repository root but `rockcraft.yaml` lives
+in a subdirectory:
+
+```yaml
+rocks:
+  - name: my-go-rock
+    rockcraft-yaml: rocks/my-go-rock/rockcraft.yaml
+    pack-dir: .    # rockcraft pack runs from the repo root where go.mod lives
+```
+
+When `pack-dir` differs from the directory containing the craft YAML, opcli creates a
+temporary symlink `<pack-dir>/rockcraft.yaml → <rockcraft-yaml>` before running
+`rockcraft pack`, then removes it afterwards. If a real (non-symlink) file already
+exists at that path, the build fails with an error.
+
 ## Virtual backend system entry fields
 
 System entries under the virtual `integration-test` (or `tutorial-test`) backend accept opcli-specific fields alongside standard spread fields:

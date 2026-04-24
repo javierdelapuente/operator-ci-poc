@@ -25,7 +25,7 @@ class TestArtifactsPlan:
 
     def test_minimal_valid(self) -> None:
         plan = ArtifactsPlan()
-        assert plan.version == 1
+        assert plan.version == 2  # noqa: PLR2004
         assert plan.rocks == []
         assert plan.charms == []
         assert plan.snaps == []
@@ -33,13 +33,17 @@ class TestArtifactsPlan:
     def test_full_example(self) -> None:
         plan = ArtifactsPlan(
             rocks=[
-                RockArtifact(name="indico", source="indico_rock"),
-                RockArtifact(name="indico-nginx", source="nginx_rock"),
+                RockArtifact(
+                    name="indico", rockcraft_yaml="indico_rock/rockcraft.yaml"
+                ),
+                RockArtifact(
+                    name="indico-nginx", rockcraft_yaml="nginx_rock/rockcraft.yaml"
+                ),
             ],
             charms=[
                 CharmArtifact(
                     name="indico",
-                    source=".",
+                    charmcraft_yaml="charmcraft.yaml",
                     resources={
                         "indico-image": ArtifactResource(
                             type="oci-image", rock="indico"
@@ -56,8 +60,8 @@ class TestArtifactsPlan:
         with pytest.raises(ValidationError, match="Duplicate rock"):
             ArtifactsPlan(
                 rocks=[
-                    RockArtifact(name="myrock", source="a"),
-                    RockArtifact(name="myrock", source="b"),
+                    RockArtifact(name="myrock", rockcraft_yaml="a/rockcraft.yaml"),
+                    RockArtifact(name="myrock", rockcraft_yaml="b/rockcraft.yaml"),
                 ]
             )
 
@@ -65,43 +69,74 @@ class TestArtifactsPlan:
         with pytest.raises(ValidationError, match="Duplicate charm"):
             ArtifactsPlan(
                 charms=[
-                    CharmArtifact(name="mycharm", source="a"),
-                    CharmArtifact(name="mycharm", source="b"),
+                    CharmArtifact(name="mycharm", charmcraft_yaml="a/charmcraft.yaml"),
+                    CharmArtifact(name="mycharm", charmcraft_yaml="b/charmcraft.yaml"),
                 ]
             )
 
     def test_extra_fields_rejected(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs"):
-            ArtifactsPlan.model_validate({"version": 1, "unknown_key": "val"})
+            ArtifactsPlan.model_validate({"version": 2, "unknown_key": "val"})
 
     def test_wrong_version_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            ArtifactsPlan.model_validate({"version": 2})
+            ArtifactsPlan.model_validate({"version": 1})
 
     def test_resource_wrong_type_rejected(self) -> None:
         with pytest.raises(ValidationError):
             ArtifactResource(type="file")  # type: ignore[arg-type]
 
     def test_from_yaml_dict(self) -> None:
-        """Validate a dict that mimics YAML load output."""
+        """Validate a dict that mimics YAML load output (hyphenated keys)."""
         data = {
-            "version": 1,
-            "rocks": [{"name": "myrock", "source": "rock_dir"}],
+            "version": 2,
+            "rocks": [{"name": "myrock", "rockcraft-yaml": "rock_dir/rockcraft.yaml"}],
             "charms": [
                 {
                     "name": "mycharm",
-                    "source": ".",
+                    "charmcraft-yaml": "charmcraft.yaml",
                     "resources": {
                         "img": {"type": "oci-image", "rock": "myrock"},
                     },
                 }
             ],
-            "snaps": [{"name": "mysnap", "source": "snap_dir"}],
+            "snaps": [
+                {
+                    "name": "mysnap",
+                    "snapcraft-yaml": "snap/snapcraft.yaml",
+                    "pack-dir": ".",
+                }
+            ],
         }
         plan = ArtifactsPlan.model_validate(data)
         assert plan.rocks[0].name == "myrock"
         assert plan.charms[0].resources["img"].rock == "myrock"
         assert plan.snaps[0].name == "mysnap"
+        assert plan.snaps[0].pack_dir == "."
+
+    def test_pack_dir_optional(self) -> None:
+        rock = RockArtifact(name="myrock", rockcraft_yaml="rock/rockcraft.yaml")
+        assert rock.pack_dir is None
+
+    def test_pack_dir_set(self) -> None:
+        rock = RockArtifact(
+            name="myrock", rockcraft_yaml="rock/rockcraft.yaml", pack_dir="."
+        )
+        assert rock.pack_dir == "."
+
+    def test_artifacts_yaml_serializes_with_hyphens(self) -> None:
+        """dump_artifacts_plan must emit hyphenated keys, not underscored."""
+        plan = ArtifactsPlan(
+            rocks=[
+                RockArtifact(name="r", rockcraft_yaml="r/rockcraft.yaml", pack_dir=".")
+            ],
+        )
+        dumped = plan.model_dump(by_alias=True, exclude_none=True)
+        rock = dumped["rocks"][0]
+        assert "rockcraft-yaml" in rock
+        assert "pack-dir" in rock
+        assert "rockcraft_yaml" not in rock
+        assert "pack_dir" not in rock
 
 
 class TestArtifactsGenerated:
@@ -146,14 +181,14 @@ class TestArtifactsGenerated:
             rocks=[
                 GeneratedRock(
                     name="indico",
-                    source="indico_rock",
+                    rockcraft_yaml="indico_rock/rockcraft.yaml",
                     output=ArtifactOutput(file="./indico.rock"),
                 )
             ],
             charms=[
                 GeneratedCharm(
                     name="indico",
-                    source=".",
+                    charmcraft_yaml="charmcraft.yaml",
                     output=ArtifactOutput(file="./indico.charm"),
                 )
             ],
@@ -163,14 +198,14 @@ class TestArtifactsGenerated:
 
     def test_generated_extra_fields_rejected(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs"):
-            ArtifactsGenerated.model_validate({"version": 1, "junk": True})
+            ArtifactsGenerated.model_validate({"version": 3, "junk": True})
 
     def test_snap_generated(self) -> None:
         gen = ArtifactsGenerated(
             snaps=[
                 GeneratedSnap(
                     name="mysnap",
-                    source="snap_dir",
+                    snapcraft_yaml="snap/snapcraft.yaml",
                     output=ArtifactOutput(file="./mysnap.snap"),
                 )
             ],

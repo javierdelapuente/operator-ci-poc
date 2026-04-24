@@ -43,7 +43,7 @@ def load_artifacts_plan(path: Path) -> ArtifactsPlan:
 
 def dump_artifacts_plan(plan: ArtifactsPlan, path: Path) -> None:
     """Serialize an :class:`ArtifactsPlan` to YAML."""
-    dump_yaml(plan.model_dump(exclude_none=True), path)
+    dump_yaml(plan.model_dump(exclude_none=True, by_alias=True), path)
 
 
 def load_artifacts_generated(path: Path) -> ArtifactsGenerated:

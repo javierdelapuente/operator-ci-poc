@@ -77,21 +77,36 @@ def artifacts_init(root: Path, *, force: bool = False) -> Path:
     return dest
 
 
-def _find_output_file(source_dir: Path, kind: str, root: Path) -> str:
-    """Glob for the built artifact in *source_dir*, returning a relative path."""
-    pattern = _OUTPUT_GLOBS[kind]
-    matches = sorted(globmod.glob(str(source_dir / pattern)))
-    if not matches:
-        msg = f"No {pattern} found in {source_dir} after pack"
+def _snapshot_outputs(pack_dir: Path, kind: str) -> set[str]:
+    """Return the set of existing output files in *pack_dir* for *kind*."""
+    return set(globmod.glob(str(pack_dir / _OUTPUT_GLOBS[kind])))
+
+
+def _pick_new_output(
+    before: set[str], after: set[str], kind: str, pack_dir: Path
+) -> str:
+    """Return the new output file produced by pack, relative to repo root."""
+    new_files = sorted(after - before)
+    if not new_files:
+        # Fallback: use all files (handles edge case where pre-existing file
+        # was overwritten in place rather than written as a new path).
+        new_files = sorted(after)
+    if not new_files:
+        msg = f"No {_OUTPUT_GLOBS[kind]} found in {pack_dir} after pack"
         raise OpcliError(msg)
-    if len(matches) > 1:
+    if len(new_files) > 1:
         logger.warning(
-            "Multiple %s files in %s; using %s",
-            pattern,
-            source_dir,
-            matches[0],
+            "Multiple new %s files in %s; using %s",
+            _OUTPUT_GLOBS[kind],
+            pack_dir,
+            new_files[0],
         )
-    resolved = Path(matches[0]).resolve()
+    return new_files[0]
+
+
+def _relative_to_root(path_str: str, root: Path) -> str:
+    """Return *path_str* as a relative path from *root*."""
+    resolved = Path(path_str).resolve()
     try:
         return str(resolved.relative_to(root.resolve()))
     except ValueError as exc:
@@ -99,13 +114,61 @@ def _find_output_file(source_dir: Path, kind: str, root: Path) -> str:
         raise OpcliError(msg) from exc
 
 
+def _resolve_pack_dir(yaml_path: Path, pack_dir_str: str | None, root: Path) -> Path:
+    """Resolve the directory from which the pack command should run."""
+    if pack_dir_str:
+        return (root / pack_dir_str).resolve()
+    return yaml_path.parent.resolve()
+
+
+def _with_rock_symlink(
+    yaml_path: Path,
+    pack_dir: Path,
+) -> tuple[Path | None, bool]:
+    """Prepare a rockcraft.yaml symlink in *pack_dir* if needed.
+
+    Returns ``(symlink_path, created)`` where *created* is ``True`` when this
+    call created the symlink (and the caller must remove it afterwards).
+
+    Raises:
+        ConfigurationError: If a real (non-symlink) file already exists at the
+            target location.
+    """
+    if pack_dir == yaml_path.parent:
+        return None, False
+
+    target = pack_dir / yaml_path.name  # e.g. pack_dir/rockcraft.yaml
+    if target.exists() and not target.is_symlink():
+        msg = (
+            f"A regular file already exists at {target}. "
+            "Remove it or set pack-dir to a directory without a rockcraft.yaml."
+        )
+        raise ConfigurationError(msg)
+    if target.is_symlink():
+        target.unlink()
+    target.symlink_to(yaml_path.resolve())
+    return target, True
+
+
 def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
-    source_dir = root / rock.source
-    run_command([*_PACK_COMMANDS["rock"]], cwd=str(source_dir))
-    output_file = _find_output_file(source_dir, "rock", root)
+    yaml_path = (root / rock.rockcraft_yaml).resolve()
+    pack_dir = _resolve_pack_dir(yaml_path, rock.pack_dir, root)
+
+    before = _snapshot_outputs(pack_dir, "rock")
+
+    symlink_path, symlink_created = _with_rock_symlink(yaml_path, pack_dir)
+    try:
+        run_command([*_PACK_COMMANDS["rock"]], cwd=str(pack_dir))
+    finally:
+        if symlink_created and symlink_path and symlink_path.exists():
+            symlink_path.unlink()
+
+    after = _snapshot_outputs(pack_dir, "rock")
+    new_output = _pick_new_output(before, after, "rock", pack_dir)
+    output_file = _relative_to_root(new_output, root)
     return GeneratedRock(
         name=rock.name,
-        source=rock.source,
+        **{"rockcraft-yaml": rock.rockcraft_yaml},
         output=ArtifactOutput(file=output_file),
     )
 
@@ -115,9 +178,14 @@ def _build_charm(
     root: Path,
     all_rocks: dict[str, GeneratedRock],
 ) -> GeneratedCharm:
-    source_dir = root / charm.source
-    run_command([*_PACK_COMMANDS["charm"]], cwd=str(source_dir))
-    output_file = _find_output_file(source_dir, "charm", root)
+    yaml_path = (root / charm.charmcraft_yaml).resolve()
+    pack_dir = _resolve_pack_dir(yaml_path, charm.pack_dir, root)
+
+    before = _snapshot_outputs(pack_dir, "charm")
+    run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
+    after = _snapshot_outputs(pack_dir, "charm")
+    new_output = _pick_new_output(before, after, "charm", pack_dir)
+    output_file = _relative_to_root(new_output, root)
 
     resources: dict[str, GeneratedResource] = {}
     for res_name, res_def in charm.resources.items():
@@ -136,19 +204,24 @@ def _build_charm(
 
     return GeneratedCharm(
         name=charm.name,
-        source=charm.source,
+        **{"charmcraft-yaml": charm.charmcraft_yaml},
         output=ArtifactOutput(file=output_file),
         resources=resources if resources else None,
     )
 
 
 def _build_snap(snap: SnapArtifact, root: Path) -> GeneratedSnap:
-    source_dir = root / snap.source
-    run_command([*_PACK_COMMANDS["snap"]], cwd=str(source_dir))
-    output_file = _find_output_file(source_dir, "snap", root)
+    yaml_path = (root / snap.snapcraft_yaml).resolve()
+    pack_dir = _resolve_pack_dir(yaml_path, snap.pack_dir, root)
+
+    before = _snapshot_outputs(pack_dir, "snap")
+    run_command([*_PACK_COMMANDS["snap"]], cwd=str(pack_dir))
+    after = _snapshot_outputs(pack_dir, "snap")
+    new_output = _pick_new_output(before, after, "snap", pack_dir)
+    output_file = _relative_to_root(new_output, root)
     return GeneratedSnap(
         name=snap.name,
-        source=snap.source,
+        **{"snapcraft-yaml": snap.snapcraft_yaml},
         output=ArtifactOutput(file=output_file),
     )
 
