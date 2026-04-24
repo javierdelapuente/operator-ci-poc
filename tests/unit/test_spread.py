@@ -155,10 +155,12 @@ class TestSpreadExpand:
         assert "lxc launch --vm" in local["allocate"]
         assert "SPREAD_PASSWORD" in local["allocate"]
         assert "lxc delete --force" in local["discard"]
-        assert "concierge" in local["prepare"]
-        assert "runuser" in local["prepare"]
-        assert 'runuser -l ubuntu -c "sudo concierge prepare' in local["prepare"]
-        assert "opcli provision load" in local["prepare"]
+        prepare = local["prepare"]
+        assert "sudo concierge prepare" in prepare
+        assert "opcli provision registry" in prepare
+        assert "runuser -l ubuntu" in prepare
+        assert '"${SPREAD_PATH}"' in prepare
+        assert "opcli provision load" in prepare
 
         # Systems should have username: ubuntu injected
         systems = local["systems"]
