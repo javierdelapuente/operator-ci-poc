@@ -274,13 +274,13 @@ sudo apt-get install -y pipx --quiet
 sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
     pipx install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
 runuser -l ubuntu -c "uv tool install tox --with tox-uv"
-chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 if [ -f "$CONCIERGE" ]; then
   sudo concierge prepare -c "$CONCIERGE"
 fi
 if [ -f artifacts-generated.yaml ]; then
   opcli provision load
 fi
+chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
 _CI_PREPARE = """\
