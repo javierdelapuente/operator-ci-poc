@@ -220,22 +220,19 @@ def provision_registry(
         )
         return "skipped"
 
+    # Use the provider-specific kubectl — MicroK8s and canonical k8s both
+    # bundle their own kubectl rather than relying on a separate install.
+    kubectl = ["microk8s", "kubectl"] if microk8s_on else ["k8s", "kubectl"]
+
     # Wait for at least one node to be Ready before deploying — freshly
     # bootstrapped clusters (e.g. in nested LXD) can take a while.
     run_command(
-        [
-            "kubectl",
-            "wait",
-            "--for=condition=Ready",
-            "node",
-            "--all",
-            "--timeout=300s",
-        ]
+        [*kubectl, "wait", "--for=condition=Ready", "node", "--all", "--timeout=300s"]
     )
-    run_command(["kubectl", "apply", "-f", str(_REGISTRY_YAML)])
+    run_command([*kubectl, "apply", "-f", str(_REGISTRY_YAML)])
     run_command(
         [
-            "kubectl",
+            *kubectl,
             "rollout",
             "status",
             _REGISTRY_DEPLOYMENT,

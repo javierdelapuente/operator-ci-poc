@@ -252,6 +252,13 @@ providers:
     channel: 3.6/stable
 """
 
+_CONCIERGE_MICROK8S_DISABLED = """\
+providers:
+  microk8s:
+    enable: false
+    channel: 1.34-strict/stable
+"""
+
 
 class TestProvisionRegistry:
     """Tests for provision_registry()."""
@@ -264,6 +271,17 @@ class TestProvisionRegistry:
 
     def test_skipped_when_no_k8s_provider(self, tmp_path: Path) -> None:
         _write(tmp_path / "concierge.yaml", _CONCIERGE_NEITHER)
+        with (
+            patch("opcli.core.provision._is_port_open", return_value=False),
+            patch("opcli.core.provision.run_command") as mock_run,
+        ):
+            result = provision_registry(tmp_path)
+        assert result == "skipped"
+        mock_run.assert_not_called()
+
+    def test_skipped_when_provider_explicitly_disabled(self, tmp_path: Path) -> None:
+        """enable: false in concierge.yaml opts the provider out."""
+        _write(tmp_path / "concierge.yaml", _CONCIERGE_MICROK8S_DISABLED)
         with (
             patch("opcli.core.provision._is_port_open", return_value=False),
             patch("opcli.core.provision.run_command") as mock_run,
@@ -290,11 +308,20 @@ class TestProvisionRegistry:
         ):
             result = provision_registry(tmp_path)
         assert result == "deployed"
-        # Three calls: kubectl wait + kubectl apply + rollout status
+        # Three calls: microk8s kubectl wait + apply + rollout status
         assert mock_run.call_count == 3  # noqa: PLR2004
-        assert mock_run.call_args_list[0][0][0][:2] == ["kubectl", "wait"]
-        assert mock_run.call_args_list[1][0][0][:3] == ["kubectl", "apply", "-f"]
-        assert "rollout" in mock_run.call_args_list[2][0][0]
+        assert mock_run.call_args_list[0][0][0][:3] == ["microk8s", "kubectl", "wait"]
+        assert mock_run.call_args_list[1][0][0][:4] == [
+            "microk8s",
+            "kubectl",
+            "apply",
+            "-f",
+        ]
+        assert mock_run.call_args_list[2][0][0][:3] == [
+            "microk8s",
+            "kubectl",
+            "rollout",
+        ]
 
     def test_provider_enabled_without_explicit_enable_key(self, tmp_path: Path) -> None:
         """Provider listed without enable: key should be treated as enabled."""
@@ -315,15 +342,15 @@ class TestProvisionRegistry:
         ):
             result = provision_registry(tmp_path)
         assert result == "deployed"
-        # Three calls: kubectl wait (node Ready) + kubectl apply + rollout status
+        # Three calls: k8s kubectl wait + apply + rollout status
         assert mock_run.call_count == 3  # noqa: PLR2004
         wait_cmd = mock_run.call_args_list[0][0][0]
-        assert wait_cmd[:2] == ["kubectl", "wait"]
+        assert wait_cmd[:3] == ["k8s", "kubectl", "wait"]
         assert "--for=condition=Ready" in wait_cmd
         apply_cmd = mock_run.call_args_list[1][0][0]
-        assert apply_cmd[:3] == ["kubectl", "apply", "-f"]
+        assert apply_cmd[:4] == ["k8s", "kubectl", "apply", "-f"]
         rollout_cmd = mock_run.call_args_list[2][0][0]
-        assert "rollout" in rollout_cmd
+        assert rollout_cmd[:3] == ["k8s", "kubectl", "rollout"]
         assert "status" in rollout_cmd
         assert "deployment/registry" in rollout_cmd
         assert "container-registry" in rollout_cmd
