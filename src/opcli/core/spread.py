@@ -268,10 +268,12 @@ fi
 
 _LOCAL_PREPARE = """\
 sudo snap install concierge --classic
+sudo snap install astral-uv --classic
 sudo apt-get update --quiet
 sudo apt-get install -y pipx --quiet
 sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
     pipx install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
+runuser -l ubuntu -c "uv tool install tox --with tox-uv"
 if [ -f "$CONCIERGE" ]; then
   sudo concierge prepare -c "$CONCIERGE"
 fi
