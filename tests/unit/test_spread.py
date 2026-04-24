@@ -156,6 +156,8 @@ class TestSpreadExpand:
         assert "SPREAD_PASSWORD" in local["allocate"]
         assert "lxc delete --force" in local["discard"]
         assert "concierge" in local["prepare"]
+        assert "runuser" in local["prepare"]
+        assert "sudo concierge" not in local["prepare"]
         assert "opcli provision load" in local["prepare"]
 
         # Systems should have username: ubuntu injected
