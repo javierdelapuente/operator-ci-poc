@@ -45,6 +45,20 @@ def _stream_pipe(
         dest.flush()
 
 
+def _write_stdin(pipe: io.TextIOWrapper, data: str) -> None:
+    """Write *data* to *pipe* and close it.
+
+    ``BrokenPipeError`` and ``ValueError`` are silently swallowed — they
+    mean the subprocess closed its stdin early, which is normal for commands
+    that consume all their input before exiting.
+    """
+    try:
+        pipe.write(data)
+        pipe.close()
+    except (BrokenPipeError, ValueError):
+        pass
+
+
 def run_command(  # noqa: PLR0913
     cmd: list[str],
     *,
@@ -53,6 +67,7 @@ def run_command(  # noqa: PLR0913
     check: bool = True,
     stream: bool = True,
     interactive: bool = False,
+    stdin: str | None = None,
 ) -> SubprocessResult:
     """Execute *cmd* and return captured output.
 
@@ -70,16 +85,24 @@ def run_command(  # noqa: PLR0913
         interactive: If ``True``, inherit the parent's stdin/stdout/stderr
             so the subprocess has full TTY access. Required for commands
             like ``spread -shell``. Output is not captured in this mode.
+            Cannot be combined with *stdin*.
+        stdin: Optional string to feed to the subprocess's standard input.
+            Useful for commands that read from stdin (e.g. ``kubectl apply
+            -f -``). Cannot be combined with *interactive*.
 
     Raises:
         SubprocessError: If the command fails and *check* is ``True``.
+        ValueError: If both *interactive* and *stdin* are provided.
 
     """
+    if interactive and stdin is not None:
+        msg = "'interactive' and 'stdin' are mutually exclusive"
+        raise ValueError(msg)
     if interactive:
         return _run_interactive(cmd, cwd=cwd, check=check)
     if stream:
-        return _run_streaming(cmd, cwd=cwd, timeout=timeout, check=check)
-    return _run_captured(cmd, cwd=cwd, timeout=timeout, check=check)
+        return _run_streaming(cmd, cwd=cwd, timeout=timeout, check=check, stdin=stdin)
+    return _run_captured(cmd, cwd=cwd, timeout=timeout, check=check, stdin=stdin)
 
 
 def _log_command(cmd: list[str], cwd: str | None) -> None:
@@ -124,6 +147,7 @@ def _run_streaming(
     cwd: str | None = None,
     timeout: int = _DEFAULT_TIMEOUT_SECONDS,
     check: bool = True,
+    stdin: str | None = None,
 ) -> SubprocessResult:
     """Run *cmd* with real-time output to the terminal."""
     _log_command(cmd, cwd)
@@ -132,6 +156,7 @@ def _run_streaming(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            stdin=subprocess.PIPE if stdin is not None else None,
             text=True,
             cwd=cwd,
         )
@@ -161,12 +186,26 @@ def _run_streaming(
     out_thread.start()
     err_thread.start()
 
+    # Write stdin in a dedicated thread so the main thread remains free to
+    # enforce the timeout and reader threads can drain stdout/stderr
+    # concurrently, preventing deadlocks.
+    in_thread: threading.Thread | None = None
+    if stdin is not None and proc.stdin is not None:
+        in_thread = threading.Thread(
+            target=_write_stdin,
+            args=(proc.stdin, stdin),
+            daemon=True,
+        )
+        in_thread.start()
+
     try:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         proc.kill()
         out_thread.join(timeout=2)
         err_thread.join(timeout=2)
+        if in_thread is not None:
+            in_thread.join(timeout=2)
         partial = "".join(stderr_lines)
         raise SubprocessError(
             cmd=cmd,
@@ -176,6 +215,8 @@ def _run_streaming(
 
     out_thread.join()
     err_thread.join()
+    if in_thread is not None:
+        in_thread.join()
 
     result = SubprocessResult(
         stdout="".join(stdout_lines),
@@ -199,6 +240,7 @@ def _run_captured(
     cwd: str | None = None,
     timeout: int = _DEFAULT_TIMEOUT_SECONDS,
     check: bool = True,
+    stdin: str | None = None,
 ) -> SubprocessResult:
     """Run *cmd* with fully buffered output (no terminal echo)."""
     _log_command(cmd, cwd)
@@ -210,6 +252,7 @@ def _run_captured(
             cwd=cwd,
             timeout=timeout,
             check=False,
+            input=stdin,
         )
     except subprocess.TimeoutExpired as exc:
         partial_err = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""

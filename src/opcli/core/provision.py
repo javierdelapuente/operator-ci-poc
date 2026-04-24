@@ -229,7 +229,7 @@ def provision_registry(
     run_command(
         [*kubectl, "wait", "--for=condition=Ready", "node", "--all", "--timeout=300s"]
     )
-    run_command([*kubectl, "apply", "-f", str(_REGISTRY_YAML)])
+    run_command([*kubectl, "apply", "-f", "-"], stdin=_REGISTRY_YAML.read_text())
     run_command(
         [
             *kubectl,

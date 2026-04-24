@@ -311,12 +311,9 @@ class TestProvisionRegistry:
         # Three calls: microk8s kubectl wait + apply + rollout status
         assert mock_run.call_count == 3  # noqa: PLR2004
         assert mock_run.call_args_list[0][0][0][:3] == ["microk8s", "kubectl", "wait"]
-        assert mock_run.call_args_list[1][0][0][:4] == [
-            "microk8s",
-            "kubectl",
-            "apply",
-            "-f",
-        ]
+        apply_call = mock_run.call_args_list[1]
+        assert apply_call[0][0] == ["microk8s", "kubectl", "apply", "-f", "-"]
+        assert apply_call[1]["stdin"]  # manifest content passed via stdin
         assert mock_run.call_args_list[2][0][0][:3] == [
             "microk8s",
             "kubectl",
@@ -347,8 +344,9 @@ class TestProvisionRegistry:
         wait_cmd = mock_run.call_args_list[0][0][0]
         assert wait_cmd[:3] == ["k8s", "kubectl", "wait"]
         assert "--for=condition=Ready" in wait_cmd
-        apply_cmd = mock_run.call_args_list[1][0][0]
-        assert apply_cmd[:4] == ["k8s", "kubectl", "apply", "-f"]
+        apply_call = mock_run.call_args_list[1]
+        assert apply_call[0][0] == ["k8s", "kubectl", "apply", "-f", "-"]
+        assert apply_call[1]["stdin"]  # manifest content passed via stdin
         rollout_cmd = mock_run.call_args_list[2][0][0]
         assert rollout_cmd[:3] == ["k8s", "kubectl", "rollout"]
         assert "status" in rollout_cmd
@@ -374,13 +372,15 @@ class TestProvisionRegistry:
         mock_run.assert_called()
 
     def test_k8s_manifest_contains_registry_image(self, tmp_path: Path) -> None:
-        """Verify the registry.yaml file references registry:2 on NodePort 32000."""
+        """Verify the registry.yaml manifest references registry:2 on NodePort 32000."""
         _write(tmp_path / "concierge.yaml", _CONCIERGE_K8S)
-        applied_paths: list[str] = []
+        applied_stdin: list[str] = []
 
-        def capture_apply(cmd: list[str], **_kwargs: object) -> object:
+        def capture_apply(cmd: list[str], **kwargs: object) -> object:
             if "apply" in cmd:
-                applied_paths.append(cmd[cmd.index("-f") + 1])
+                stdin_content = kwargs.get("stdin")
+                if isinstance(stdin_content, str):
+                    applied_stdin.append(stdin_content)
             return None
 
         with (
@@ -389,8 +389,8 @@ class TestProvisionRegistry:
         ):
             provision_registry(tmp_path)
 
-        assert applied_paths, "apply was not called"
-        content = Path(applied_paths[0]).read_text()
+        assert applied_stdin, "apply was not called with stdin"
+        content = applied_stdin[0]
         assert "registry:2" in content
         assert "nodePort: 32000" in content
         assert "container-registry" in content
