@@ -189,6 +189,7 @@ def _run_streaming(
     # Write stdin in a dedicated thread so the main thread remains free to
     # enforce the timeout and reader threads can drain stdout/stderr
     # concurrently, preventing deadlocks.
+    in_thread: threading.Thread | None = None
     if stdin is not None and proc.stdin is not None:
         in_thread = threading.Thread(
             target=_write_stdin,
@@ -203,6 +204,8 @@ def _run_streaming(
         proc.kill()
         out_thread.join(timeout=2)
         err_thread.join(timeout=2)
+        if in_thread is not None:
+            in_thread.join(timeout=2)
         partial = "".join(stderr_lines)
         raise SubprocessError(
             cmd=cmd,
@@ -212,6 +215,8 @@ def _run_streaming(
 
     out_thread.join()
     err_thread.join()
+    if in_thread is not None:
+        in_thread.join()
 
     result = SubprocessResult(
         stdout="".join(stdout_lines),
