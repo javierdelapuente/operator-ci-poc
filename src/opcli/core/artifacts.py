@@ -160,7 +160,7 @@ def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
     try:
         run_command([*_PACK_COMMANDS["rock"]], cwd=str(pack_dir))
     finally:
-        if symlink_created and symlink_path and symlink_path.is_symlink():
+        if symlink_created and symlink_path and symlink_path.exists():
             symlink_path.unlink()
 
     after = _snapshot_outputs(pack_dir, "rock")
