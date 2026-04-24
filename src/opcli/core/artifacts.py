@@ -85,23 +85,43 @@ def _snapshot_outputs(pack_dir: Path, kind: str) -> set[str]:
 def _pick_new_output(
     before: set[str], after: set[str], kind: str, pack_dir: Path
 ) -> str:
-    """Return the new output file produced by pack, relative to repo root."""
+    """Return the new output file produced by pack, relative to repo root.
+
+    Three cases:
+    1. New files appeared (``after - before`` non-empty) — use those.
+    2. No files at all — raise error.
+    3. Same files before and after — the build overwrote an existing file in
+       place.  Unambiguous only when there is exactly one file; otherwise we
+       cannot determine which file was just produced.
+    """
     new_files = sorted(after - before)
-    if not new_files:
-        # Fallback: use all files (handles edge case where pre-existing file
-        # was overwritten in place rather than written as a new path).
-        new_files = sorted(after)
-    if not new_files:
+    if new_files:
+        if len(new_files) > 1:
+            logger.warning(
+                "Multiple new %s files in %s; using %s",
+                _OUTPUT_GLOBS[kind],
+                pack_dir,
+                new_files[0],
+            )
+        return new_files[0]
+
+    # No new files — check overwrite-in-place case.
+    if not after:
         msg = f"No {_OUTPUT_GLOBS[kind]} found in {pack_dir} after pack"
         raise OpcliError(msg)
-    if len(new_files) > 1:
-        logger.warning(
-            "Multiple new %s files in %s; using %s",
-            _OUTPUT_GLOBS[kind],
-            pack_dir,
-            new_files[0],
-        )
-    return new_files[0]
+
+    if len(after) == 1:
+        # Exactly one pre-existing file; the build overwrote it in place.
+        return next(iter(after))
+
+    # Multiple pre-existing files, none added — cannot determine which was built.
+    msg = (
+        f"Cannot determine which {_OUTPUT_GLOBS[kind]} in {pack_dir} was just "
+        "built: the pack tool overwrote an existing file but multiple "
+        f"{_OUTPUT_GLOBS[kind]} files already exist. "
+        "Use a dedicated pack-dir that does not contain pre-existing output files."
+    )
+    raise OpcliError(msg)
 
 
 def _relative_to_root(path_str: str, root: Path) -> str:
@@ -125,7 +145,13 @@ def _with_rock_symlink(
     yaml_path: Path,
     pack_dir: Path,
 ) -> tuple[Path | None, bool]:
-    """Prepare a rockcraft.yaml symlink in *pack_dir* if needed.
+    """Prepare a ``rockcraft.yaml`` symlink in *pack_dir* if needed.
+
+    Rockcraft always looks for a file literally named ``rockcraft.yaml`` in
+    the working directory, regardless of the actual filename of the craft YAML.
+    This function creates ``<pack_dir>/rockcraft.yaml → yaml_path`` when the
+    source file is not already named ``rockcraft.yaml`` and located in
+    ``pack_dir``.
 
     Returns ``(symlink_path, created)`` where *created* is ``True`` when this
     call created the symlink (and the caller must remove it afterwards).
@@ -134,10 +160,11 @@ def _with_rock_symlink(
         ConfigurationError: If a real (non-symlink) file already exists at the
             target location.
     """
-    if pack_dir == yaml_path.parent:
+    target = pack_dir / "rockcraft.yaml"  # always the standard name
+    if target == yaml_path:
+        # Already named rockcraft.yaml and already in pack_dir — no symlink needed.
         return None, False
 
-    target = pack_dir / yaml_path.name  # e.g. pack_dir/rockcraft.yaml
     if target.exists() and not target.is_symlink():
         msg = (
             f"A regular file already exists at {target}. "
@@ -146,13 +173,19 @@ def _with_rock_symlink(
         raise ConfigurationError(msg)
     if target.is_symlink():
         target.unlink()
-    target.symlink_to(yaml_path.resolve())
+    target.symlink_to(yaml_path)
     return target, True
 
 
 def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
     yaml_path = (root / rock.rockcraft_yaml).resolve()
+    if not yaml_path.is_file():
+        msg = f"rockcraft-yaml not found: {rock.rockcraft_yaml}"
+        raise ConfigurationError(msg)
     pack_dir = _resolve_pack_dir(yaml_path, rock.pack_dir, root)
+    if not pack_dir.is_dir():
+        msg = f"pack-dir not found: {rock.pack_dir}"
+        raise ConfigurationError(msg)
 
     before = _snapshot_outputs(pack_dir, "rock")
 
@@ -179,7 +212,13 @@ def _build_charm(
     all_rocks: dict[str, GeneratedRock],
 ) -> GeneratedCharm:
     yaml_path = (root / charm.charmcraft_yaml).resolve()
+    if not yaml_path.is_file():
+        msg = f"charmcraft-yaml not found: {charm.charmcraft_yaml}"
+        raise ConfigurationError(msg)
     pack_dir = _resolve_pack_dir(yaml_path, charm.pack_dir, root)
+    if not pack_dir.is_dir():
+        msg = f"pack-dir not found: {charm.pack_dir}"
+        raise ConfigurationError(msg)
 
     before = _snapshot_outputs(pack_dir, "charm")
     run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
@@ -212,7 +251,13 @@ def _build_charm(
 
 def _build_snap(snap: SnapArtifact, root: Path) -> GeneratedSnap:
     yaml_path = (root / snap.snapcraft_yaml).resolve()
+    if not yaml_path.is_file():
+        msg = f"snapcraft-yaml not found: {snap.snapcraft_yaml}"
+        raise ConfigurationError(msg)
     pack_dir = _resolve_pack_dir(yaml_path, snap.pack_dir, root)
+    if not pack_dir.is_dir():
+        msg = f"pack-dir not found: {snap.pack_dir}"
+        raise ConfigurationError(msg)
 
     before = _snapshot_outputs(pack_dir, "snap")
     run_command([*_PACK_COMMANDS["snap"]], cwd=str(pack_dir))

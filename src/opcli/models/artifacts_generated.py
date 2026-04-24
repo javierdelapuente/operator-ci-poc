@@ -2,14 +2,12 @@
 
 Extends the build plan with paths/references of the built artifacts.
 
-Schema version history
-----------------------
-v1 — initial release (charm resources not included)
-v2 — charm entries carry a ``resources`` mapping with resolved output paths,
-     making ``artifacts-generated.yaml`` self-contained (no need to also read
-     ``artifacts.yaml`` when assembling pytest flags).
-v3 — ``source`` renamed to ``<tool>-yaml`` (explicit path to the craft YAML
-     file) to align with the v2 ``artifacts.yaml`` schema change.
+Schema version: 1
+- Each artifact carries an explicit path to its craft YAML file
+  (``rockcraft-yaml``, ``charmcraft-yaml``, ``snapcraft-yaml``).
+- Charm entries include a ``resources`` mapping with resolved output paths
+  (file or image), making ``artifacts-generated.yaml`` self-contained for
+  pytest flag assembly without needing to also read ``artifacts.yaml``.
 """
 
 from __future__ import annotations
@@ -88,11 +86,7 @@ class GeneratedSnap(BaseModel):
 
 
 class ArtifactsGenerated(BaseModel):
-    """Top-level schema for ``artifacts-generated.yaml`` (schema version 3).
-
-    Version 3 renames ``source`` to ``<tool>-yaml`` in all artifact entries
-    to align with the explicit yaml-file-path convention in ``artifacts.yaml``.
-    """
+    """Top-level schema for ``artifacts-generated.yaml`` (schema version 1)."""
 
     model_config = ConfigDict(extra="forbid")
 
