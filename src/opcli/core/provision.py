@@ -32,7 +32,7 @@ from ruamel.yaml import YAML
 
 from opcli.core.exceptions import ConfigurationError
 from opcli.core.subprocess import run_command
-from opcli.core.yaml_io import load_artifacts_generated
+from opcli.core.yaml_io import dump_artifacts_generated, load_artifacts_generated
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +151,10 @@ def provision_load(
         rock_path = Path(rock.output.file)
         image_ref = f"{registry}/{rock.name}:latest"
 
+        if rock.output.image == image_ref:
+            logger.info("Already loaded %s, skipping", image_ref)
+            continue
+
         # Push directly from .rock archive to registry in one step — no Docker
         # daemon needed (avoids failures in MicroK8s-only environments).
         run_command(
@@ -166,8 +170,17 @@ def provision_load(
             cwd=str(root),
         )
 
+        rock.output.image = image_ref
+        for charm in generated.charms:
+            for res in (charm.resources or {}).values():
+                if res.rock == rock.name:
+                    res.image = image_ref
+
         pushed.append(image_ref)
         logger.info("Pushed %s", image_ref)
+
+    if pushed:
+        dump_artifacts_generated(generated, gen_path)
 
     return pushed
 

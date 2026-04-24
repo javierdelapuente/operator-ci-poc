@@ -58,7 +58,7 @@ def assemble_pytest_args(
             args.append(f"--charm-file={charm.output.file}")
 
         for res_name, res in (charm.resources or {}).items():
-            value = res.file or res.image
+            value = res.image or res.file
             if value:
                 args.append(f"--{res_name}={value}")
 

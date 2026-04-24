@@ -10,6 +10,7 @@ import pytest
 
 from opcli.core.exceptions import ConfigurationError
 from opcli.core.provision import provision_load, provision_registry, provision_run
+from opcli.core.yaml_io import load_artifacts_generated
 
 
 def _write(path: Path, content: str) -> None:
@@ -33,6 +34,29 @@ charms:
   source: .
   output:
     file: ./mycharm.charm
+"""
+
+_GENERATED_WITH_ROCKS_AND_RESOURCES = """\
+version: 2
+rocks:
+- name: myrock
+  source: rock_dir
+  output:
+    file: ./rock_dir/myrock.rock
+charms:
+- name: mycharm
+  source: .
+  output:
+    file: ./mycharm.charm
+  resources:
+    myrock-image:
+      type: oci-image
+      rock: myrock
+      file: ./rock_dir/myrock.rock
+    other-res:
+      type: oci-image
+      rock: otherrock
+      image: ghcr.io/canonical/otherrock:abc
 """
 
 
@@ -133,6 +157,64 @@ class TestProvisionLoad:
         assert any("docker://" in arg for arg in cmd)
         assert not any("docker-daemon:" in arg for arg in cmd)
         assert "--dest-tls-verify=false" in cmd
+
+    def test_updates_artifacts_generated_with_image_ref(self, tmp_path: Path) -> None:
+        """After pushing, rock.output.image is set and file is preserved."""
+        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_WITH_ROCKS)
+
+        with patch("opcli.core.provision.run_command"):
+            provision_load(tmp_path)
+
+        updated = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        myrock = next(r for r in updated.rocks if r.name == "myrock")
+        assert myrock.output.image == "localhost:32000/myrock:latest"
+        assert myrock.output.file == "./rock_dir/myrock.rock"
+
+    def test_updates_charm_resources_for_pushed_rock(self, tmp_path: Path) -> None:
+        """Charm resources referencing a pushed rock get image ref set."""
+        _write(
+            tmp_path / "artifacts-generated.yaml",
+            _GENERATED_WITH_ROCKS_AND_RESOURCES,
+        )
+
+        with patch("opcli.core.provision.run_command"):
+            provision_load(tmp_path)
+
+        updated = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        charm = updated.charms[0]
+        myrock_res = charm.resources["myrock-image"]  # type: ignore[index]
+        assert myrock_res.image == "localhost:32000/myrock:latest"
+        assert myrock_res.file == "./rock_dir/myrock.rock"
+        # Resource referencing a different rock is not touched
+        other_res = charm.resources["other-res"]  # type: ignore[index]
+        assert other_res.image == "ghcr.io/canonical/otherrock:abc"
+
+    def test_idempotent_skips_already_loaded_rock(self, tmp_path: Path) -> None:
+        """Rock with image already set to the target ref is skipped."""
+        _write(
+            tmp_path / "artifacts-generated.yaml",
+            "version: 2\n"
+            "rocks:\n- name: myrock\n  source: rock_dir\n"
+            "  output:\n    file: ./rock_dir/myrock.rock\n"
+            "    image: localhost:32000/myrock:latest\n",
+        )
+
+        with patch("opcli.core.provision.run_command") as mock_run:
+            pushed = provision_load(tmp_path)
+
+        assert pushed == []
+        mock_run.assert_not_called()
+
+    def test_no_writeback_when_nothing_pushed(self, tmp_path: Path) -> None:
+        """artifacts-generated.yaml is not written when no rocks are pushed."""
+        _write(tmp_path / "artifacts-generated.yaml", "version: 2\n")
+        mtime_before = (tmp_path / "artifacts-generated.yaml").stat().st_mtime
+
+        with patch("opcli.core.provision.run_command"):
+            provision_load(tmp_path)
+
+        mtime_after = (tmp_path / "artifacts-generated.yaml").stat().st_mtime
+        assert mtime_before == mtime_after
 
 
 _CONCIERGE_MICROK8S = """\
