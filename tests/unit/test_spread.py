@@ -53,7 +53,7 @@ class TestSpreadInit:
         assert "integration-test" in content
 
         task_content = task_path.read_text()
-        assert "opcli pytest expand" in task_content
+        assert 'opcli pytest expand -e "${TOX_ENV:-integration}"' in task_content
 
     def test_generates_required_fields(self, tmp_path: Path) -> None:
         spread_path, _ = spread_init(tmp_path)
@@ -85,6 +85,7 @@ class TestSpreadInit:
         assert "CONCIERGE" in env
         # MODULE variants belong in the suite, not the root environment
         assert not any(k.startswith("MODULE") for k in env)
+        assert "TOX_ENV" not in env
 
     def test_module_vars_in_suite_environment(self, tmp_path: Path) -> None:
         test_dir = tmp_path / "tests" / "integration"
@@ -98,8 +99,10 @@ class TestSpreadInit:
         suite_env = parsed["suites"]["tests/integration/"]["environment"]
         assert suite_env["MODULE/test_charm"] == "test_charm"
         assert suite_env["MODULE/test_actions"] == "test_actions"
+        assert suite_env["TOX_ENV"] == ""
         # Also not in root environment
         assert "MODULE/test_charm" not in parsed["environment"]
+        assert "TOX_ENV" not in parsed["environment"]
 
     def test_discovers_test_modules(self, tmp_path: Path) -> None:
         test_dir = tmp_path / "tests" / "integration"
@@ -128,7 +131,8 @@ class TestSpreadInit:
 
         spread_path, task_path = spread_init(tmp_path, force=True)
         assert "integration-test" in spread_path.read_text()
-        assert "opcli pytest expand" in task_path.read_text()
+        tox_env_flag = 'opcli pytest expand -e "${TOX_ENV:-integration}"'
+        assert tox_env_flag in task_path.read_text()
 
     def test_project_name_from_directory(self, tmp_path: Path) -> None:
         spread_path, _ = spread_init(tmp_path)
