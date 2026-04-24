@@ -221,6 +221,15 @@ def provision_registry(
         logger.info("No %s found, skipping registry setup.", concierge_file)
         return "skipped"
 
+    # Skip if there are no rocks to push — the registry is only needed to serve
+    # locally-built rock images.
+    gen_path = root / _ARTIFACTS_GENERATED_YAML
+    if gen_path.exists():
+        generated = load_artifacts_generated(gen_path)
+        if not generated.rocks:
+            logger.info("No rocks in %s, skipping registry setup.", _ARTIFACTS_GENERATED_YAML)
+            return "skipped"
+
     # Quick TCP probe — skip if something is already listening.
     if _is_port_open("localhost", _REGISTRY_PORT):
         logger.info("Registry already running at localhost:%d.", _REGISTRY_PORT)
