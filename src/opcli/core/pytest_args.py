@@ -4,9 +4,14 @@ Reads ``artifacts-generated.yaml`` and assembles the flags that tox/pytest
 need to locate built charms and their OCI-image resources.
 
 Convention (matching operator-workflows):
-    --charm-file <path>          for each locally built charm
-    --<resource-name> <path>     for each OCI-image resource with a local file
-    --<resource-name> <image>    for each OCI-image resource with a registry image
+    --charm-file=<path>          for each locally built charm
+    --<resource-name>=<path>     for each OCI-image resource with a local file
+    --<resource-name>=<image>    for each OCI-image resource with a registry image
+
+The ``KEY=VALUE`` form is required because some conftest.py files register
+``--charm-file`` with ``nargs="+"``, which makes argparse greedy.  With the
+space-separated form, subsequent ``--charm-file`` tokens would be consumed as
+values of the first flag instead of starting a new flag.
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ def assemble_pytest_args(
 
     Returns:
         A list of CLI flags like
-        ``["--charm-file", "path.charm", "--img", "path.rock"]``.
+        ``["--charm-file=path.charm", "--img=path.rock"]``.
 
     Raises:
         ConfigurationError: If required YAML files are missing.
@@ -69,7 +74,7 @@ def assemble_pytest_args(
 
     for charm in generated.charms:
         if charm.output.file:
-            args.extend(["--charm-file", charm.output.file])
+            args.append(f"--charm-file={charm.output.file}")
 
         # Resolve resource flags from the plan's resource definitions.
         if plan is None:
@@ -80,7 +85,7 @@ def assemble_pytest_args(
         for res_name, res_def in plan_charm.resources.items():
             value = _resolve_resource_value(res_def.rock, generated)
             if value:
-                args.extend([f"--{res_name}", value])
+                args.append(f"--{res_name}={value}")
 
     return args
 
