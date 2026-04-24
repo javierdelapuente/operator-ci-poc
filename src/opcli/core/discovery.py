@@ -133,13 +133,15 @@ def _process_marker(
     if kind == "rock":
         name = _read_yaml_name(path)
         rocks.append(
-            RockArtifact(**{"rockcraft-yaml": _yaml_relative(path, root), "name": name})
+            RockArtifact.model_validate(
+                {"rockcraft-yaml": _yaml_relative(path, root), "name": name}
+            )
         )
     elif kind == "snap":
         name = _read_yaml_name(path)
         snap_yaml, pack_dir = _snap_fields(path, root)
-        snap = SnapArtifact(
-            **{"snapcraft-yaml": snap_yaml, "name": name, "pack-dir": pack_dir}
+        snap = SnapArtifact.model_validate(
+            {"snapcraft-yaml": snap_yaml, "name": name, "pack-dir": pack_dir}
         )
         snaps.append(snap)
     elif kind == "charm":
@@ -211,8 +213,8 @@ def discover_artifacts(root: Path) -> ArtifactsPlan:
     for charm_name, charm_yaml, raw_resources in charm_raw:
         resources = _link_charm_resources(charm_name, raw_resources, rock_names)
         charms.append(
-            CharmArtifact(
-                **{
+            CharmArtifact.model_validate(
+                {
                     "charmcraft-yaml": charm_yaml,
                     "name": charm_name,
                     "resources": resources,
