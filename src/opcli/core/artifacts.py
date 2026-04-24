@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import glob as globmod
 import logging
+import os
 from pathlib import Path
 
 from opcli.core.discovery import discover_artifacts
@@ -149,9 +150,13 @@ def _with_rock_symlink(
 
     Rockcraft always looks for a file literally named ``rockcraft.yaml`` in
     the working directory, regardless of the actual filename of the craft YAML.
-    This function creates ``<pack_dir>/rockcraft.yaml → yaml_path`` when the
-    source file is not already named ``rockcraft.yaml`` and located in
+    This function creates ``<pack_dir>/rockcraft.yaml → <relative-path>`` when
+    the source file is not already named ``rockcraft.yaml`` and located in
     ``pack_dir``.
+
+    The symlink target is always **relative** so that it remains valid when
+    rockcraft copies the pack-dir into a managed LXC container (where the
+    host absolute path does not exist).
 
     Returns ``(symlink_path, created)`` where *created* is ``True`` when this
     call created the symlink (and the caller must remove it afterwards).
@@ -173,7 +178,7 @@ def _with_rock_symlink(
         raise ConfigurationError(msg)
     if target.is_symlink():
         target.unlink()
-    target.symlink_to(yaml_path)
+    target.symlink_to(os.path.relpath(yaml_path, pack_dir))
     return target, True
 
 

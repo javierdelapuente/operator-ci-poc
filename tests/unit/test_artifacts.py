@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -355,15 +356,21 @@ class TestArtifactsBuild:
         )
 
         symlink_seen: list[bool] = []
+        symlink_target: list[str] = []
 
         def fake_run(cmd: list[str], **kwargs: object) -> None:
             symlink = tmp_path / "rockcraft.yaml"
             symlink_seen.append(symlink.is_symlink())
+            if symlink.is_symlink():
+                symlink_target.append(str(os.readlink(symlink)))
 
         with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
             result = artifacts_build(tmp_path)
 
         assert symlink_seen == [True], "symlink must exist while pack runs"
+        assert symlink_target == ["planner-rockcraft.yaml"], (
+            "symlink target must be relative"
+        )
         assert not (tmp_path / "rockcraft.yaml").exists(), "symlink removed after build"
         gen = load_artifacts_generated(result)
         assert gen.rocks[0].output.file is not None
