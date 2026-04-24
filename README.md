@@ -76,6 +76,9 @@ opcli artifacts build
 # Provision the environment with concierge
 opcli provision run
 
+# Deploy a local OCI registry (if k8s or MicroK8s is enabled in concierge.yaml)
+opcli provision registry
+
 # Load rock images into the local registry
 opcli provision load
 
@@ -109,6 +112,7 @@ opcli pytest expand -- -k test_charm
 |---|---|
 | `opcli provision run` | Run `concierge prepare` to provision the test environment. |
 | `opcli provision load` | Push locally-built rock images to a container registry. Use `-r` to set registry (default: `localhost:32000`). |
+| `opcli provision registry` | Deploy a local OCI registry at `localhost:32000`. Reads `concierge.yaml` to detect whether MicroK8s or canonical k8s is enabled and deploys accordingly. No-op if the registry is already running. Use `-c` to specify a custom concierge file path. |
 
 ### `opcli spread`
 
@@ -172,6 +176,21 @@ The `CI` environment variable controls backend expansion:
 |---|---|---|
 | unset/empty | `local:` | LXD VM, concierge inside VM, images pushed to local registry |
 | truthy | `ci:` | Current machine (adhoc), concierge on host, artifacts from GitHub |
+
+## Local OCI registry
+
+When running integration tests locally with k8s or MicroK8s, rock images need to be available in a registry that the cluster can pull from.
+
+`opcli provision registry` deploys a local OCI registry at `localhost:32000` by inspecting `concierge.yaml`:
+
+- **MicroK8s**: runs `microk8s enable registry`, which deploys the registry pod and configures containerd to trust `localhost:32000` as an insecure registry.
+- **Canonical k8s**: applies an embedded Kubernetes manifest (a `registry:2` Deployment + NodePort 32000 Service). **Note:** for workloads to pull from `localhost:32000` you may also need to configure containerd's insecure-registries setting for canonical k8s separately.
+- **Neither enabled**: logs a message and skips — no action taken.
+- **Already running**: detects an existing listener on port 32000 and skips without modifying anything.
+
+When using `opcli spread run`, the local prepare script automatically calls `opcli provision registry -c "$CONCIERGE"` after `concierge prepare`, so no manual step is needed in the spread workflow.
+
+> **MicroK8s note:** `opcli provision registry` calls `microk8s enable registry` directly. If you previously had `addons: [registry]` in your `concierge.yaml`, you can remove it — calling the addon twice is harmless but redundant.
 
 ## Development
 
