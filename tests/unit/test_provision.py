@@ -295,12 +295,14 @@ class TestProvisionRegistry:
         ):
             result = provision_registry(tmp_path)
         assert result == "deployed"
-        # Two calls: kubectl apply + kubectl rollout status
-        call_count = 2
-        assert mock_run.call_count == call_count
-        apply_cmd = mock_run.call_args_list[0][0][0]
+        # Three calls: kubectl wait (node Ready) + kubectl apply + rollout status
+        assert mock_run.call_count == 3  # noqa: PLR2004
+        wait_cmd = mock_run.call_args_list[0][0][0]
+        assert wait_cmd[:2] == ["kubectl", "wait"]
+        assert "--for=condition=Ready" in wait_cmd
+        apply_cmd = mock_run.call_args_list[1][0][0]
         assert apply_cmd[:3] == ["kubectl", "apply", "-f"]
-        rollout_cmd = mock_run.call_args_list[1][0][0]
+        rollout_cmd = mock_run.call_args_list[2][0][0]
         assert "rollout" in rollout_cmd
         assert "status" in rollout_cmd
         assert "deployment/registry" in rollout_cmd
