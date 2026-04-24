@@ -222,3 +222,33 @@ canonical k8s it may require additional manual configuration.
 k8s would need to push to a public registry or configure one manually.
 Deploying a registry pod via `kubectl apply` gives a uniform `localhost:32000`
 endpoint that matches the default `opcli provision load` target.
+
+---
+
+## 10. `opcli artifacts init` supports the legacy charmcraft split format
+
+**Spec:** Describes discovery of charms via `charmcraft.yaml` and extraction
+of `name` and `resources` from that file, without mentioning alternate layouts.
+
+**Implementation:** Many real-world charms use the **legacy split format**
+where `charmcraft.yaml` contains only build configuration and `metadata.yaml`
+(alongside it) holds the charm's `name`, `summary`, `description`, and
+`resources`. This is a supported and documented charmcraft pattern; it is also
+required by charms that use `ops.testing.Harness` without migrating to the
+unified format.
+
+`opcli artifacts init` handles this transparently:
+
+- If `name` is absent from `charmcraft.yaml`, it falls back to `metadata.yaml`
+  in the same directory.
+- If `resources` is absent from `charmcraft.yaml`, it falls back to
+  `metadata.yaml` in the same directory.
+- When `name` is present in `charmcraft.yaml` (unified format), it is used
+  directly and `metadata.yaml` is ignored — no behaviour change for unified
+  repos.
+- The fallback only applies to `charmcraft.yaml`; `rockcraft.yaml` and
+  `snapcraft.yaml` always carry their own `name`.
+
+**Rationale:** Treating the split format as an error would block `opcli`
+adoption in repositories that cannot yet migrate to the unified format (e.g.
+because their unit tests depend on `Harness` reading `metadata.yaml`).
