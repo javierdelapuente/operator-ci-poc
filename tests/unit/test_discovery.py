@@ -41,24 +41,25 @@ class TestDiscovery:
         plan = discover_artifacts(tmp_path)
         assert len(plan.charms) == 1
         assert plan.charms[0].name == "mycharm"
-        assert plan.charms[0].source == "."
+        assert plan.charms[0].charmcraft_yaml == "charmcraft.yaml"
 
     def test_single_rock(self, tmp_path: Path) -> None:
         _write(tmp_path / "myrock" / "rockcraft.yaml", "name: myrock\n")
         plan = discover_artifacts(tmp_path)
         assert len(plan.rocks) == 1
         assert plan.rocks[0].name == "myrock"
-        assert plan.rocks[0].source == "myrock"
+        assert plan.rocks[0].rockcraft_yaml == "myrock/rockcraft.yaml"
 
     def test_single_snap(self, tmp_path: Path) -> None:
         _write(tmp_path / "snap_dir" / "snapcraft.yaml", "name: mysnap\n")
         plan = discover_artifacts(tmp_path)
         assert len(plan.snaps) == 1
         assert plan.snaps[0].name == "mysnap"
-        assert plan.snaps[0].source == "snap_dir"
+        assert plan.snaps[0].snapcraft_yaml == "snap_dir/snapcraft.yaml"
+        assert plan.snaps[0].pack_dir is None
 
     def test_snap_under_snap_subdir(self, tmp_path: Path) -> None:
-        """snapcraft.yaml under snap/ → source is the parent directory."""
+        """snapcraft.yaml under snap/ → pack_dir is the parent directory."""
         _write(
             tmp_path / "myproject" / "snap" / "snapcraft.yaml",
             "name: mysnap\n",
@@ -66,15 +67,17 @@ class TestDiscovery:
         plan = discover_artifacts(tmp_path)
         assert len(plan.snaps) == 1
         assert plan.snaps[0].name == "mysnap"
-        assert plan.snaps[0].source == "myproject"
+        assert plan.snaps[0].snapcraft_yaml == "myproject/snap/snapcraft.yaml"
+        assert plan.snaps[0].pack_dir == "myproject"
 
     def test_snap_under_snap_subdir_at_root(self, tmp_path: Path) -> None:
-        """snap/snapcraft.yaml at repo root → source is '.'."""
+        """snap/snapcraft.yaml at repo root → pack_dir is '.'."""
         _write(tmp_path / "snap" / "snapcraft.yaml", "name: mysnap\n")
         plan = discover_artifacts(tmp_path)
         assert len(plan.snaps) == 1
         assert plan.snaps[0].name == "mysnap"
-        assert plan.snaps[0].source == "."
+        assert plan.snaps[0].snapcraft_yaml == "snap/snapcraft.yaml"
+        assert plan.snaps[0].pack_dir == "."
 
     def test_monorepo(self, tmp_path: Path) -> None:
         _write(tmp_path / "charmcraft.yaml", "name: main-charm\ntype: charm\n")
@@ -90,7 +93,7 @@ class TestDiscovery:
         _write(tmp_path / "a" / "b" / "c" / "rockcraft.yaml", "name: deep-rock\n")
         plan = discover_artifacts(tmp_path)
         assert len(plan.rocks) == 1
-        assert plan.rocks[0].source == "a/b/c"
+        assert plan.rocks[0].rockcraft_yaml == "a/b/c/rockcraft.yaml"
 
     def test_pruned_directories_skipped(self, tmp_path: Path) -> None:
         _write(tmp_path / ".venv" / "rockcraft.yaml", "name: venv-rock\n")
@@ -188,13 +191,17 @@ class TestYamlIO:
     def test_artifacts_plan_round_trip(self, tmp_path: Path) -> None:
         plan = ArtifactsPlan.model_validate(
             {
-                "version": 1,
-                "rocks": [{"name": "r1", "source": "rd"}],
-                "charms": [{"name": "c1", "source": "."}],
+                "version": 2,
+                "rocks": [{"name": "r1", "rockcraft-yaml": "rd/rockcraft.yaml"}],
+                "charms": [{"name": "c1", "charmcraft-yaml": "charmcraft.yaml"}],
             }
         )
         path = tmp_path / "artifacts.yaml"
         dump_artifacts_plan(plan, path)
+        raw = path.read_text()
+        # hyphenated keys must be present in the file
+        assert "rockcraft-yaml" in raw
+        assert "charmcraft-yaml" in raw
         loaded = load_artifacts_plan(path)
         assert loaded == plan
 
@@ -203,7 +210,7 @@ class TestYamlIO:
             rocks=[
                 GeneratedRock(
                     name="r1",
-                    source="rd",
+                    rockcraft_yaml="rd/rockcraft.yaml",
                     output=ArtifactOutput(file="./r1.rock"),
                 )
             ],
@@ -218,7 +225,7 @@ class TestYamlIO:
             rocks=[
                 GeneratedRock(
                     name="r1",
-                    source="rd",
+                    rockcraft_yaml="rd/rockcraft.yaml",
                     output=ArtifactOutput(artifact="a1", run_id="42"),
                 )
             ],

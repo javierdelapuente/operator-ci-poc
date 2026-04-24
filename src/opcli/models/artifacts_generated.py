@@ -8,6 +8,8 @@ v1 — initial release (charm resources not included)
 v2 — charm entries carry a ``resources`` mapping with resolved output paths,
      making ``artifacts-generated.yaml`` self-contained (no need to also read
      ``artifacts.yaml`` when assembling pytest flags).
+v3 — ``source`` renamed to ``<tool>-yaml`` (explicit path to the craft YAML
+     file) to align with the v2 ``artifacts.yaml`` schema change.
 """
 
 from __future__ import annotations
@@ -57,20 +59,20 @@ class GeneratedResource(BaseModel):
 class GeneratedRock(BaseModel):
     """A rock with its build output."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     name: str
-    source: str
+    rockcraft_yaml: str = Field(alias="rockcraft-yaml")
     output: ArtifactOutput
 
 
 class GeneratedCharm(BaseModel):
     """A charm with its build output and resolved resource paths."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     name: str
-    source: str
+    charmcraft_yaml: str = Field(alias="charmcraft-yaml")
     output: ArtifactOutput
     resources: dict[str, GeneratedResource] | None = None
 
@@ -78,23 +80,23 @@ class GeneratedCharm(BaseModel):
 class GeneratedSnap(BaseModel):
     """A snap with its build output."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     name: str
-    source: str
+    snapcraft_yaml: str = Field(alias="snapcraft-yaml")
     output: ArtifactOutput
 
 
 class ArtifactsGenerated(BaseModel):
-    """Top-level schema for ``artifacts-generated.yaml`` (schema version 2).
+    """Top-level schema for ``artifacts-generated.yaml`` (schema version 3).
 
-    Version 2 adds resolved ``resources`` to charm entries so that
-    ``opcli pytest expand`` only needs this file (not ``artifacts.yaml``).
+    Version 3 renames ``source`` to ``<tool>-yaml`` in all artifact entries
+    to align with the explicit yaml-file-path convention in ``artifacts.yaml``.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[2] = 2
+    version: Literal[3] = 3
     rocks: list[GeneratedRock] = []
     charms: list[GeneratedCharm] = []
     snaps: list[GeneratedSnap] = []

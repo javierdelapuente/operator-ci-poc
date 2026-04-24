@@ -100,25 +100,24 @@ def _read_charm_resources(path: Path) -> dict[str, dict[str, Any]]:
     return dict(resources)
 
 
-def _source_relative(marker_path: Path, root: Path) -> str:
-    """Return the marker file's directory as a relative path from *root*."""
-    rel = marker_path.parent.relative_to(root)
-    return str(rel) if str(rel) != "." else "."
+def _yaml_relative(marker_path: Path, root: Path) -> str:
+    """Return the marker file path relative to *root*."""
+    return str(marker_path.relative_to(root))
 
 
-def _snap_source_relative(marker_path: Path, root: Path) -> str:
-    """Return the snap project root relative to *root*.
+def _snap_fields(marker_path: Path, root: Path) -> tuple[str, str | None]:
+    """Return ``(snapcraft_yaml, pack_dir)`` for a snapcraft.yaml marker.
 
-    Snapcraft supports ``snapcraft.yaml`` in the project root **or** under
-    a ``snap/`` subdirectory.  When the marker lives at ``*/snap/snapcraft.yaml``
-    the project root (where ``snapcraft pack`` should run) is the parent of
-    ``snap/``.
+    When the marker lives at ``*/snap/snapcraft.yaml`` the build tool should
+    run from the parent of ``snap/``, so ``pack_dir`` is set to that parent
+    directory.  Otherwise ``pack_dir`` is ``None`` (defaults to the yaml dir).
     """
+    yaml_rel = str(marker_path.relative_to(root))
     if marker_path.parent.name == "snap":
-        rel = marker_path.parent.parent.relative_to(root)
-    else:
-        rel = marker_path.parent.relative_to(root)
-    return str(rel) if str(rel) != "." else "."
+        parent = marker_path.parent.parent
+        pack_dir_rel = str(parent.relative_to(root)) if parent != root else "."
+        return yaml_rel, pack_dir_rel
+    return yaml_rel, None
 
 
 def _process_marker(
@@ -130,19 +129,23 @@ def _process_marker(
 ) -> None:
     """Process a single marker file found during discovery."""
     kind = _MARKER_FILES[path.name]
-    source = _source_relative(path, root)
 
     if kind == "rock":
         name = _read_yaml_name(path)
-        rocks.append(RockArtifact(name=name, source=source))
+        rocks.append(
+            RockArtifact(**{"rockcraft-yaml": _yaml_relative(path, root), "name": name})
+        )
     elif kind == "snap":
         name = _read_yaml_name(path)
-        snap_source = _snap_source_relative(path, root)
-        snaps.append(SnapArtifact(name=name, source=snap_source))
+        snap_yaml, pack_dir = _snap_fields(path, root)
+        snap = SnapArtifact(
+            **{"snapcraft-yaml": snap_yaml, "name": name, "pack-dir": pack_dir}
+        )
+        snaps.append(snap)
     elif kind == "charm":
         name = _read_yaml_name(path)
         raw_resources = _read_charm_resources(path)
-        charm_raw.append((name, source, raw_resources))
+        charm_raw.append((name, _yaml_relative(path, root), raw_resources))
 
 
 def _link_charm_resources(
@@ -205,10 +208,16 @@ def discover_artifacts(root: Path) -> ArtifactsPlan:
         _process_marker(path, root, rocks, snaps, charm_raw)
 
     rock_names = {r.name for r in rocks}
-    for charm_name, charm_source, raw_resources in charm_raw:
+    for charm_name, charm_yaml, raw_resources in charm_raw:
         resources = _link_charm_resources(charm_name, raw_resources, rock_names)
         charms.append(
-            CharmArtifact(name=charm_name, source=charm_source, resources=resources)
+            CharmArtifact(
+                **{
+                    "charmcraft-yaml": charm_yaml,
+                    "name": charm_name,
+                    "resources": resources,
+                }
+            )
         )
 
     return ArtifactsPlan(rocks=rocks, charms=charms, snaps=snaps)

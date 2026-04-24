@@ -252,3 +252,41 @@ unified format.
 **Rationale:** Treating the split format as an error would block `opcli`
 adoption in repositories that cannot yet migrate to the unified format (e.g.
 because their unit tests depend on `Harness` reading `metadata.yaml`).
+
+---
+
+## 11. `artifacts.yaml` uses explicit yaml-file paths instead of source directories
+
+**Spec:** The `artifacts.yaml` schema uses a `source` field containing the
+**directory** that contains the craft YAML file (e.g. `source: rocks/my-rock`).
+
+**Implementation (v2 schema):** The `source` field is replaced by an explicit
+path to the craft YAML file:
+
+```yaml
+version: 2
+rocks:
+  - name: my-rock
+    rockcraft-yaml: rocks/my-rock/rockcraft.yaml
+charms:
+  - name: my-charm
+    charmcraft-yaml: charmcraft.yaml
+snaps:
+  - name: my-snap
+    snapcraft-yaml: snap/snapcraft.yaml
+    pack-dir: .
+```
+
+An optional `pack-dir` field is added to all artifact types. When set, the
+build tool (`rockcraft pack`, `charmcraft pack`, `snapcraft pack`) is invoked
+from `pack-dir` instead of from the directory containing the craft YAML. For
+rocks, opcli creates a temporary `rockcraft.yaml` symlink in `pack-dir` before
+running the build and removes it afterwards.
+
+**Rationale:** Go monorepos place `go.mod` at the repository root but
+`rockcraft.yaml` in a subdirectory. Rockcraft's managed LXC container does not
+follow symlinks, so the go-framework extension fails to find `go.mod` unless
+`rockcraft pack` runs from the repo root. The `pack-dir` field enables this
+without requiring a manual workaround. The explicit yaml-file path (rather than
+directory) makes the configuration unambiguous and consistent across all
+artifact types.

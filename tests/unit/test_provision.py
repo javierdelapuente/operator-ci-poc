@@ -19,33 +19,33 @@ def _write(path: Path, content: str) -> None:
 
 
 _GENERATED_WITH_ROCKS = """\
-version: 2
+version: 3
 rocks:
 - name: myrock
-  source: rock_dir
+  rockcraft-yaml: rock_dir/rockcraft.yaml
   output:
     file: ./rock_dir/myrock.rock
 - name: otherrock
-  source: other
+  rockcraft-yaml: other/rockcraft.yaml
   output:
     image: ghcr.io/canonical/otherrock:abc
 charms:
 - name: mycharm
-  source: .
+  charmcraft-yaml: charmcraft.yaml
   output:
     file: ./mycharm.charm
 """
 
 _GENERATED_WITH_ROCKS_AND_RESOURCES = """\
-version: 2
+version: 3
 rocks:
 - name: myrock
-  source: rock_dir
+  rockcraft-yaml: rock_dir/rockcraft.yaml
   output:
     file: ./rock_dir/myrock.rock
 charms:
 - name: mycharm
-  source: .
+  charmcraft-yaml: charmcraft.yaml
   output:
     file: ./mycharm.charm
   resources:
@@ -123,8 +123,8 @@ class TestProvisionLoad:
     def test_no_local_rocks_returns_empty(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts-generated.yaml",
-            "version: 2\n"
-            "rocks:\n- name: r1\n  source: rd\n"
+            "version: 3\n"
+            "rocks:\n- name: r1\n  rockcraft-yaml: rd/rockcraft.yaml\n"
             "  output:\n    image: ghcr.io/r1:v1\n",
         )
 
@@ -135,7 +135,7 @@ class TestProvisionLoad:
         mock_run.assert_not_called()
 
     def test_empty_generated_returns_empty(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", "version: 2\n")
+        _write(tmp_path / "artifacts-generated.yaml", "version: 3\n")
 
         with patch("opcli.core.provision.run_command") as mock_run:
             pushed = provision_load(tmp_path)
@@ -193,8 +193,8 @@ class TestProvisionLoad:
         """Rock with image already set to the target ref is skipped."""
         _write(
             tmp_path / "artifacts-generated.yaml",
-            "version: 2\n"
-            "rocks:\n- name: myrock\n  source: rock_dir\n"
+            "version: 3\n"
+            "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
             "  output:\n    file: ./rock_dir/myrock.rock\n"
             "    image: localhost:32000/myrock:latest\n",
         )
@@ -207,7 +207,7 @@ class TestProvisionLoad:
 
     def test_no_writeback_when_nothing_pushed(self, tmp_path: Path) -> None:
         """artifacts-generated.yaml is not written when no rocks are pushed."""
-        _write(tmp_path / "artifacts-generated.yaml", "version: 2\n")
+        _write(tmp_path / "artifacts-generated.yaml", "version: 3\n")
         mtime_before = (tmp_path / "artifacts-generated.yaml").stat().st_mtime
 
         with patch("opcli.core.provision.run_command"):
