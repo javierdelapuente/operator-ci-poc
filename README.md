@@ -162,12 +162,12 @@ Different suites can each declare their own `TOX_ENV` value.
 | `spread.yaml` | Spread configuration with a virtual `integration-test` backend expanded by opcli. |
 | `tests/integration/run/task.yaml` | Spread task that runs integration tests via `opcli pytest expand`. |
 
-## `artifacts.yaml` schema (v2)
+## `artifacts.yaml` schema
 
 Each artifact entry uses an explicit path to its craft YAML file rather than a directory:
 
 ```yaml
-version: 2
+version: 1
 rocks:
   - name: my-rock
     rockcraft-yaml: rocks/my-rock/rockcraft.yaml

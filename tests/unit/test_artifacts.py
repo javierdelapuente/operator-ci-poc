@@ -67,7 +67,7 @@ class TestArtifactsBuild:
     def test_build_single_charm(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\ncharms:\n- name: mycharm\n"
+            "version: 1\ncharms:\n- name: mycharm\n"
             "  charmcraft-yaml: charmcraft.yaml\n",
         )
         # Simulate charmcraft pack producing a .charm file
@@ -88,7 +88,7 @@ class TestArtifactsBuild:
     def test_build_single_rock(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\nrocks:\n- name: myrock\n"
+            "version: 1\nrocks:\n- name: myrock\n"
             "  rockcraft-yaml: rock_dir/rockcraft.yaml\n",
         )
         rock_dir = tmp_path / "rock_dir"
@@ -108,7 +108,7 @@ class TestArtifactsBuild:
     def test_build_single_snap(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\nsnaps:\n- name: mysnap\n"
+            "version: 1\nsnaps:\n- name: mysnap\n"
             "  snapcraft-yaml: snap_dir/snapcraft.yaml\n",
         )
         snap_dir = tmp_path / "snap_dir"
@@ -126,7 +126,7 @@ class TestArtifactsBuild:
     def test_build_filtered_by_charm_name(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\ncharms:\n"
+            "version: 1\ncharms:\n"
             "- name: charm-a\n  charmcraft-yaml: a/charmcraft.yaml\n"
             "- name: charm-b\n  charmcraft-yaml: b/charmcraft.yaml\n",
         )
@@ -143,7 +143,7 @@ class TestArtifactsBuild:
     def test_unknown_charm_name_raises(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\ncharms:\n- name: real\n  charmcraft-yaml: charmcraft.yaml\n",
+            "version: 1\ncharms:\n- name: real\n  charmcraft-yaml: charmcraft.yaml\n",
         )
         with pytest.raises(ConfigurationError, match="Unknown charm"):
             artifacts_build(tmp_path, charm_names=["nonexistent"])
@@ -151,7 +151,7 @@ class TestArtifactsBuild:
     def test_no_output_file_raises(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\nrocks:\n- name: myrock\n"
+            "version: 1\nrocks:\n- name: myrock\n"
             "  rockcraft-yaml: rock_dir/rockcraft.yaml\n",
         )
         (tmp_path / "rock_dir").mkdir()
@@ -165,7 +165,7 @@ class TestArtifactsBuild:
     def test_build_monorepo(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\n"
+            "version: 1\n"
             "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
             "charms:\n- name: mycharm\n  charmcraft-yaml: charmcraft.yaml\n",
         )
@@ -183,7 +183,7 @@ class TestArtifactsBuild:
     def test_build_propagates_resources_to_generated(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\n"
+            "version: 1\n"
             "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
             "charms:\n- name: mycharm\n  charmcraft-yaml: charmcraft.yaml\n"
             "  resources:\n"
@@ -213,7 +213,7 @@ class TestArtifactsBuild:
         """Resource referencing a rock not in artifacts.yaml has unresolved output."""
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\n"
+            "version: 1\n"
             "charms:\n- name: mycharm\n  charmcraft-yaml: charmcraft.yaml\n"
             "  resources:\n"
             "    myrock-image:\n"
@@ -232,10 +232,10 @@ class TestArtifactsBuild:
         assert res.file is None
         assert res.image is None
 
-    def test_version_2_generated_is_rejected(self, tmp_path: Path) -> None:
+    def test_invalid_generated_fields_rejected(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts-generated.yaml",
-            "version: 2\ncharms:\n- name: c\n  source: .\n"
+            "version: 1\ncharms:\n- name: c\n  source: .\n"
             "  output:\n    file: ./c.charm\n",
         )
         with pytest.raises(Exception, match="validation error"):
@@ -251,7 +251,7 @@ class TestArtifactsBuild:
 
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\n"
+            "version: 1\n"
             "rocks:\n- name: myrock\n"
             "  rockcraft-yaml: rocks/myrock/rockcraft.yaml\n"
             "  pack-dir: .\n",
@@ -283,7 +283,7 @@ class TestArtifactsBuild:
 
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\n"
+            "version: 1\n"
             "rocks:\n- name: myrock\n"
             "  rockcraft-yaml: rocks/myrock/rockcraft.yaml\n"
             "  pack-dir: .\n",
@@ -310,7 +310,7 @@ class TestArtifactsBuild:
 
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 2\n"
+            "version: 1\n"
             "rocks:\n- name: myrock\n"
             "  rockcraft-yaml: rocks/myrock/rockcraft.yaml\n"
             "  pack-dir: .\n",

@@ -19,7 +19,7 @@ def _write(path: Path, content: str) -> None:
 
 
 _GENERATED_WITH_ROCKS = """\
-version: 3
+version: 1
 rocks:
 - name: myrock
   rockcraft-yaml: rock_dir/rockcraft.yaml
@@ -37,7 +37,7 @@ charms:
 """
 
 _GENERATED_WITH_ROCKS_AND_RESOURCES = """\
-version: 3
+version: 1
 rocks:
 - name: myrock
   rockcraft-yaml: rock_dir/rockcraft.yaml
@@ -123,7 +123,7 @@ class TestProvisionLoad:
     def test_no_local_rocks_returns_empty(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts-generated.yaml",
-            "version: 3\n"
+            "version: 1\n"
             "rocks:\n- name: r1\n  rockcraft-yaml: rd/rockcraft.yaml\n"
             "  output:\n    image: ghcr.io/r1:v1\n",
         )
@@ -135,7 +135,7 @@ class TestProvisionLoad:
         mock_run.assert_not_called()
 
     def test_empty_generated_returns_empty(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", "version: 3\n")
+        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
 
         with patch("opcli.core.provision.run_command") as mock_run:
             pushed = provision_load(tmp_path)
@@ -193,7 +193,7 @@ class TestProvisionLoad:
         """Rock with image already set to the target ref is skipped."""
         _write(
             tmp_path / "artifacts-generated.yaml",
-            "version: 3\n"
+            "version: 1\n"
             "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
             "  output:\n    file: ./rock_dir/myrock.rock\n"
             "    image: localhost:32000/myrock:latest\n",
@@ -207,7 +207,7 @@ class TestProvisionLoad:
 
     def test_no_writeback_when_nothing_pushed(self, tmp_path: Path) -> None:
         """artifacts-generated.yaml is not written when no rocks are pushed."""
-        _write(tmp_path / "artifacts-generated.yaml", "version: 3\n")
+        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
         mtime_before = (tmp_path / "artifacts-generated.yaml").stat().st_mtime
 
         with patch("opcli.core.provision.run_command"):

@@ -64,7 +64,7 @@ class ArtifactsPlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[2] = 2
+    version: Literal[1] = 1
     rocks: list[RockArtifact] = []
     charms: list[CharmArtifact] = []
     snaps: list[SnapArtifact] = []
