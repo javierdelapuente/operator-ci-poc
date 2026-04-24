@@ -50,13 +50,26 @@ _MARKER_FILES: dict[str, str] = {
 
 
 def _read_yaml_name(path: Path) -> str:
-    """Read the ``name`` field from a craft YAML file."""
+    """Read the ``name`` field from a craft YAML file.
+
+    For charmcraft.yaml, falls back to ``metadata.yaml`` in the same
+    directory when ``name`` is absent (legacy split format where build
+    config lives in ``charmcraft.yaml`` and charm identity lives in
+    ``metadata.yaml``).
+    """
     with path.open() as fh:
         data = _yaml.load(fh)
     if not isinstance(data, dict):
         msg = f"{path} does not contain a YAML mapping"
         raise DiscoveryError(msg)
     name = data.get("name")
+    if (not isinstance(name, str) or not name) and path.name == "charmcraft.yaml":
+        metadata_path = path.parent / "metadata.yaml"
+        if metadata_path.exists():
+            with metadata_path.open() as fh:
+                meta = _yaml.load(fh)
+            if isinstance(meta, dict):
+                name = meta.get("name")
     if not isinstance(name, str) or not name:
         msg = f"{path} is missing a valid 'name' field"
         raise DiscoveryError(msg)
@@ -64,12 +77,24 @@ def _read_yaml_name(path: Path) -> str:
 
 
 def _read_charm_resources(path: Path) -> dict[str, dict[str, Any]]:
-    """Read the ``resources`` section from a charmcraft.yaml file."""
+    """Read the ``resources`` section from a charmcraft.yaml file.
+
+    Falls back to ``metadata.yaml`` in the same directory when the
+    ``resources`` section is absent from ``charmcraft.yaml`` (legacy
+    split format).
+    """
     with path.open() as fh:
         data = _yaml.load(fh)
     if not isinstance(data, dict):
         return {}
     resources = data.get("resources")
+    if not isinstance(resources, dict):
+        metadata_path = path.parent / "metadata.yaml"
+        if metadata_path.exists():
+            with metadata_path.open() as fh:
+                meta = _yaml.load(fh)
+            if isinstance(meta, dict):
+                resources = meta.get("resources")
     if not isinstance(resources, dict):
         return {}
     return dict(resources)
