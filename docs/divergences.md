@@ -48,7 +48,7 @@ execute: |
 execute: |
     loginctl enable-linger ubuntu
     cd "${SPREAD_PATH}"
-    PYTEST_CMD=$(opcli pytest expand -- -k "$MODULE") || exit 1
+    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}" -- -k "$MODULE") || exit 1
     runuser -l ubuntu -c "cd \"${SPREAD_PATH}\" && $PYTEST_CMD"
 ```
 
