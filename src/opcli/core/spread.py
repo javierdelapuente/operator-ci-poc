@@ -276,6 +276,7 @@ sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
 runuser -l ubuntu -c "uv tool install tox --with tox-uv"
 if [ -f "$CONCIERGE" ]; then
   sudo concierge prepare -c "$CONCIERGE"
+  opcli provision registry -c "$CONCIERGE"
 fi
 if [ -f artifacts-generated.yaml ]; then
   opcli provision load
