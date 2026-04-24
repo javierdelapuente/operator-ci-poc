@@ -217,8 +217,9 @@ def provision_registry(
     with open(concierge_path) as fh:
         data = yaml.load(fh)
 
+    providers_raw = data.get("providers", {}) if isinstance(data, dict) else {}
     providers: dict[str, object] = (
-        dict(data.get("providers", {})) if isinstance(data, dict) else {}
+        providers_raw if isinstance(providers_raw, dict) else {}
     )
 
     def _provider_enabled(name: str) -> bool:

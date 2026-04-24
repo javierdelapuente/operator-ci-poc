@@ -261,3 +261,14 @@ class TestProvisionRegistry:
         assert applied_files, "apply was not called"
         assert "registry:2" in applied_files[0]
         assert "nodePort: 32000" in applied_files[0]
+
+    def test_malformed_providers_field_skips_gracefully(self, tmp_path: Path) -> None:
+        """Non-dict providers field should not crash."""
+        _write(tmp_path / "concierge.yaml", "providers: not-a-dict\n")
+        with (
+            patch("opcli.core.provision._is_port_open", return_value=False),
+            patch("opcli.core.provision.run_command") as mock_run,
+        ):
+            result = provision_registry(tmp_path)
+        assert result == "skipped"
+        mock_run.assert_not_called()
