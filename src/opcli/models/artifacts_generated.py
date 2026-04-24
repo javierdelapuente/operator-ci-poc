@@ -1,6 +1,13 @@
 """Pydantic models for artifacts-generated.yaml.
 
 Extends the build plan with paths/references of the built artifacts.
+
+Schema version history
+----------------------
+v1 — initial release (charm resources not included)
+v2 — charm entries carry a ``resources`` mapping with resolved output paths,
+     making ``artifacts-generated.yaml`` self-contained (no need to also read
+     ``artifacts.yaml`` when assembling pytest flags).
 """
 
 from __future__ import annotations
@@ -31,6 +38,22 @@ class ArtifactOutput(BaseModel):
         return self
 
 
+class GeneratedResource(BaseModel):
+    """A charm resource with its resolved output path or image reference.
+
+    The ``file`` and ``image`` fields mirror the linked rock's ``output.file``
+    and ``output.image`` at build time.  Either may be ``None`` if the rock was
+    not built in the same ``opcli artifacts build`` invocation.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["oci-image"]
+    rock: str | None = None
+    file: str | None = None
+    image: str | None = None
+
+
 class GeneratedRock(BaseModel):
     """A rock with its build output."""
 
@@ -42,13 +65,14 @@ class GeneratedRock(BaseModel):
 
 
 class GeneratedCharm(BaseModel):
-    """A charm with its build output."""
+    """A charm with its build output and resolved resource paths."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str
     source: str
     output: ArtifactOutput
+    resources: dict[str, GeneratedResource] | None = None
 
 
 class GeneratedSnap(BaseModel):
@@ -62,11 +86,15 @@ class GeneratedSnap(BaseModel):
 
 
 class ArtifactsGenerated(BaseModel):
-    """Top-level schema for ``artifacts-generated.yaml``."""
+    """Top-level schema for ``artifacts-generated.yaml`` (schema version 2).
+
+    Version 2 adds resolved ``resources`` to charm entries so that
+    ``opcli pytest expand`` only needs this file (not ``artifacts.yaml``).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[1] = 1
+    version: Literal[2] = 2
     rocks: list[GeneratedRock] = []
     charms: list[GeneratedCharm] = []
     snaps: list[GeneratedSnap] = []

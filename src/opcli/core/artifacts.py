@@ -28,6 +28,7 @@ from opcli.models.artifacts_generated import (
     ArtifactOutput,
     ArtifactsGenerated,
     GeneratedCharm,
+    GeneratedResource,
     GeneratedRock,
     GeneratedSnap,
 )
@@ -109,14 +110,35 @@ def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
     )
 
 
-def _build_charm(charm: CharmArtifact, root: Path) -> GeneratedCharm:
+def _build_charm(
+    charm: CharmArtifact,
+    root: Path,
+    all_rocks: dict[str, GeneratedRock],
+) -> GeneratedCharm:
     source_dir = root / charm.source
     run_command([*_PACK_COMMANDS["charm"]], cwd=str(source_dir))
     output_file = _find_output_file(source_dir, "charm", root)
+
+    resources: dict[str, GeneratedResource] = {}
+    for res_name, res_def in charm.resources.items():
+        file_val: str | None = None
+        image_val: str | None = None
+        if res_def.rock and res_def.rock in all_rocks:
+            rock_out = all_rocks[res_def.rock].output
+            file_val = rock_out.file
+            image_val = rock_out.image
+        resources[res_name] = GeneratedResource(
+            type=res_def.type,
+            rock=res_def.rock,
+            file=file_val,
+            image=image_val,
+        )
+
     return GeneratedCharm(
         name=charm.name,
         source=charm.source,
         output=ArtifactOutput(file=output_file),
+        resources=resources if resources else None,
     )
 
 
@@ -161,7 +183,8 @@ def artifacts_build(
     snaps_to_build = _filter_by_name(plan.snaps, snap_names, "snap")
 
     gen_rocks = [_build_rock(r, root) for r in rocks_to_build]
-    gen_charms = [_build_charm(c, root) for c in charms_to_build]
+    all_rocks = {r.name: r for r in gen_rocks}
+    gen_charms = [_build_charm(c, root, all_rocks) for c in charms_to_build]
     gen_snaps = [_build_snap(s, root) for s in snaps_to_build]
 
     generated = ArtifactsGenerated(
