@@ -231,6 +231,13 @@ providers:
     channel: 1.31/stable
 """
 
+# Provider listed without explicit enable: key — should be treated as enabled.
+_CONCIERGE_MICROK8S_NO_ENABLE = """\
+providers:
+  microk8s:
+    channel: 1.34-strict/stable
+"""
+
 _CONCIERGE_BOTH = """\
 providers:
   microk8s:
@@ -243,6 +250,13 @@ _CONCIERGE_NEITHER = """\
 providers:
   juju:
     channel: 3.6/stable
+"""
+
+_CONCIERGE_MICROK8S_DISABLED = """\
+providers:
+  microk8s:
+    enable: false
+    channel: 1.34-strict/stable
 """
 
 
@@ -265,6 +279,17 @@ class TestProvisionRegistry:
         assert result == "skipped"
         mock_run.assert_not_called()
 
+    def test_skipped_when_provider_explicitly_disabled(self, tmp_path: Path) -> None:
+        """enable: false in concierge.yaml opts the provider out."""
+        _write(tmp_path / "concierge.yaml", _CONCIERGE_MICROK8S_DISABLED)
+        with (
+            patch("opcli.core.provision._is_port_open", return_value=False),
+            patch("opcli.core.provision.run_command") as mock_run,
+        ):
+            result = provision_registry(tmp_path)
+        assert result == "skipped"
+        mock_run.assert_not_called()
+
     def test_already_running_skips_deployment(self, tmp_path: Path) -> None:
         _write(tmp_path / "concierge.yaml", _CONCIERGE_MICROK8S)
         with (
@@ -275,7 +300,7 @@ class TestProvisionRegistry:
         assert result == "already_running"
         mock_run.assert_not_called()
 
-    def test_microk8s_provider_uses_microk8s_enable(self, tmp_path: Path) -> None:
+    def test_microk8s_provider_applies_manifest(self, tmp_path: Path) -> None:
         _write(tmp_path / "concierge.yaml", _CONCIERGE_MICROK8S)
         with (
             patch("opcli.core.provision._is_port_open", return_value=False),
@@ -283,9 +308,31 @@ class TestProvisionRegistry:
         ):
             result = provision_registry(tmp_path)
         assert result == "deployed"
-        assert mock_run.call_count == 1
-        cmd = mock_run.call_args[0][0]
-        assert cmd == ["microk8s", "enable", "registry"]
+        # Three calls: microk8s kubectl wait + apply + rollout status
+        assert mock_run.call_count == 3  # noqa: PLR2004
+        assert mock_run.call_args_list[0][0][0][:3] == ["microk8s", "kubectl", "wait"]
+        assert mock_run.call_args_list[1][0][0][:4] == [
+            "microk8s",
+            "kubectl",
+            "apply",
+            "-f",
+        ]
+        assert mock_run.call_args_list[2][0][0][:3] == [
+            "microk8s",
+            "kubectl",
+            "rollout",
+        ]
+
+    def test_provider_enabled_without_explicit_enable_key(self, tmp_path: Path) -> None:
+        """Provider listed without enable: key should be treated as enabled."""
+        _write(tmp_path / "concierge.yaml", _CONCIERGE_MICROK8S_NO_ENABLE)
+        with (
+            patch("opcli.core.provision._is_port_open", return_value=False),
+            patch("opcli.core.provision.run_command") as mock_run,
+        ):
+            result = provision_registry(tmp_path)
+        assert result == "deployed"
+        mock_run.assert_called()
 
     def test_k8s_provider_applies_manifest_and_waits(self, tmp_path: Path) -> None:
         _write(tmp_path / "concierge.yaml", _CONCIERGE_K8S)
@@ -295,17 +342,18 @@ class TestProvisionRegistry:
         ):
             result = provision_registry(tmp_path)
         assert result == "deployed"
-        # Three calls: kubectl wait (node Ready) + kubectl apply + rollout status
+        # Three calls: k8s kubectl wait + apply + rollout status
         assert mock_run.call_count == 3  # noqa: PLR2004
         wait_cmd = mock_run.call_args_list[0][0][0]
-        assert wait_cmd[:2] == ["kubectl", "wait"]
+        assert wait_cmd[:3] == ["k8s", "kubectl", "wait"]
         assert "--for=condition=Ready" in wait_cmd
         apply_cmd = mock_run.call_args_list[1][0][0]
-        assert apply_cmd[:3] == ["kubectl", "apply", "-f"]
+        assert apply_cmd[:4] == ["k8s", "kubectl", "apply", "-f"]
         rollout_cmd = mock_run.call_args_list[2][0][0]
-        assert "rollout" in rollout_cmd
+        assert rollout_cmd[:3] == ["k8s", "kubectl", "rollout"]
         assert "status" in rollout_cmd
         assert "deployment/registry" in rollout_cmd
+        assert "container-registry" in rollout_cmd
 
     def test_both_providers_raises(self, tmp_path: Path) -> None:
         _write(tmp_path / "concierge.yaml", _CONCIERGE_BOTH)
@@ -323,17 +371,16 @@ class TestProvisionRegistry:
         ):
             result = provision_registry(tmp_path, concierge_file="my-concierge.yaml")
         assert result == "deployed"
-        mock_run.assert_called_once()
+        mock_run.assert_called()
 
     def test_k8s_manifest_contains_registry_image(self, tmp_path: Path) -> None:
-        """Verify the embedded manifest references the registry:2 image."""
+        """Verify the registry.yaml file references registry:2 on NodePort 32000."""
         _write(tmp_path / "concierge.yaml", _CONCIERGE_K8S)
-        applied_files: list[str] = []
+        applied_paths: list[str] = []
 
         def capture_apply(cmd: list[str], **_kwargs: object) -> object:
             if "apply" in cmd:
-                manifest_path = cmd[cmd.index("-f") + 1]
-                applied_files.append(Path(manifest_path).read_text())
+                applied_paths.append(cmd[cmd.index("-f") + 1])
             return None
 
         with (
@@ -342,9 +389,11 @@ class TestProvisionRegistry:
         ):
             provision_registry(tmp_path)
 
-        assert applied_files, "apply was not called"
-        assert "registry:2" in applied_files[0]
-        assert "nodePort: 32000" in applied_files[0]
+        assert applied_paths, "apply was not called"
+        content = Path(applied_paths[0]).read_text()
+        assert "registry:2" in content
+        assert "nodePort: 32000" in content
+        assert "container-registry" in content
 
     def test_malformed_providers_field_skips_gracefully(self, tmp_path: Path) -> None:
         """Non-dict providers field should not crash."""
