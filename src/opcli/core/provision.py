@@ -261,6 +261,19 @@ def provision_registry(
     if microk8s_on:
         run_command(["microk8s", "enable", "registry"])
     else:
+        # Wait for at least one node to be Ready before deploying — freshly
+        # bootstrapped clusters (e.g. in nested LXD) can take a while to
+        # schedule pods.
+        run_command(
+            [
+                "kubectl",
+                "wait",
+                "--for=condition=Ready",
+                "node",
+                "--all",
+                "--timeout=300s",
+            ]
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest_path = Path(tmpdir) / "registry-manifest.yaml"
             manifest_path.write_text(_REGISTRY_MANIFEST)
@@ -273,7 +286,7 @@ def provision_registry(
                 "deployment/registry",
                 "-n",
                 "registry",
-                "--timeout=120s",
+                "--timeout=300s",
             ]
         )
 
