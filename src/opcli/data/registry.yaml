@@ -4,19 +4,6 @@ kind: Namespace
 metadata:
   name: container-registry
 ---
-kind: PersistentVolumeClaim
-apiVersion: v1
-metadata:
-  name: registry-claim
-  namespace: container-registry
-spec:
-  accessModes:
-    - ReadWriteOnce
-  volumeMode: Filesystem
-  resources:
-    requests:
-      storage: 1G
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -53,8 +40,7 @@ spec:
               name: registry-data
       volumes:
         - name: registry-data
-          persistentVolumeClaim:
-            claimName: registry-claim
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
