@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from ruamel.yaml import YAML
 
-from opcli.core.exceptions import ConfigurationError, SubprocessError
+from opcli.core.exceptions import ConfigurationError, SubprocessError, ValidationError
 from opcli.core.spread import spread_expand, spread_init, spread_run
 
 _yaml = YAML()
@@ -311,7 +311,7 @@ suites:
         assert '[ -f "$CONCIERGE" ]' in prepare
 
     def test_local_username_injection_mapping_systems(self, tmp_path: Path) -> None:
-        """Username injection deep-merges with existing system properties."""
+        """Username injection deep-merges; runner is stripped; native fields kept."""
         spread_with_mapping = """\
 project: test-project
 path: /home/ubuntu/proj
@@ -336,7 +336,9 @@ suites:
         assert len(systems) == 1
         sys_def = systems[0]["ubuntu-24.04"]
         assert sys_def["username"] == "ubuntu"
-        assert sys_def["runner"] == ["self-hosted", "noble"]
+        # runner is CI-only; stripped from local expansion
+        assert "runner" not in sys_def
+        # spread-native fields like workers survive
         _EXPECTED_WORKERS = 2
         assert sys_def["workers"] == _EXPECTED_WORKERS
 
@@ -365,9 +367,228 @@ suites:
         assert systems[0]["ubuntu-24.04"]["username"] == "custom-user"
 
 
-class TestSpreadRun:
-    """Tests for spread_run()."""
+class TestSystemResourceFields:
+    """Tests for cpu/memory/disk/runner handling in virtual backend system entries."""
 
+    _SPREAD_WITH_RESOURCES = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04:
+          cpu: 2
+          memory: 4
+          disk: 30
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+"""
+
+    def test_resources_appear_in_local_allocate(self, tmp_path: Path) -> None:
+        """cpu/memory/disk from system entry appear as case-arm in local allocate."""
+        _write(tmp_path / "spread.yaml", self._SPREAD_WITH_RESOURCES)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        allocate = parsed["backends"]["local"]["allocate"]
+
+        assert "ubuntu-24.04" in allocate
+        assert 'CPU="${CPU:-2}"' in allocate
+        assert 'MEM="${MEM:-4}"' in allocate
+        assert 'DISK="${DISK:-30}"' in allocate
+
+    def test_resources_stripped_from_local_systems(self, tmp_path: Path) -> None:
+        """cpu/memory/disk are removed from system entries in local expansion."""
+        _write(tmp_path / "spread.yaml", self._SPREAD_WITH_RESOURCES)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        sys_def = parsed["backends"]["local"]["systems"][0]["ubuntu-24.04"]
+
+        assert "cpu" not in sys_def
+        assert "memory" not in sys_def
+        assert "disk" not in sys_def
+        assert sys_def["username"] == "ubuntu"
+
+    def test_resources_stripped_from_ci_systems(self, tmp_path: Path) -> None:
+        """cpu/memory/disk are removed from system entries in CI expansion."""
+        _write(tmp_path / "spread.yaml", self._SPREAD_WITH_RESOURCES)
+
+        result = spread_expand(tmp_path, ci=True)
+        parsed = _yaml.load(StringIO(result))
+        # After stripping the only keys, entry collapses to plain string
+        systems = parsed["backends"]["ci"]["systems"]
+        assert systems == ["ubuntu-24.04"]
+
+    def test_runner_stripped_from_local_systems(self, tmp_path: Path) -> None:
+        """runner label is stripped from local system entries (CI-only field)."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, noble]
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/integration/:
+    summary: integration tests
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        sys_def = parsed["backends"]["local"]["systems"][0]["ubuntu-24.04"]
+
+        assert "runner" not in sys_def
+        assert sys_def["username"] == "ubuntu"
+
+    def test_runner_preserved_in_ci_systems(self, tmp_path: Path) -> None:
+        """runner label is preserved in CI system entries."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, noble]
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/integration/:
+    summary: integration tests
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=True)
+        parsed = _yaml.load(StringIO(result))
+        systems = parsed["backends"]["ci"]["systems"]
+
+        assert len(systems) == 1
+        sys_def = systems[0]["ubuntu-24.04"]
+        assert sys_def["runner"] == ["self-hosted", "noble"]
+
+    def test_multiple_systems_with_different_resources(self, tmp_path: Path) -> None:
+        """Each system gets its own case arm in the allocate preamble."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-22.04:
+          cpu: 2
+          memory: 4
+          disk: 20
+      - ubuntu-24.04:
+          cpu: 8
+          memory: 16
+          disk: 50
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/integration/:
+    summary: integration tests
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        allocate = parsed["backends"]["local"]["allocate"]
+
+        assert "ubuntu-22.04" in allocate
+        assert "ubuntu-24.04" in allocate
+        assert 'CPU="${CPU:-2}"' in allocate
+        assert 'CPU="${CPU:-8}"' in allocate
+
+    def test_env_var_overrides_system_resource(self, tmp_path: Path) -> None:
+        """Per-system case arms use :- so explicit env vars still win."""
+        _write(tmp_path / "spread.yaml", self._SPREAD_WITH_RESOURCES)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        allocate = parsed["backends"]["local"]["allocate"]
+
+        # Each arm must use ${VAR:-value} not bare assignment
+        assert 'CPU="${CPU:-' in allocate
+        assert 'MEM="${MEM:-' in allocate
+        assert 'DISK="${DISK:-' in allocate
+
+    def test_invalid_resource_value_raises(self, tmp_path: Path) -> None:
+        """Non-positive-integer resource value raises ValidationError at expand time."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04:
+          cpu: -1
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/integration/:
+    summary: integration tests
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        with pytest.raises(ValidationError, match="positive integer"):
+            spread_expand(tmp_path, ci=False)
+
+    def test_no_resources_no_preamble(self, tmp_path: Path) -> None:
+        """When no resources are declared, no case statement is prepended."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        allocate = parsed["backends"]["local"]["allocate"]
+
+        assert "case" not in allocate
+        # Fallback defaults still present
+        assert 'DISK="${DISK:-20}"' in allocate
+
+    def test_boolean_resource_value_raises(self, tmp_path: Path) -> None:
+        """Boolean values must be rejected (bool is a subclass of int in Python)."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04:
+          cpu: true
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/integration/:
+    summary: integration tests
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        with pytest.raises(ValidationError, match="positive integer"):
+            spread_expand(tmp_path, ci=False)
+
+    def test_case_pattern_is_quoted(self, tmp_path: Path) -> None:
+        """Case arm patterns must be quoted to prevent shell glob expansion."""
+        _write(tmp_path / "spread.yaml", self._SPREAD_WITH_RESOURCES)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        allocate = parsed["backends"]["local"]["allocate"]
+
+        # Pattern must be quoted: "ubuntu-24.04") not ubuntu-24.04)
+        assert '"ubuntu-24.04")' in allocate
+
+
+class TestSpreadRun:
     def test_runs_spread_from_temp_dir(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 

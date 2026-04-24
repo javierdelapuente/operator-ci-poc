@@ -151,3 +151,40 @@ would be wrong inside the VM; relative paths remain valid after rsync.
 
 **Implementation:** Also supports `--snap <name>` for filtering snap builds,
 consistent with the snap support in `artifacts.yaml`.
+
+---
+
+## 8. System entry resource fields (`cpu`, `memory`, `disk`) — opcli extension
+
+**Spec:** System entries in the virtual `integration-test` backend may carry a
+`runner:` list for GitHub Actions runner label selection (used in CI expansion):
+
+```yaml
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, noble]
+```
+
+**Implementation:** opcli extends this to also support `cpu`, `memory`, and
+`disk` integer fields for controlling LXD VM resources in local expansion:
+
+```yaml
+      - ubuntu-24.04:
+          runner: [self-hosted, noble]   # CI: runner label selection
+          cpu: 4                         # local: LXD VM vCPUs
+          memory: 8                      # local: LXD VM RAM (GiB)
+          disk: 20                       # local: LXD VM disk (GiB)
+```
+
+These fields are stripped before the YAML is passed to spread — they are
+opcli-only metadata. During local expansion, they are injected into the
+`allocate` script as per-system `case` arms using `${VAR:-N}` semantics
+so that explicit env-var overrides still take precedence. During CI expansion,
+`runner` is kept (real spread field) while `cpu`/`memory`/`disk` are stripped.
+
+**Rationale:** Declaring VM size alongside the system name keeps all
+per-system configuration in one place, avoids managing separate env vars, and
+makes the resource intent visible in version control without requiring changes
+to any other file.

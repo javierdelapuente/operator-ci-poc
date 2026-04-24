@@ -27,7 +27,7 @@ from typing import Any
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 
-from opcli.core.exceptions import ConfigurationError
+from opcli.core.exceptions import ConfigurationError, ValidationError
 from opcli.core.subprocess import run_command
 
 logger = logging.getLogger(__name__)
@@ -308,38 +308,136 @@ _BACKEND_CONFIGS: dict[str, tuple[str, str, str, str]] = {
     _TUTORIAL_BACKEND: ("local-tutorial", "ci-tutorial", _TUTORIAL_LOCAL_PREPARE, ""),
 }
 
+# Keys in system entries that are opcli-specific and must be stripped before
+# passing to spread.  ``runner`` is a GitHub Actions runner-label field only
+# meaningful to the CI backend; resource fields are used by the local allocate
+# script and have no meaning in spread's own backend model.
+_LOCAL_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk", "runner"})
+_CI_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk"})
+
+# Names of resource fields and their corresponding shell variable names.
+_RESOURCE_FIELDS: dict[str, str] = {"cpu": "CPU", "memory": "MEM", "disk": "DISK"}
+
 
 def _is_ci() -> bool:
     """Return True when running inside CI (truthy ``CI`` env var)."""
     return bool(os.environ.get("CI"))
 
 
-def _inject_username(
+def _extract_system_resources(
     systems: list[object],
-    username: str,
-) -> list[object]:
-    """Deep-merge ``username`` into each system entry.
+) -> dict[str, dict[str, int]]:
+    """Return ``{system_name: {cpu/memory/disk: value}}`` from system entries.
 
-    Handles both scalar entries (``"ubuntu-24.04"``) and mapping entries
-    (``{"ubuntu-24.04": {"runner": [...]}}``) without dropping user-defined
-    fields.
+    Only positive integer values are accepted.
+
+    Raises:
+        ValidationError: If a resource value is not a positive integer.
+    """
+    result: dict[str, dict[str, int]] = {}
+    for entry in systems:
+        if not isinstance(entry, dict):
+            continue
+        for name, props in entry.items():
+            if not isinstance(props, dict):
+                continue
+            res: dict[str, int] = {}
+            for field in _RESOURCE_FIELDS:
+                val = props.get(field)
+                if val is None:
+                    continue
+                if isinstance(val, bool) or not isinstance(val, int) or val <= 0:
+                    msg = (
+                        f"System '{name}': '{field}' must be a positive integer, "
+                        f"got {val!r}"
+                    )
+                    raise ValidationError(msg)
+                res[field] = val
+            if res:
+                result[name] = res
+    return result
+
+
+def _make_resource_preamble(resources: dict[str, dict[str, int]]) -> str:
+    """Return a bash ``case`` snippet that sets CPU/MEM/DISK per ``$SPREAD_SYSTEM``.
+
+    Each arm uses ``${VAR:-N}`` so that an explicit env-var override still wins.
+    Returns an empty string when *resources* is empty.
+    """
+    if not resources:
+        return ""
+    lines = ['case "$SPREAD_SYSTEM" in\n']
+    for sys_name, res in resources.items():
+        parts = [
+            f'{shell_var}="${{{shell_var}:-{res[field]}}}"'
+            for field, shell_var in _RESOURCE_FIELDS.items()
+            if field in res
+        ]
+        if parts:
+            # Quote the pattern to prevent shell glob expansion (e.g. ubuntu-*)
+            lines.append(f'  "{sys_name}") {"; ".join(parts)} ;;\n')
+    lines.append("esac\n\n")
+    return "".join(lines)
+
+
+def _transform_system_props(
+    name: str,
+    props: object,
+    *,
+    strip_keys: frozenset[str],
+    inject_username: str | None,
+) -> object:
+    """Return the transformed props for a single system name→props pair."""
+    if isinstance(props, dict):
+        new_props = {k: v for k, v in props.items() if k not in strip_keys}
+        if inject_username:
+            new_props.setdefault("username", inject_username)
+        return new_props if new_props else None
+    if props is None:
+        if inject_username:
+            return {"username": inject_username}
+        return None
+    return props
+
+
+def _transform_systems(
+    systems: list[object],
+    *,
+    strip_keys: frozenset[str],
+    inject_username: str | None = None,
+) -> list[object]:
+    """Strip opcli-specific keys from system entries and optionally inject ``username``.
+
+    For each system entry:
+    - Plain strings: converted to a dict if username injection is needed.
+    - Dict entries: ``strip_keys`` are removed from the props mapping; ``username``
+      is set via ``setdefault`` if *inject_username* is given.
+    - If all props are removed and no username is injected, collapses back to a
+      plain string (avoids ``{"ubuntu-24.04": {}}`` noise in the output).
     """
     result: list[object] = []
     for entry in systems:
         if isinstance(entry, str):
-            result.append({entry: {"username": username}})
+            if inject_username:
+                result.append({entry: {"username": inject_username}})
+            else:
+                result.append(entry)
         elif isinstance(entry, dict):
-            merged: dict[str, object] = {}
-            for name, props in entry.items():
-                if isinstance(props, dict):
-                    new_props = dict(props)
-                    new_props.setdefault("username", username)
-                    merged[name] = new_props
-                elif props is None:
-                    merged[name] = {"username": username}
-                else:
-                    merged[name] = props
-            result.append(merged)
+            merged: dict[str, object] = {
+                name: _transform_system_props(
+                    name, props, strip_keys=strip_keys, inject_username=inject_username
+                )
+                for name, props in entry.items()
+            }
+            # If a single-key mapping collapsed to {name: None}, emit plain string
+            if (
+                len(merged) == 1
+                and next(iter(merged.values())) is None
+                and not inject_username
+            ):
+                result.append(next(iter(merged)))
+            else:
+                result.append(merged)
         else:
             result.append(entry)
     return result
@@ -358,19 +456,32 @@ def _build_concrete_backend(
     )
     backend_def["type"] = "adhoc"
 
+    systems = backend_def.get("systems")
+
     if use_ci:
         backend_def["allocate"] = "ADDRESS localhost"
         if ci_prepare:
             backend_def["prepare"] = ci_prepare
+        if isinstance(systems, list):
+            backend_def["systems"] = _transform_systems(
+                systems, strip_keys=_CI_STRIP_KEYS
+            )
     else:
-        backend_def["allocate"] = _LOCAL_ALLOCATE
+        # Extract per-system resource overrides before stripping the fields.
+        resources: dict[str, dict[str, int]] = {}
+        if isinstance(systems, list):
+            resources = _extract_system_resources(systems)
+
+        preamble = _make_resource_preamble(resources)
+        backend_def["allocate"] = preamble + _LOCAL_ALLOCATE
         backend_def["discard"] = _LOCAL_DISCARD
         if local_prepare:
             backend_def["prepare"] = local_prepare
 
-        systems = backend_def.get("systems")
         if isinstance(systems, list):
-            backend_def["systems"] = _inject_username(systems, "ubuntu")
+            backend_def["systems"] = _transform_systems(
+                systems, strip_keys=_LOCAL_STRIP_KEYS, inject_username="ubuntu"
+            )
 
     return backend_def
 
