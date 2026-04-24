@@ -129,6 +129,58 @@ class TestDiscovery:
         with pytest.raises(DiscoveryError, match="missing a valid 'name'"):
             discover_artifacts(tmp_path)
 
+    def test_charm_split_format_name_from_metadata_yaml(self, tmp_path: Path) -> None:
+        """Legacy split format: name in metadata.yaml, not charmcraft.yaml."""
+        _write(
+            tmp_path / "charmcraft.yaml",
+            "type: charm\nbases:\n  - run-on:\n    - name: ubuntu\n",
+        )
+        _write(tmp_path / "metadata.yaml", "name: indico\nsummary: An indico charm\n")
+        plan = discover_artifacts(tmp_path)
+        assert len(plan.charms) == 1
+        assert plan.charms[0].name == "indico"
+
+    def test_charm_split_format_resources_from_metadata_yaml(
+        self, tmp_path: Path
+    ) -> None:
+        """Legacy split format: resources in metadata.yaml, not charmcraft.yaml."""
+        _write(tmp_path / "rock_dir" / "rockcraft.yaml", "name: indico-rock\n")
+        _write(
+            tmp_path / "charmcraft.yaml",
+            "type: charm\nbases:\n  - run-on:\n    - name: ubuntu\n",
+        )
+        _write(
+            tmp_path / "metadata.yaml",
+            "name: indico\n"
+            "resources:\n"
+            "  indico-image:\n"
+            "    type: oci-image\n"
+            "    upstream-source: indico-rock\n",
+        )
+        plan = discover_artifacts(tmp_path)
+        assert len(plan.charms) == 1
+        assert plan.charms[0].name == "indico"
+        assert "indico-image" in plan.charms[0].resources
+        assert plan.charms[0].resources["indico-image"].rock == "indico-rock"
+
+    def test_charm_unified_format_takes_precedence_over_metadata_yaml(
+        self, tmp_path: Path
+    ) -> None:
+        """Unified format: name in charmcraft.yaml wins even if metadata.yaml exists."""
+        _write(
+            tmp_path / "charmcraft.yaml",
+            "name: charm-from-charmcraft\ntype: charm\n",
+        )
+        _write(tmp_path / "metadata.yaml", "name: charm-from-metadata\n")
+        plan = discover_artifacts(tmp_path)
+        assert plan.charms[0].name == "charm-from-charmcraft"
+
+    def test_charm_split_format_no_metadata_yaml_raises(self, tmp_path: Path) -> None:
+        """No name in charmcraft.yaml and no metadata.yaml → DiscoveryError."""
+        _write(tmp_path / "charmcraft.yaml", "type: charm\n")
+        with pytest.raises(DiscoveryError, match="missing a valid 'name'"):
+            discover_artifacts(tmp_path)
+
 
 class TestYamlIO:
     """Tests for YAML round-trip helpers."""
