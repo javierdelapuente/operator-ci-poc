@@ -140,6 +140,30 @@ opcli pytest expand -- -k test_charm
 | `spread.yaml` | Spread configuration with a virtual `integration-test` backend expanded by opcli. |
 | `tests/integration/run/task.yaml` | Spread task that runs integration tests via `opcli pytest expand`. |
 
+## Virtual backend system entry fields
+
+System entries under the virtual `integration-test` (or `tutorial-test`) backend accept opcli-specific fields alongside standard spread fields:
+
+```yaml
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, noble]   # GitHub Actions runner labels (CI only)
+          cpu: 4                         # LXD VM vCPUs (local only, default 4)
+          memory: 8                      # LXD VM RAM in GiB (local only, default 8)
+          disk: 20                       # LXD VM disk in GiB (local only, default 20)
+```
+
+**How they are handled:**
+
+| Field | Local backend | CI backend |
+|---|---|---|
+| `runner` | Stripped (not applicable to LXD) | Preserved for GitHub runner selection |
+| `cpu` / `memory` / `disk` | Used in LXD `lxc launch --vm` arguments, then stripped | Stripped (not applicable to cloud runners) |
+
+Resource values are injected as per-system defaults in the allocate script using `${CPU:-N}` semantics so that an explicit environment variable override (e.g. `CPU=2 opcli spread run`) still takes precedence.
+
 ## CI vs local
 
 The `CI` environment variable controls backend expansion:
