@@ -17,7 +17,7 @@ def _write(path: Path, content: str) -> None:
 
 
 _GENERATED_WITH_ROCKS = """\
-version: 1
+version: 2
 rocks:
 - name: myrock
   source: rock_dir
@@ -98,7 +98,7 @@ class TestProvisionLoad:
     def test_no_local_rocks_returns_empty(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts-generated.yaml",
-            "version: 1\n"
+            "version: 2\n"
             "rocks:\n- name: r1\n  source: rd\n"
             "  output:\n    image: ghcr.io/r1:v1\n",
         )
@@ -110,7 +110,7 @@ class TestProvisionLoad:
         mock_run.assert_not_called()
 
     def test_empty_generated_returns_empty(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
+        _write(tmp_path / "artifacts-generated.yaml", "version: 2\n")
 
         with patch("opcli.core.provision.run_command") as mock_run:
             pushed = provision_load(tmp_path)

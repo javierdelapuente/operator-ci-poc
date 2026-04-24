@@ -112,9 +112,10 @@ The spec implies opcli participates in producing these (build collection step).
 
 **Implementation:**
 
-- The `ArtifactsGenerated` model correctly parses CI-format files.
-- `opcli pytest expand` emits `--<resource-name>=<image>` for rocks whose
-  output has an `image:` field.
+- The `ArtifactsGenerated` model (v2) correctly parses CI-format files.
+- `opcli pytest expand` emits `--<resource-name>=<image>` for charm resources
+  whose embedded `image:` field is set (resolved at build time from the rock's
+  CI output).
 - `opcli pytest expand` does **not** emit `--charm-file=` flags for charms
   whose output is `artifact: + run-id:` (CI-built charms); those are skipped.
 - `opcli artifacts build` only produces local `output.file` paths; there is no

@@ -175,3 +175,64 @@ class TestArtifactsBuild:
         gen = load_artifacts_generated(result)
         assert len(gen.rocks) == 1
         assert len(gen.charms) == 1
+
+    def test_build_propagates_resources_to_generated(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\n"
+            "rocks:\n- name: myrock\n  source: rock_dir\n"
+            "charms:\n- name: mycharm\n  source: .\n"
+            "  resources:\n"
+            "    myrock-image:\n"
+            "      type: oci-image\n"
+            "      rock: myrock\n",
+        )
+        (tmp_path / "rock_dir").mkdir()
+        _write(tmp_path / "rock_dir" / "myrock_1.0_amd64.rock", "fake")
+        _write(tmp_path / "mycharm_amd64.charm", "fake")
+
+        with patch("opcli.core.artifacts.run_command"):
+            result = artifacts_build(tmp_path)
+
+        gen = load_artifacts_generated(result)
+        charm = gen.charms[0]
+        assert charm.resources is not None
+        assert "myrock-image" in charm.resources
+        res = charm.resources["myrock-image"]
+        assert res.type == "oci-image"
+        assert res.rock == "myrock"
+        assert res.file is not None
+        assert "myrock_1.0_amd64.rock" in res.file
+        assert not Path(res.file).is_absolute()
+
+    def test_resource_unresolved_when_rock_not_built(self, tmp_path: Path) -> None:
+        """Resource referencing a rock not in artifacts.yaml has unresolved output."""
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\n"
+            "charms:\n- name: mycharm\n  source: .\n"
+            "  resources:\n"
+            "    myrock-image:\n"
+            "      type: oci-image\n"
+            "      rock: nonexistent-rock\n",
+        )
+        _write(tmp_path / "mycharm_amd64.charm", "fake")
+
+        with patch("opcli.core.artifacts.run_command"):
+            result = artifacts_build(tmp_path)
+
+        gen = load_artifacts_generated(result)
+        charm = gen.charms[0]
+        assert charm.resources is not None
+        res = charm.resources["myrock-image"]
+        assert res.file is None
+        assert res.image is None
+
+    def test_version_1_generated_is_rejected(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "artifacts-generated.yaml",
+            "version: 1\ncharms:\n- name: c\n  source: .\n"
+            "  output:\n    file: ./c.charm\n",
+        )
+        with pytest.raises(Exception, match="validation error"):
+            load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
