@@ -191,7 +191,7 @@ class TestYamlIO:
     def test_artifacts_plan_round_trip(self, tmp_path: Path) -> None:
         plan = ArtifactsPlan.model_validate(
             {
-                "version": 2,
+                "version": 1,
                 "rocks": [{"name": "r1", "rockcraft-yaml": "rd/rockcraft.yaml"}],
                 "charms": [{"name": "c1", "charmcraft-yaml": "charmcraft.yaml"}],
             }

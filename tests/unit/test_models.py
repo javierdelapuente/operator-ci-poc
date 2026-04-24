@@ -25,7 +25,7 @@ class TestArtifactsPlan:
 
     def test_minimal_valid(self) -> None:
         plan = ArtifactsPlan()
-        assert plan.version == 2  # noqa: PLR2004
+        assert plan.version == 1
         assert plan.rocks == []
         assert plan.charms == []
         assert plan.snaps == []
@@ -76,11 +76,11 @@ class TestArtifactsPlan:
 
     def test_extra_fields_rejected(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs"):
-            ArtifactsPlan.model_validate({"version": 2, "unknown_key": "val"})
+            ArtifactsPlan.model_validate({"version": 1, "unknown_key": "val"})
 
     def test_wrong_version_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            ArtifactsPlan.model_validate({"version": 1})
+            ArtifactsPlan.model_validate({"version": 99})
 
     def test_resource_wrong_type_rejected(self) -> None:
         with pytest.raises(ValidationError):
@@ -89,7 +89,7 @@ class TestArtifactsPlan:
     def test_from_yaml_dict(self) -> None:
         """Validate a dict that mimics YAML load output (hyphenated keys)."""
         data = {
-            "version": 2,
+            "version": 1,
             "rocks": [{"name": "myrock", "rockcraft-yaml": "rock_dir/rockcraft.yaml"}],
             "charms": [
                 {
@@ -198,7 +198,7 @@ class TestArtifactsGenerated:
 
     def test_generated_extra_fields_rejected(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs"):
-            ArtifactsGenerated.model_validate({"version": 3, "junk": True})
+            ArtifactsGenerated.model_validate({"version": 99, "junk": True})
 
     def test_snap_generated(self) -> None:
         gen = ArtifactsGenerated(

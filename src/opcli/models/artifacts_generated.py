@@ -96,7 +96,7 @@ class ArtifactsGenerated(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[3] = 3
+    version: Literal[1] = 1
     rocks: list[GeneratedRock] = []
     charms: list[GeneratedCharm] = []
     snaps: list[GeneratedSnap] = []

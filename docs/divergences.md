@@ -260,7 +260,7 @@ because their unit tests depend on `Harness` reading `metadata.yaml`).
 **Spec:** The `artifacts.yaml` schema uses a `source` field containing the
 **directory** that contains the craft YAML file (e.g. `source: rocks/my-rock`).
 
-**Implementation (v2 schema):** The `source` field is replaced by an explicit
+**Implementation:** The `source` field is replaced by an explicit
 path to the craft YAML file:
 
 ```yaml
