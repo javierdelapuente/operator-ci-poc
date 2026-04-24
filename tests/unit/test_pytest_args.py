@@ -72,10 +72,8 @@ class TestAssemblePytestArgs:
 
         args = assemble_pytest_args(tmp_path)
 
-        assert "--charm-file" in args
-        assert "./mycharm.charm" in args
-        assert "--myrock-image" in args
-        assert "./rock_dir/myrock.rock" in args
+        assert "--charm-file=./mycharm.charm" in args
+        assert "--myrock-image=./rock_dir/myrock.rock" in args
 
     def test_ci_charm_with_image_resource(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts.yaml", _PLAN_WITH_RESOURCES)
@@ -84,10 +82,9 @@ class TestAssemblePytestArgs:
         args = assemble_pytest_args(tmp_path)
 
         # CI charm has artifact output, not file — no --charm-file
-        assert "--charm-file" not in args
+        assert not any(a.startswith("--charm-file=") for a in args)
         # Rock has image output
-        assert "--myrock-image" in args
-        assert "ghcr.io/canonical/myrock:abc123" in args
+        assert "--myrock-image=ghcr.io/canonical/myrock:abc123" in args
 
     def test_no_plan_still_produces_charm_file(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts-generated.yaml", _GENERATED_LOCAL)
@@ -95,8 +92,8 @@ class TestAssemblePytestArgs:
 
         args = assemble_pytest_args(tmp_path)
 
-        assert "--charm-file" in args
-        assert "--myrock-image" not in args
+        assert "--charm-file=./mycharm.charm" in args
+        assert not any(a.startswith("--myrock-image=") for a in args)
 
     def test_charm_without_resources(self, tmp_path: Path) -> None:
         _write(
@@ -111,7 +108,7 @@ class TestAssemblePytestArgs:
 
         args = assemble_pytest_args(tmp_path)
 
-        assert args == ["--charm-file", "./simple.charm"]
+        assert args == ["--charm-file=./simple.charm"]
 
     def test_empty_generated(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
@@ -139,8 +136,7 @@ class TestAssembleToxArgv:
 
         assert argv[:3] == ["tox", "-e", "integration"]
         assert "--" in argv
-        assert "--charm-file" in argv
-        assert "./mycharm.charm" in argv
+        assert "--charm-file=./mycharm.charm" in argv
 
     def test_extra_args_only_include_separator(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
@@ -166,7 +162,7 @@ class TestAssembleToxArgv:
 
         sep_idx = argv.index("--")
         tail = argv[sep_idx + 1 :]
-        assert "--charm-file" in tail
+        assert "--charm-file=./mycharm.charm" in tail
         assert "-v" in tail
         assert "-k" in tail
         assert "test_charm" in tail
