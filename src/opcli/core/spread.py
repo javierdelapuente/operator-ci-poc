@@ -267,7 +267,7 @@ fi
 """
 
 _LOCAL_PREPARE = """\
-sudo snap install concierge
+sudo snap install concierge --classic
 sudo apt-get update --quiet
 sudo apt-get install -y pipx --quiet
 sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
