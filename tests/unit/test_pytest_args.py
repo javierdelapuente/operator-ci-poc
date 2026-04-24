@@ -133,6 +133,23 @@ class TestAssemblePytestArgs:
         assert args == ["--charm-file=./c.charm"]
         assert not any(a.startswith("--img=") for a in args)
 
+    def test_image_takes_priority_over_file_when_both_set(self, tmp_path: Path) -> None:
+        """After provision load, image ref is preferred over local file path."""
+        _write(
+            tmp_path / "artifacts-generated.yaml",
+            "version: 2\ncharms:\n- name: c\n  source: .\n"
+            "  output:\n    file: ./c.charm\n"
+            "  resources:\n    myrock-image:\n      type: oci-image\n"
+            "      rock: myrock\n"
+            "      file: ./rock_dir/myrock.rock\n"
+            "      image: localhost:32000/myrock:latest\n",
+        )
+
+        args = assemble_pytest_args(tmp_path)
+
+        assert "--myrock-image=localhost:32000/myrock:latest" in args
+        assert not any("myrock.rock" in a for a in args)
+
 
 class TestAssembleToxArgv:
     """Tests for assemble_tox_argv()."""
