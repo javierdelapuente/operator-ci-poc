@@ -346,7 +346,7 @@ def _extract_system_resources(
                 val = props.get(field)
                 if val is None:
                     continue
-                if not isinstance(val, int) or val <= 0:
+                if isinstance(val, bool) or not isinstance(val, int) or val <= 0:
                     msg = (
                         f"System '{name}': '{field}' must be a positive integer, "
                         f"got {val!r}"
@@ -374,7 +374,8 @@ def _make_resource_preamble(resources: dict[str, dict[str, int]]) -> str:
             if field in res
         ]
         if parts:
-            lines.append(f"  {sys_name}) {'; '.join(parts)} ;;\n")
+            # Quote the pattern to prevent shell glob expansion (e.g. ubuntu-*)
+            lines.append(f'  "{sys_name}") {"; ".join(parts)} ;;\n')
     lines.append("esac\n\n")
     return "".join(lines)
 

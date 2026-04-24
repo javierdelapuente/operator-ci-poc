@@ -555,8 +555,40 @@ suites:
         # Fallback defaults still present
         assert 'DISK="${DISK:-20}"' in allocate
 
-    """Tests for spread_run()."""
+    def test_boolean_resource_value_raises(self, tmp_path: Path) -> None:
+        """Boolean values must be rejected (bool is a subclass of int in Python)."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04:
+          cpu: true
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/integration/:
+    summary: integration tests
+"""
+        _write(tmp_path / "spread.yaml", spread)
 
+        with pytest.raises(ValidationError, match="positive integer"):
+            spread_expand(tmp_path, ci=False)
+
+    def test_case_pattern_is_quoted(self, tmp_path: Path) -> None:
+        """Case arm patterns must be quoted to prevent shell glob expansion."""
+        _write(tmp_path / "spread.yaml", self._SPREAD_WITH_RESOURCES)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        allocate = parsed["backends"]["local"]["allocate"]
+
+        # Pattern must be quoted: "ubuntu-24.04") not ubuntu-24.04)
+        assert '"ubuntu-24.04")' in allocate
+
+
+class TestSpreadRun:
     def test_runs_spread_from_temp_dir(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
