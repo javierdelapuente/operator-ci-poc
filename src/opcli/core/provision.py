@@ -7,25 +7,18 @@ and ``opcli provision registry``.
 OCI images into a container image registry so that Juju / MicroK8s can
 pull them during integration tests.
 
-``registry`` deploys a local OCI registry at ``localhost:32000`` by
-reading ``concierge.yaml`` to detect whether a k8s or MicroK8s provider
-is enabled, then either running ``microk8s enable registry`` or applying
-an embedded Kubernetes manifest.  This is a local-only operation — in CI
+``registry`` deploys a local OCI registry at ``localhost:32000`` using a
+Kubernetes manifest (``src/opcli/data/registry.yaml``).  The manifest works
+identically on both canonical k8s and MicroK8s — it creates a
+``container-registry`` namespace, a ``registry:2`` deployment, and a
+NodePort Service on port 32000.  This is a local-only operation — in CI
 images are served from GHCR.
-
-.. note::
-
-    For MicroK8s, ``microk8s enable registry`` also configures containerd
-    to trust ``localhost:32000`` as an insecure registry.  For canonical
-    k8s, you may need to configure containerd's insecure-registries
-    setting separately for workloads to pull from ``localhost:32000``.
 """
 
 from __future__ import annotations
 
 import logging
 import socket
-import tempfile
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -41,53 +34,9 @@ _ARTIFACTS_GENERATED_YAML = "artifacts-generated.yaml"
 _DEFAULT_REGISTRY = "localhost:32000"
 _REGISTRY_PORT = 32000
 
-# Embedded manifest deploying a registry:2 pod on NodePort 32000.
-# Applied by ``provision_registry`` for canonical k8s environments.
-# MicroK8s uses ``microk8s enable registry`` instead (which also
-# configures containerd).
-_REGISTRY_MANIFEST = """\
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: registry
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: registry
-  namespace: registry
-  labels:
-    app: registry
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: registry
-  template:
-    metadata:
-      labels:
-        app: registry
-    spec:
-      containers:
-      - name: registry
-        image: registry:2
-        ports:
-        - containerPort: 5000
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: registry
-  namespace: registry
-spec:
-  type: NodePort
-  selector:
-    app: registry
-  ports:
-  - port: 5000
-    targetPort: 5000
-    nodePort: 32000
-"""
+_REGISTRY_YAML = Path(__file__).parent.parent / "data" / "registry.yaml"
+_REGISTRY_DEPLOYMENT = "deployment/registry"
+_REGISTRY_NAMESPACE = "container-registry"
 
 
 def provision_run(
@@ -201,20 +150,20 @@ def provision_registry(
 ) -> str:
     """Deploy a local OCI registry at ``localhost:32000``.
 
-    Reads *concierge_file* to detect which k8s provider is active, then
-    either runs ``microk8s enable registry`` (MicroK8s) or applies an
-    embedded Kubernetes manifest (canonical k8s).
+    Reads *concierge_file* to detect whether a k8s or MicroK8s provider is
+    present, then applies ``src/opcli/data/registry.yaml`` via ``kubectl``.
+    The same manifest works on both canonical k8s and MicroK8s.
 
     Returns:
         ``"deployed"``       — the registry was just provisioned.
         ``"already_running"``— a service is already listening on port 32000;
                                nothing was changed.
-        ``"skipped"``        — no k8s provider is enabled; nothing to do.
+        ``"skipped"``        — no k8s provider is configured; nothing to do.
 
     Raises:
-        ConfigurationError: If both microk8s and k8s providers are enabled
+        ConfigurationError: If both microk8s and k8s providers are configured
             simultaneously.
-        SubprocessError: If the underlying kubectl or microk8s command fails.
+        SubprocessError: If the underlying kubectl command fails.
     """
     concierge_path = root / concierge_file
     if not concierge_path.exists():
@@ -250,7 +199,9 @@ def provision_registry(
         entry = providers.get(name)
         if not isinstance(entry, dict):
             return False
-        return bool(entry.get("enable", False))
+        # A provider listed under providers: is enabled by default;
+        # an explicit enable: false can opt it out.
+        return bool(entry.get("enable", True))
 
     microk8s_on = _provider_enabled("microk8s")
     k8s_on = _provider_enabled("k8s")
@@ -269,36 +220,29 @@ def provision_registry(
         )
         return "skipped"
 
-    if microk8s_on:
-        run_command(["microk8s", "enable", "registry"])
-    else:
-        # Wait for at least one node to be Ready before deploying — freshly
-        # bootstrapped clusters (e.g. in nested LXD) can take a while to
-        # schedule pods.
-        run_command(
-            [
-                "kubectl",
-                "wait",
-                "--for=condition=Ready",
-                "node",
-                "--all",
-                "--timeout=300s",
-            ]
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manifest_path = Path(tmpdir) / "registry-manifest.yaml"
-            manifest_path.write_text(_REGISTRY_MANIFEST)
-            run_command(["kubectl", "apply", "-f", str(manifest_path)])
-        run_command(
-            [
-                "kubectl",
-                "rollout",
-                "status",
-                "deployment/registry",
-                "-n",
-                "registry",
-                "--timeout=300s",
-            ]
-        )
+    # Wait for at least one node to be Ready before deploying — freshly
+    # bootstrapped clusters (e.g. in nested LXD) can take a while.
+    run_command(
+        [
+            "kubectl",
+            "wait",
+            "--for=condition=Ready",
+            "node",
+            "--all",
+            "--timeout=300s",
+        ]
+    )
+    run_command(["kubectl", "apply", "-f", str(_REGISTRY_YAML)])
+    run_command(
+        [
+            "kubectl",
+            "rollout",
+            "status",
+            _REGISTRY_DEPLOYMENT,
+            "-n",
+            _REGISTRY_NAMESPACE,
+            "--timeout=300s",
+        ]
+    )
 
     return "deployed"
