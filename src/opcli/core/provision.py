@@ -84,20 +84,8 @@ def provision_load(
         rock_path = Path(rock.output.file)
         image_ref = f"{registry}/{rock.name}:latest"
 
-        # rockcraft.load converts a .rock archive to a local Docker image
-        run_command(
-            [
-                "sudo",
-                "rockcraft.skopeo",
-                "--insecure-policy",
-                "copy",
-                f"oci-archive:{rock_path}",
-                f"docker-daemon:{rock.name}:latest",
-            ],
-            cwd=str(root),
-        )
-
-        # Push to the target registry
+        # Push directly from .rock archive to registry in one step — no Docker
+        # daemon needed (avoids failures in MicroK8s-only environments).
         run_command(
             [
                 "sudo",
@@ -105,7 +93,7 @@ def provision_load(
                 "--insecure-policy",
                 "copy",
                 "--dest-tls-verify=false",
-                f"docker-daemon:{rock.name}:latest",
+                f"oci-archive:{rock_path}",
                 f"docker://{image_ref}",
             ],
             cwd=str(root),

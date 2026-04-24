@@ -81,8 +81,8 @@ class TestProvisionLoad:
         assert len(pushed) == 1
         assert "myrock" in pushed[0]
         assert "localhost:32000" in pushed[0]
-        # Two skopeo calls: copy to docker-daemon, then push to registry
-        assert mock_run.call_count == 2  # noqa: PLR2004
+        # Single skopeo call: direct oci-archive → registry
+        assert mock_run.call_count == 1
 
     def test_custom_registry(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts-generated.yaml", _GENERATED_WITH_ROCKS)
@@ -91,8 +91,8 @@ class TestProvisionLoad:
             pushed = provision_load(tmp_path, registry="myregistry:5000")
 
         assert "myregistry:5000" in pushed[0]
-        # Verify the push command uses the custom registry
-        push_cmd = mock_run.call_args_list[1][0][0]
+        # Verify the single push command uses the custom registry
+        push_cmd = mock_run.call_args_list[0][0][0]
         assert any("myregistry:5000" in arg for arg in push_cmd)
 
     def test_no_local_rocks_returns_empty(self, tmp_path: Path) -> None:
@@ -124,13 +124,11 @@ class TestProvisionLoad:
         with patch("opcli.core.provision.run_command") as mock_run:
             provision_load(tmp_path)
 
-        # First call: copy rock archive to docker daemon
-        copy_cmd = mock_run.call_args_list[0][0][0]
-        assert "rockcraft.skopeo" in copy_cmd
-        assert any("oci-archive:" in arg for arg in copy_cmd)
-        assert any("docker-daemon:" in arg for arg in copy_cmd)
-
-        # Second call: push from docker daemon to registry
-        push_cmd = mock_run.call_args_list[1][0][0]
-        assert "rockcraft.skopeo" in push_cmd
-        assert any("docker://" in arg for arg in push_cmd)
+        # Single call: direct oci-archive → registry (no docker-daemon step)
+        assert mock_run.call_count == 1
+        cmd = mock_run.call_args_list[0][0][0]
+        assert "rockcraft.skopeo" in cmd
+        assert any("oci-archive:" in arg for arg in cmd)
+        assert any("docker://" in arg for arg in cmd)
+        assert not any("docker-daemon:" in arg for arg in cmd)
+        assert "--dest-tls-verify=false" in cmd
