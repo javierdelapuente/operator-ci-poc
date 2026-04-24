@@ -25,7 +25,7 @@ class TestArtifactsPlan:
 
     def test_minimal_valid(self) -> None:
         plan = ArtifactsPlan()
-        assert plan.version == 1  # noqa: PLR2004
+        assert plan.version == 1
         assert plan.rocks == []
         assert plan.charms == []
         assert plan.snaps == []
