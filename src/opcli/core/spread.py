@@ -280,6 +280,7 @@ fi
 if [ -f artifacts-generated.yaml ]; then
   opcli provision load
 fi
+chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
 _CI_PREPARE = """\
