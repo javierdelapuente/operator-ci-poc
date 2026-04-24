@@ -70,6 +70,7 @@ class TestArtifactsBuild:
             "version: 1\ncharms:\n- name: mycharm\n"
             "  charmcraft-yaml: charmcraft.yaml\n",
         )
+        _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
         # Simulate charmcraft pack producing a .charm file
         _write(tmp_path / "mycharm_amd64.charm", "fake charm")
 
@@ -93,6 +94,7 @@ class TestArtifactsBuild:
         )
         rock_dir = tmp_path / "rock_dir"
         rock_dir.mkdir()
+        _write(rock_dir / "rockcraft.yaml", "name: myrock\n")
         _write(rock_dir / "myrock_1.0_amd64.rock", "fake rock")
 
         with patch("opcli.core.artifacts.run_command") as mock_run:
@@ -113,6 +115,7 @@ class TestArtifactsBuild:
         )
         snap_dir = tmp_path / "snap_dir"
         snap_dir.mkdir()
+        _write(snap_dir / "snapcraft.yaml", "name: mysnap\n")
         _write(snap_dir / "mysnap_1.0_amd64.snap", "fake snap")
 
         with patch("opcli.core.artifacts.run_command") as mock_run:
@@ -131,6 +134,7 @@ class TestArtifactsBuild:
             "- name: charm-b\n  charmcraft-yaml: b/charmcraft.yaml\n",
         )
         (tmp_path / "a").mkdir()
+        _write(tmp_path / "a" / "charmcraft.yaml", "name: charm-a\n")
         _write(tmp_path / "a" / "charm-a.charm", "fake")
 
         with patch("opcli.core.artifacts.run_command"):
@@ -154,7 +158,9 @@ class TestArtifactsBuild:
             "version: 1\nrocks:\n- name: myrock\n"
             "  rockcraft-yaml: rock_dir/rockcraft.yaml\n",
         )
-        (tmp_path / "rock_dir").mkdir()
+        rock_dir = tmp_path / "rock_dir"
+        rock_dir.mkdir()
+        _write(rock_dir / "rockcraft.yaml", "name: myrock\n")
 
         with (
             patch("opcli.core.artifacts.run_command"),
@@ -170,7 +176,9 @@ class TestArtifactsBuild:
             "charms:\n- name: mycharm\n  charmcraft-yaml: charmcraft.yaml\n",
         )
         (tmp_path / "rock_dir").mkdir()
+        _write(tmp_path / "rock_dir" / "rockcraft.yaml", "name: myrock\n")
         _write(tmp_path / "rock_dir" / "myrock.rock", "fake")
+        _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
         _write(tmp_path / "mycharm.charm", "fake")
 
         with patch("opcli.core.artifacts.run_command"):
@@ -192,7 +200,9 @@ class TestArtifactsBuild:
             "      rock: myrock\n",
         )
         (tmp_path / "rock_dir").mkdir()
+        _write(tmp_path / "rock_dir" / "rockcraft.yaml", "name: myrock\n")
         _write(tmp_path / "rock_dir" / "myrock_1.0_amd64.rock", "fake")
+        _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
         _write(tmp_path / "mycharm_amd64.charm", "fake")
 
         with patch("opcli.core.artifacts.run_command"):
@@ -220,6 +230,7 @@ class TestArtifactsBuild:
             "      type: oci-image\n"
             "      rock: nonexistent-rock\n",
         )
+        _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
         _write(tmp_path / "mycharm_amd64.charm", "fake")
 
         with patch("opcli.core.artifacts.run_command"):
@@ -323,3 +334,113 @@ class TestArtifactsBuild:
         assert not existing_symlink.exists()
         gen = load_artifacts_generated(result)
         assert gen.rocks[0].output.file is not None
+
+    def test_build_rock_nonstandard_yaml_name_creates_symlink(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-standard yaml name (e.g. planner-rockcraft.yaml) always gets a symlink.
+
+        Even when pack-dir == dirname(yaml), rockcraft needs a file named
+        'rockcraft.yaml'. A non-standard name must be symlinked.
+        """
+        _write(tmp_path / "planner-rockcraft.yaml", "name: planner\n")
+        _write(tmp_path / "planner_1.0_amd64.rock", "fake rock")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\n"
+            "rocks:\n- name: planner\n"
+            "  rockcraft-yaml: planner-rockcraft.yaml\n"
+            "  pack-dir: .\n",
+        )
+
+        symlink_seen: list[bool] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> None:
+            symlink = tmp_path / "rockcraft.yaml"
+            symlink_seen.append(symlink.is_symlink())
+
+        with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
+            result = artifacts_build(tmp_path)
+
+        assert symlink_seen == [True], "symlink must exist while pack runs"
+        assert not (tmp_path / "rockcraft.yaml").exists(), "symlink removed after build"
+        gen = load_artifacts_generated(result)
+        assert gen.rocks[0].output.file is not None
+
+    def test_build_rock_standard_yaml_name_no_symlink(self, tmp_path: Path) -> None:
+        """When yaml is already named rockcraft.yaml in pack-dir, no symlink needed."""
+        _write(tmp_path / "rockcraft.yaml", "name: myrock\n")
+        _write(tmp_path / "myrock_1.0_amd64.rock", "fake rock")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\n"
+            "rocks:\n- name: myrock\n"
+            "  rockcraft-yaml: rockcraft.yaml\n"
+            "  pack-dir: .\n",
+        )
+
+        symlink_created: list[bool] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> None:
+            symlink = tmp_path / "rockcraft.yaml"
+            symlink_created.append(symlink.is_symlink())
+
+        with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
+            artifacts_build(tmp_path)
+
+        assert symlink_created == [False], "no symlink should be created"
+
+    def test_build_missing_yaml_raises(self, tmp_path: Path) -> None:
+        """Missing yaml file raises ConfigurationError before running pack."""
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\nrocks:\n- name: myrock\n"
+            "  rockcraft-yaml: nonexistent/rockcraft.yaml\n",
+        )
+
+        with (
+            patch("opcli.core.artifacts.run_command") as mock_run,
+            pytest.raises(ConfigurationError, match="rockcraft-yaml not found"),
+        ):
+            artifacts_build(tmp_path)
+
+        mock_run.assert_not_called()
+
+    def test_build_missing_pack_dir_raises(self, tmp_path: Path) -> None:
+        """Missing pack-dir raises ConfigurationError before running pack."""
+        _write(tmp_path / "rockcraft.yaml", "name: myrock\n")
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\nrocks:\n- name: myrock\n"
+            "  rockcraft-yaml: rockcraft.yaml\n"
+            "  pack-dir: nonexistent-dir\n",
+        )
+
+        with (
+            patch("opcli.core.artifacts.run_command") as mock_run,
+            pytest.raises(ConfigurationError, match="pack-dir not found"),
+        ):
+            artifacts_build(tmp_path)
+
+        mock_run.assert_not_called()
+
+    def test_pick_new_output_ambiguous_overwrite_raises(self, tmp_path: Path) -> None:
+        """Overwrite-in-place with multiple pre-existing files raises OpcliError."""
+        _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
+        # Pre-existing output files — build overwrites one but we can't tell which
+        _write(tmp_path / "mycharm_v1.charm", "old1")
+        _write(tmp_path / "mycharm_v2.charm", "old2")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n- name: mycharm\n"
+            "  charmcraft-yaml: charmcraft.yaml\n",
+        )
+
+        with (
+            patch("opcli.core.artifacts.run_command"),
+            pytest.raises(OpcliError, match="Cannot determine which"),
+        ):
+            artifacts_build(tmp_path)

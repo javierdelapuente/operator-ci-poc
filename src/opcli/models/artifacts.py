@@ -3,13 +3,13 @@
 This schema declares the charms, rocks, and snaps in a repository, and
 the links between charms and their OCI-image resources (rocks).
 
-Schema version history
-----------------------
-v1 — initial release (``source`` directory field)
-v2 — ``source`` replaced by explicit ``<tool>-yaml`` file path; optional
-     ``pack-dir`` added to run the build tool from a different directory
-     (e.g. a Go monorepo where ``go.mod`` lives at the repo root but
-     ``rockcraft.yaml`` lives in a subdirectory).
+Schema version: 1
+- Each artifact carries an explicit path to its craft YAML file
+  (``rockcraft-yaml``, ``charmcraft-yaml``, ``snapcraft-yaml``) rather than
+  a source directory.
+- An optional ``pack-dir`` field controls the working directory for the build
+  tool (e.g. run ``rockcraft pack`` from the repo root when ``go.mod`` lives
+  there but ``rockcraft.yaml`` is in a subdirectory).
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ class SnapArtifact(BaseModel):
 
 
 class ArtifactsPlan(BaseModel):
-    """Top-level schema for ``artifacts.yaml`` (schema version 2)."""
+    """Top-level schema for ``artifacts.yaml`` (schema version 1)."""
 
     model_config = ConfigDict(extra="forbid")
 

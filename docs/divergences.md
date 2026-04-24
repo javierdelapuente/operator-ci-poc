@@ -112,7 +112,7 @@ The spec implies opcli participates in producing these (build collection step).
 
 **Implementation:**
 
-- The `ArtifactsGenerated` model (v2) correctly parses CI-format files.
+- The `ArtifactsGenerated` model (v1) correctly parses CI-format files.
 - `opcli pytest expand` emits `--<resource-name>=<image>` for charm resources
   whose embedded `image:` field is set (resolved at build time from the rock's
   CI output).
@@ -264,7 +264,7 @@ because their unit tests depend on `Harness` reading `metadata.yaml`).
 path to the craft YAML file:
 
 ```yaml
-version: 2
+version: 1
 rocks:
   - name: my-rock
     rockcraft-yaml: rocks/my-rock/rockcraft.yaml

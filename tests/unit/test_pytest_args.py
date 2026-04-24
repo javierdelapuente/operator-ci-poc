@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,20 @@ class TestAssemblePytestArgs:
         assert not any(a.startswith("--charm-file=") for a in args)
         # Rock image ref is embedded in the charm resources
         assert "--myrock-image=ghcr.io/canonical/myrock:abc123" in args
+
+    def test_ci_charm_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """CI-format charm (artifact output only) emits a warning, no --charm-file."""
+        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_CI)
+
+        with caplog.at_level(logging.WARNING, logger="opcli.core.pytest_args"):
+            args = assemble_pytest_args(tmp_path)
+
+        assert not any(a.startswith("--charm-file=") for a in args)
+        assert any("charm-mycharm" in msg for msg in caplog.messages), (
+            "expected warning mentioning the artifact name"
+        )
 
     def test_charm_without_resources(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts-generated.yaml", _GENERATED_NO_RESOURCES)

@@ -1,9 +1,9 @@
 """Core logic for ``opcli pytest expand``.
 
-Reads ``artifacts-generated.yaml`` (schema v2) and assembles the flags that
+Reads ``artifacts-generated.yaml`` (schema v1) and assembles the flags that
 tox/pytest need to locate built charms and their OCI-image resources.
 
-``artifacts-generated.yaml`` v2 carries resolved resource paths inside each
+``artifacts-generated.yaml`` carries resolved resource paths inside each
 charm entry, so this module no longer needs to read ``artifacts.yaml``.
 
 Convention (matching operator-workflows):
@@ -56,6 +56,13 @@ def assemble_pytest_args(
     for charm in generated.charms:
         if charm.output.file:
             args.append(f"--charm-file={charm.output.file}")
+        elif charm.output.artifact:
+            logger.warning(
+                "Skipping --charm-file for charm '%s': output is a CI artifact "
+                "(%s). Run 'opcli artifacts build' locally to get a local file.",
+                charm.name,
+                charm.output.artifact,
+            )
 
         for res_name, res in (charm.resources or {}).items():
             value = res.image or res.file
