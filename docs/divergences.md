@@ -290,3 +290,92 @@ follow symlinks, so the go-framework extension fails to find `go.mod` unless
 without requiring a manual workaround. The explicit yaml-file path (rather than
 directory) makes the configuration unambiguous and consistent across all
 artifact types.
+
+---
+
+## 12. Multi-base charm output — `output.files` list instead of single `output.file`
+
+**Spec:** The `artifacts-generated.yaml` schema shows a single `output.file`
+path for each charm entry:
+
+```yaml
+charms:
+  - name: indico
+    output:
+      file: ./indico_ubuntu-22.04-amd64.charm
+```
+
+**Implementation:** Charms use an `output.files` list of `{path, base}` objects
+because `charmcraft pack` produces **one `.charm` file per declared base** in a
+single invocation (e.g. ubuntu@20.04, ubuntu@22.04, ubuntu@24.04 with the same
+architecture each produce a separate file):
+
+```yaml
+charms:
+  - name: aproxy
+    charmcraft-yaml: charmcraft.yaml
+    output:
+      files:
+        - path: ./aproxy_ubuntu-20.04-amd64.charm
+          base: ubuntu@20.04
+        - path: ./aproxy_ubuntu-22.04-amd64.charm
+          base: ubuntu@22.04
+        - path: ./aproxy_ubuntu-24.04-amd64.charm
+          base: ubuntu@24.04
+```
+
+The `base` field is parsed best-effort from the filename
+(`{name}_{distro}-{version}-{arch}.charm` → `{distro}@{version}`); it is
+`null` when the filename does not follow this convention.
+
+`opcli pytest expand` emits one `--charm-file=<path>` flag per entry in
+`output.files`.
+
+For CI-built charms, the `artifact` and `run-id` fields remain on
+`CharmArtifactOutput` alongside `files` (which is empty in that case).
+
+**Rationale:** Rocks and snaps always produce exactly one file per
+architecture so their schema is unchanged. Only charms need the list because
+multi-base (same-arch) builds are a common pattern in the Canonical operator
+ecosystem.
+
+---
+
+## 13. `opcli provision load` writes back image references to `artifacts-generated.yaml`
+
+**Spec:** `opcli provision load` loads rock images into the local registry.
+The spec does not describe any modification of `artifacts-generated.yaml`.
+
+**Implementation:** After successfully pushing each rock image,
+`opcli provision load` updates the corresponding `output.image` field and any
+charm resource `image` fields in `artifacts-generated.yaml` with the pushed
+image reference (e.g. `localhost:32000/myrock:latest`).
+
+This means that after running `opcli provision load`, `opcli pytest expand`
+automatically emits `--<resource-name>=localhost:32000/myrock:latest` (the
+live registry reference) instead of `--<resource-name>=./myrock.rock` (the
+local file path), which is what Juju needs to deploy the charm with the
+correct OCI resource.
+
+**Rationale:** Without the writeback, users would have to manually update
+`artifacts-generated.yaml` after each `provision load`. Writing back makes
+the `provision load → pytest expand` pipeline seamless.
+
+---
+
+## 14. `ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS=1` always passed to rockcraft
+
+**Spec:** `opcli artifacts build` runs `rockcraft pack` for each declared rock.
+The spec does not mention environment variable configuration for the build tools.
+
+**Implementation:** `opcli artifacts build` always sets
+`ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS=1` in the environment when invoking
+`rockcraft pack`, regardless of whether the rock actually uses experimental
+extensions.
+
+**Rationale:** Many operator-adjacent rocks use extensions (e.g.
+`go-framework`, `django-framework`) that are still flagged experimental in some
+rockcraft versions. Omitting the variable causes an immediate build failure with
+a confusing error. Since the variable is harmless when the rock does not use
+experimental extensions, always setting it avoids this footgun without any
+downside.

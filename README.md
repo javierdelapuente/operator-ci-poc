@@ -111,7 +111,7 @@ opcli pytest expand -- -k test_charm
 | Command | Description |
 |---|---|
 | `opcli provision run` | Run `concierge prepare` to provision the test environment. |
-| `opcli provision load` | Push locally-built rock images to a container registry. Use `-r` to set registry (default: `localhost:32000`). |
+| `opcli provision load` | Push locally-built rock images to a container registry and write the pushed image references back to `artifacts-generated.yaml`. Use `-r` to set registry (default: `localhost:32000`). |
 | `opcli provision registry` | Deploy a local OCI registry at `localhost:32000`. Reads `concierge.yaml` to detect whether MicroK8s or canonical k8s is enabled and deploys accordingly. No-op if the registry is already running. Use `-c` to specify a custom concierge file path. |
 
 ### `opcli spread`
@@ -203,7 +203,29 @@ temporary symlink `<pack-dir>/rockcraft.yaml → <rockcraft-yaml>` before runnin
 `rockcraft pack`, then removes it afterwards. If a real (non-symlink) file already
 exists at that path, the build fails with an error.
 
-## Virtual backend system entry fields
+## `artifacts-generated.yaml` schema (charms)
+
+`opcli artifacts build` produces `artifacts-generated.yaml`. Rocks and snaps carry
+a single `output.file` path. Charms use an `output.files` list because
+`charmcraft pack` produces one `.charm` file per declared base in a single invocation:
+
+```yaml
+version: 1
+charms:
+  - name: aproxy
+    charmcraft-yaml: charmcraft.yaml
+    output:
+      files:
+        - path: ./aproxy_ubuntu-20.04-amd64.charm
+          base: ubuntu@20.04
+        - path: ./aproxy_ubuntu-22.04-amd64.charm
+          base: ubuntu@22.04
+        - path: ./aproxy_ubuntu-24.04-amd64.charm
+          base: ubuntu@24.04
+```
+
+`opcli pytest expand` emits one `--charm-file=<path>` flag per entry, so all bases
+are passed to the test run.
 
 System entries under the virtual `integration-test` (or `tutorial-test`) backend accept opcli-specific fields alongside standard spread fields:
 
