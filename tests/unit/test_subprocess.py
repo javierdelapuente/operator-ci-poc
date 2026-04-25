@@ -54,6 +54,43 @@ class TestStdinStreaming:
             run_command(["false"], stream=True, stdin="some input")
 
 
+class TestEnvCaptured:
+    """env overlay in captured (non-streaming) mode."""
+
+    def test_extra_env_var_visible_to_process(self) -> None:
+        result = run_command(
+            ["sh", "-c", "echo $MY_TEST_VAR"],
+            stream=False,
+            env={"MY_TEST_VAR": "hello"},
+        )
+        assert result.stdout.strip() == "hello"
+
+    def test_env_none_inherits_parent_env(self) -> None:
+        """When env is None the subprocess still sees PATH (so sh works)."""
+        result = run_command(["sh", "-c", "echo ok"], stream=False, env=None)
+        assert "ok" in result.stdout
+
+    def test_env_overrides_existing_var(self) -> None:
+        result = run_command(
+            ["sh", "-c", "echo $HOME"],
+            stream=False,
+            env={"HOME": "/overridden"},
+        )
+        assert result.stdout.strip() == "/overridden"
+
+
+class TestEnvStreaming:
+    """env overlay in streaming (real-time) mode."""
+
+    def test_extra_env_var_visible_to_process(self) -> None:
+        result = run_command(
+            ["sh", "-c", "echo $MY_TEST_VAR"],
+            stream=True,
+            env={"MY_TEST_VAR": "streamed"},
+        )
+        assert result.stdout.strip() == "streamed"
+
+
 class TestInteractiveMutualExclusion:
     """interactive and stdin are mutually exclusive."""
 

@@ -45,6 +45,8 @@ _PACK_COMMANDS: dict[str, list[str]] = {
     "snap": ["snapcraft", "pack"],
 }
 
+_ROCKCRAFT_ENV = {"ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS": "1"}
+
 _OUTPUT_GLOBS: dict[str, str] = {
     "charm": "*.charm",
     "rock": "*.rock",
@@ -201,7 +203,7 @@ def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
 
     symlink_path, symlink_created = _with_rock_symlink(yaml_path, pack_dir)
     try:
-        run_command([*_PACK_COMMANDS["rock"]], cwd=str(pack_dir))
+        run_command([*_PACK_COMMANDS["rock"]], cwd=str(pack_dir), env=_ROCKCRAFT_ENV)
     finally:
         if symlink_created and symlink_path and symlink_path.exists():
             symlink_path.unlink()

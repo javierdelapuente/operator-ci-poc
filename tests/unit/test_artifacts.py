@@ -108,6 +108,27 @@ class TestArtifactsBuild:
         assert gen.rocks[0].output.file is not None
         assert gen.rocks[0].output.file.startswith("./")
 
+    def test_build_rock_sets_experimental_extensions_env(
+        self, tmp_path: Path
+    ) -> None:
+        """rockcraft pack must always pass ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS."""
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\nrocks:\n- name: myrock\n"
+            "  rockcraft-yaml: rock_dir/rockcraft.yaml\n",
+        )
+        rock_dir = tmp_path / "rock_dir"
+        rock_dir.mkdir()
+        _write(rock_dir / "rockcraft.yaml", "name: myrock\n")
+        _write(rock_dir / "myrock_1.0_amd64.rock", "fake rock")
+
+        with patch("opcli.core.artifacts.run_command") as mock_run:
+            artifacts_build(tmp_path)
+
+        env_kwarg = mock_run.call_args.kwargs.get("env")
+        assert env_kwarg is not None
+        assert env_kwarg.get("ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS") == "1"
+
     def test_build_single_snap(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
