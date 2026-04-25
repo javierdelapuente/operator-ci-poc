@@ -33,7 +33,9 @@ charms:
 - name: mycharm
   charmcraft-yaml: charmcraft.yaml
   output:
-    file: ./mycharm.charm
+    files:
+    - path: ./mycharm_ubuntu-22.04-amd64.charm
+      base: ubuntu@22.04
   resources:
     myrock-image:
       type: oci-image
@@ -67,7 +69,9 @@ charms:
 - name: simple
   charmcraft-yaml: charmcraft.yaml
   output:
-    file: ./simple.charm
+    files:
+    - path: ./simple_ubuntu-22.04-amd64.charm
+      base: ubuntu@22.04
 """
 
 
@@ -82,7 +86,7 @@ class TestAssemblePytestArgs:
         _write(
             tmp_path / "artifacts-generated.yaml",
             "version: 1\ncharms:\n- name: c\n  source: .\n"
-            "  output:\n    file: ./c.charm\n",
+            "  output:\n    files:\n    - path: ./c.charm\n      base: ubuntu@22.04\n",
         )
         with pytest.raises(Exception, match=_V1_ERROR_MATCH):
             assemble_pytest_args(tmp_path)
@@ -92,7 +96,7 @@ class TestAssemblePytestArgs:
 
         args = assemble_pytest_args(tmp_path)
 
-        assert "--charm-file=./mycharm.charm" in args
+        assert "--charm-file=./mycharm_ubuntu-22.04-amd64.charm" in args
         assert "--myrock-image=./rock_dir/myrock.rock" in args
 
     def test_ci_scenario_only_generated_file(self, tmp_path: Path) -> None:
@@ -126,7 +130,28 @@ class TestAssemblePytestArgs:
 
         args = assemble_pytest_args(tmp_path)
 
-        assert args == ["--charm-file=./simple.charm"]
+        assert args == ["--charm-file=./simple_ubuntu-22.04-amd64.charm"]
+
+    def test_multi_base_charm_emits_multiple_charm_file_flags(
+        self, tmp_path: Path
+    ) -> None:
+        """Multi-base charm produces one --charm-file per output file."""
+        _write(
+            tmp_path / "artifacts-generated.yaml",
+            "version: 1\ncharms:\n- name: aproxy\n"
+            "  charmcraft-yaml: charmcraft.yaml\n"
+            "  output:\n    files:\n"
+            "    - path: ./aproxy_ubuntu-20.04-amd64.charm\n      base: ubuntu@20.04\n"
+            "    - path: ./aproxy_ubuntu-22.04-amd64.charm\n      base: ubuntu@22.04\n"
+            "    - path: ./aproxy_ubuntu-24.04-amd64.charm\n      base: ubuntu@24.04\n",
+        )
+
+        args = assemble_pytest_args(tmp_path)
+
+        assert "--charm-file=./aproxy_ubuntu-20.04-amd64.charm" in args
+        assert "--charm-file=./aproxy_ubuntu-22.04-amd64.charm" in args
+        assert "--charm-file=./aproxy_ubuntu-24.04-amd64.charm" in args
+        assert args.count("--charm-file=./aproxy_ubuntu-22.04-amd64.charm") == 1
 
     def test_empty_generated(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
@@ -139,13 +164,14 @@ class TestAssemblePytestArgs:
         _write(
             tmp_path / "artifacts-generated.yaml",
             "version: 1\ncharms:\n- name: c\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n    file: ./c.charm\n"
+            "  output:\n    files:\n    - path: ./c_ubuntu-22.04-amd64.charm\n"
+            "      base: ubuntu@22.04\n"
             "  resources:\n    img:\n      type: oci-image\n      rock: myrock\n",
         )
 
         args = assemble_pytest_args(tmp_path)
 
-        assert args == ["--charm-file=./c.charm"]
+        assert args == ["--charm-file=./c_ubuntu-22.04-amd64.charm"]
         assert not any(a.startswith("--img=") for a in args)
 
     def test_image_takes_priority_over_file_when_both_set(self, tmp_path: Path) -> None:
@@ -153,7 +179,8 @@ class TestAssemblePytestArgs:
         _write(
             tmp_path / "artifacts-generated.yaml",
             "version: 1\ncharms:\n- name: c\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n    file: ./c.charm\n"
+            "  output:\n    files:\n    - path: ./c_ubuntu-22.04-amd64.charm\n"
+            "      base: ubuntu@22.04\n"
             "  resources:\n    myrock-image:\n      type: oci-image\n"
             "      rock: myrock\n"
             "      file: ./rock_dir/myrock.rock\n"
@@ -184,7 +211,7 @@ class TestAssembleToxArgv:
 
         assert argv[:3] == ["tox", "-e", "integration"]
         assert "--" in argv
-        assert "--charm-file=./mycharm.charm" in argv
+        assert "--charm-file=./mycharm_ubuntu-22.04-amd64.charm" in argv
 
     def test_extra_args_only_include_separator(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
@@ -209,7 +236,7 @@ class TestAssembleToxArgv:
 
         sep_idx = argv.index("--")
         tail = argv[sep_idx + 1 :]
-        assert "--charm-file=./mycharm.charm" in tail
+        assert "--charm-file=./mycharm_ubuntu-22.04-amd64.charm" in tail
         assert "-v" in tail
         assert "-k" in tail
         assert "test_charm" in tail

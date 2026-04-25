@@ -83,9 +83,37 @@ class TestArtifactsBuild:
         gen = load_artifacts_generated(result)
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "mycharm"
-        assert gen.charms[0].output.file is not None
-        assert gen.charms[0].output.file.startswith("./")
-        assert gen.charms[0].output.file.endswith(".charm")
+        assert len(gen.charms[0].output.files) == 1
+        assert gen.charms[0].output.files[0].path.startswith("./")
+        assert gen.charms[0].output.files[0].path.endswith(".charm")
+
+    def test_build_multi_base_charm(self, tmp_path: Path) -> None:
+        """Multi-base charm: all produced files appear in output.files."""
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n- name: aproxy\n  charmcraft-yaml: charmcraft.yaml\n",
+        )
+        _write(tmp_path / "charmcraft.yaml", "name: aproxy\n")
+        # Simulate charmcraft pack producing three .charm files (one per base)
+        _write(tmp_path / "aproxy_ubuntu-20.04-amd64.charm", "fake")
+        _write(tmp_path / "aproxy_ubuntu-22.04-amd64.charm", "fake")
+        _write(tmp_path / "aproxy_ubuntu-24.04-amd64.charm", "fake")
+
+        with patch("opcli.core.artifacts.run_command"):
+            result = artifacts_build(tmp_path)
+
+        gen = load_artifacts_generated(result)
+        files = gen.charms[0].output.files
+        expected_count = 3
+        assert len(files) == expected_count
+        paths = {f.path for f in files}
+        assert "./aproxy_ubuntu-20.04-amd64.charm" in paths
+        assert "./aproxy_ubuntu-22.04-amd64.charm" in paths
+        assert "./aproxy_ubuntu-24.04-amd64.charm" in paths
+        bases = {f.base for f in files}
+        assert "ubuntu@20.04" in bases
+        assert "ubuntu@22.04" in bases
+        assert "ubuntu@24.04" in bases
 
     def test_build_single_rock(self, tmp_path: Path) -> None:
         _write(
@@ -452,12 +480,18 @@ class TestArtifactsBuild:
 
         mock_run.assert_not_called()
 
-    def test_pick_new_output_ambiguous_overwrite_raises(self, tmp_path: Path) -> None:
-        """Overwrite-in-place with multiple pre-existing files raises OpcliError."""
+    def test_pick_new_charm_output_overwrite_in_place_multi(
+        self, tmp_path: Path
+    ) -> None:
+        """Overwrite-in-place with multiple pre-existing charm files returns all.
+
+        This is the multi-base scenario: charmcraft pack rebuilds the same set of
+        files in-place (no new files appear). All pre-existing files are returned
+        since they were all just rebuilt.
+        """
         _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
-        # Pre-existing output files — build overwrites one but we can't tell which
-        _write(tmp_path / "mycharm_v1.charm", "old1")
-        _write(tmp_path / "mycharm_v2.charm", "old2")
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "old1")
+        _write(tmp_path / "mycharm_ubuntu-24.04-amd64.charm", "old2")
 
         _write(
             tmp_path / "artifacts.yaml",
@@ -465,8 +499,13 @@ class TestArtifactsBuild:
             "  charmcraft-yaml: charmcraft.yaml\n",
         )
 
-        with (
-            patch("opcli.core.artifacts.run_command"),
-            pytest.raises(OpcliError, match="Cannot determine which"),
-        ):
-            artifacts_build(tmp_path)
+        with patch("opcli.core.artifacts.run_command"):
+            result = artifacts_build(tmp_path)
+
+        gen = load_artifacts_generated(result)
+        files = gen.charms[0].output.files
+        expected_count = 2
+        assert len(files) == expected_count
+        paths = {f.path for f in files}
+        assert "./mycharm_ubuntu-22.04-amd64.charm" in paths
+        assert "./mycharm_ubuntu-24.04-amd64.charm" in paths

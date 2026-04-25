@@ -33,7 +33,9 @@ charms:
 - name: mycharm
   charmcraft-yaml: charmcraft.yaml
   output:
-    file: ./mycharm.charm
+    files:
+    - path: ./mycharm_ubuntu-22.04-amd64.charm
+      base: ubuntu@22.04
 """
 
 _GENERATED_WITH_ROCKS_AND_RESOURCES = """\
@@ -47,7 +49,9 @@ charms:
 - name: mycharm
   charmcraft-yaml: charmcraft.yaml
   output:
-    file: ./mycharm.charm
+    files:
+    - path: ./mycharm_ubuntu-22.04-amd64.charm
+      base: ubuntu@22.04
   resources:
     myrock-image:
       type: oci-image
