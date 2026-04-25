@@ -84,8 +84,8 @@ class TestArtifactsBuild:
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "mycharm"
         assert gen.charms[0].output.file is not None
+        assert gen.charms[0].output.file.startswith("./")
         assert gen.charms[0].output.file.endswith(".charm")
-        assert not Path(gen.charms[0].output.file).is_absolute()
 
     def test_build_single_rock(self, tmp_path: Path) -> None:
         _write(
@@ -106,7 +106,7 @@ class TestArtifactsBuild:
         gen = load_artifacts_generated(result)
         assert len(gen.rocks) == 1
         assert gen.rocks[0].output.file is not None
-        assert not Path(gen.rocks[0].output.file).is_absolute()
+        assert gen.rocks[0].output.file.startswith("./")
 
     def test_build_single_snap(self, tmp_path: Path) -> None:
         _write(
@@ -217,8 +217,8 @@ class TestArtifactsBuild:
         assert res.type == "oci-image"
         assert res.rock == "myrock"
         assert res.file is not None
+        assert res.file.startswith("./")
         assert "myrock_1.0_amd64.rock" in res.file
-        assert not Path(res.file).is_absolute()
 
     def test_resource_unresolved_when_rock_not_built(self, tmp_path: Path) -> None:
         """Resource referencing a rock not in artifacts.yaml has unresolved output."""

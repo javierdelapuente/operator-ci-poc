@@ -126,10 +126,15 @@ def _pick_new_output(
 
 
 def _relative_to_root(path_str: str, root: Path) -> str:
-    """Return *path_str* as a relative path from *root*."""
+    """Return *path_str* as a ``./``-prefixed relative path from *root*.
+
+    The ``./`` prefix makes the path unambiguously local (required by Juju
+    when distinguishing a local charm/rock from a CharmHub reference).
+    """
     resolved = Path(path_str).resolve()
     try:
-        return str(resolved.relative_to(root.resolve()))
+        rel = str(resolved.relative_to(root.resolve()))
+        return f"./{rel}"
     except ValueError as exc:
         msg = f"Built artifact {resolved} is outside repository root {root}"
         raise OpcliError(msg) from exc
