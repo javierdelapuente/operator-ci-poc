@@ -170,26 +170,19 @@ def _pick_new_charm_outputs(
 ) -> list[str]:
     """Return all charm files produced by pack, relative paths TBD by caller.
 
-    Extends :func:`_pick_new_output` logic for charms: when multiple bases are
-    declared, ``charmcraft pack`` produces one file per base in a single
-    invocation.  All of them are returned.
+    ``charmcraft pack`` always rebuilds **all** declared bases in a single
+    invocation, so the complete set of output files is always ``after``.
+    The ``before`` snapshot is only used to detect the error case where the
+    pack produced nothing.
 
     Cases:
-    1. New files appeared — return all new files (sorted for determinism).
+    1. Files present after pack — return all of them (sorted for determinism).
     2. No files at all — raise error.
-    3. No new files, some pre-existing — the build overwrote existing files
-       in place; return all of them (assumes pack-dir is dedicated to this
-       charm).
     """
-    new_files = sorted(after - before)
-    if new_files:
-        return new_files
-
     if not after:
         msg = f"No *.charm found in {pack_dir} after pack"
         raise OpcliError(msg)
 
-    # Overwrite-in-place: all pre-existing files were just rebuilt.
     return sorted(after)
 
 

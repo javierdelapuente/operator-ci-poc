@@ -115,6 +115,34 @@ class TestArtifactsBuild:
         assert "ubuntu@22.04" in bases
         assert "ubuntu@24.04" in bases
 
+    def test_build_multi_base_charm_incremental(self, tmp_path: Path) -> None:
+        """Adding a new base: pre-existing files + new file all appear in output.
+
+        charmcraft pack always rebuilds all declared bases, so after adding a
+        base we must return all files in the output directory, not just new ones.
+        """
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n- name: aproxy\n  charmcraft-yaml: charmcraft.yaml\n",
+        )
+        _write(tmp_path / "charmcraft.yaml", "name: aproxy\n")
+        # Pre-existing file from a previous single-base build
+        _write(tmp_path / "aproxy_ubuntu-20.04-amd64.charm", "old")
+        # charmcraft pack rebuilds ubuntu-20.04 AND produces ubuntu-22.04
+        # (simulated: file already existed before, pack just overwrites)
+        _write(tmp_path / "aproxy_ubuntu-22.04-amd64.charm", "new")
+
+        with patch("opcli.core.artifacts.run_command"):
+            result = artifacts_build(tmp_path)
+
+        gen = load_artifacts_generated(result)
+        files = gen.charms[0].output.files
+        expected_count = 2
+        assert len(files) == expected_count
+        paths = {f.path for f in files}
+        assert "./aproxy_ubuntu-20.04-amd64.charm" in paths
+        assert "./aproxy_ubuntu-22.04-amd64.charm" in paths
+
     def test_build_single_rock(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
