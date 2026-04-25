@@ -192,6 +192,47 @@ class TestAssemblePytestArgs:
         assert "--myrock-image=localhost:32000/myrock:latest" in args
         assert not any("myrock.rock" in a for a in args)
 
+    def test_rock_name_used_for_flag_not_resource_name(self, tmp_path: Path) -> None:
+        """Flag uses rock name, not resource name — matches operator-workflows.
+
+        When the resource name (e.g. ``app-image``) differs from the rock name
+        (e.g. ``expressjs-app``), the generated flag must be
+        ``--expressjs-app-image=...``, not ``--app-image=...``.
+        """
+        _write(
+            tmp_path / "artifacts-generated.yaml",
+            "version: 1\ncharms:\n- name: expressjs-k8s\n"
+            "  charmcraft-yaml: charmcraft.yaml\n"
+            "  output:\n    files:\n"
+            "    - path: ./expressjs-k8s_ubuntu-22.04-amd64.charm\n"
+            "      base: ubuntu@22.04\n"
+            "  resources:\n    app-image:\n      type: oci-image\n"
+            "      rock: expressjs-app\n"
+            "      file: ./expressjs-app_1.0_amd64.rock\n",
+        )
+
+        args = assemble_pytest_args(tmp_path)
+
+        assert "--expressjs-app-image=./expressjs-app_1.0_amd64.rock" in args
+        assert not any(a.startswith("--app-image=") for a in args)
+
+    def test_resource_without_rock_uses_resource_name(self, tmp_path: Path) -> None:
+        """Resources not linked to a rock fall back to the resource name as flag."""
+        _write(
+            tmp_path / "artifacts-generated.yaml",
+            "version: 1\ncharms:\n- name: mycharm\n"
+            "  charmcraft-yaml: charmcraft.yaml\n"
+            "  output:\n    files:\n"
+            "    - path: ./mycharm_ubuntu-22.04-amd64.charm\n"
+            "      base: ubuntu@22.04\n"
+            "  resources:\n    standalone-image:\n      type: oci-image\n"
+            "      image: ghcr.io/canonical/standalone:latest\n",
+        )
+
+        args = assemble_pytest_args(tmp_path)
+
+        assert "--standalone-image=ghcr.io/canonical/standalone:latest" in args
+
 
 class TestAssembleToxArgv:
     """Tests for assemble_tox_argv()."""

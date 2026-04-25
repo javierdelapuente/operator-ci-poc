@@ -7,9 +7,9 @@ tox/pytest need to locate built charms and their OCI-image resources.
 charm entry, so this module no longer needs to read ``artifacts.yaml``.
 
 Convention (matching operator-workflows):
-    --charm-file=<path>          for each locally built charm
-    --<resource-name>=<path>     for each OCI-image resource with a local file
-    --<resource-name>=<image>    for each OCI-image resource with a registry image
+    --charm-file=<path>             for each locally built charm
+    --<rock-name>-image=<path>      for each OCI-image resource linked to a rock
+    --<resource-name>=<path>        for OCI-image resources not linked to a rock
 
 The ``KEY=VALUE`` form is required because some conftest.py files register
 ``--charm-file`` with ``nargs="+"``, which makes argparse greedy.  With the
@@ -68,7 +68,8 @@ def assemble_pytest_args(
         for res_name, res in (charm.resources or {}).items():
             value = res.image or res.file
             if value:
-                args.append(f"--{res_name}={value}")
+                arg_name = f"{res.rock}-image" if res.rock else res_name
+                args.append(f"--{arg_name}={value}")
 
     return args
 
