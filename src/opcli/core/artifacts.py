@@ -10,6 +10,7 @@ from __future__ import annotations
 import glob as globmod
 import logging
 import os
+import re
 from pathlib import Path
 
 from opcli.core.discovery import discover_artifacts
@@ -28,6 +29,8 @@ from opcli.models.artifacts import (
 from opcli.models.artifacts_generated import (
     ArtifactOutput,
     ArtifactsGenerated,
+    CharmArtifactOutput,
+    CharmFile,
     GeneratedCharm,
     GeneratedResource,
     GeneratedRock,
@@ -142,6 +145,47 @@ def _relative_to_root(path_str: str, root: Path) -> str:
         raise OpcliError(msg) from exc
 
 
+# Pattern: {name}_{distro}-{version}-{arch}.charm
+# e.g. aproxy_ubuntu-22.04-amd64.charm → distro=ubuntu, version=22.04
+_CHARM_FILENAME_RE = re.compile(
+    r"^.+_(?P<distro>[a-z]+)-(?P<version>\d+\.\d+)-[^.]+\.charm$"
+)
+
+
+def _parse_base_from_charm_path(path: str) -> str | None:
+    """Return the base string (e.g. ``ubuntu@22.04``) parsed from a charm filename.
+
+    Returns ``None`` if the filename does not follow the expected
+    ``{name}_{distro}-{version}-{arch}.charm`` convention.
+    """
+    filename = Path(path).name
+    m = _CHARM_FILENAME_RE.match(filename)
+    if not m:
+        return None
+    return f"{m.group('distro')}@{m.group('version')}"
+
+
+def _pick_new_charm_outputs(
+    before: set[str], after: set[str], pack_dir: Path
+) -> list[str]:
+    """Return all charm files produced by pack, relative paths TBD by caller.
+
+    ``charmcraft pack`` always rebuilds **all** declared bases in a single
+    invocation, so the complete set of output files is always ``after``.
+    The ``before`` snapshot is only used to detect the error case where the
+    pack produced nothing.
+
+    Cases:
+    1. Files present after pack — return all of them (sorted for determinism).
+    2. No files at all — raise error.
+    """
+    if not after:
+        msg = f"No *.charm found in {pack_dir} after pack"
+        raise OpcliError(msg)
+
+    return sorted(after)
+
+
 def _resolve_pack_dir(yaml_path: Path, pack_dir_str: str | None, root: Path) -> Path:
     """Resolve the directory from which the pack command should run."""
     if pack_dir_str:
@@ -235,8 +279,14 @@ def _build_charm(
     before = _snapshot_outputs(pack_dir, "charm")
     run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
     after = _snapshot_outputs(pack_dir, "charm")
-    new_output = _pick_new_output(before, after, "charm", pack_dir)
-    output_file = _relative_to_root(new_output, root)
+    new_outputs = _pick_new_charm_outputs(before, after, pack_dir)
+    charm_files = [
+        CharmFile(
+            path=_relative_to_root(p, root),
+            base=_parse_base_from_charm_path(p),
+        )
+        for p in new_outputs
+    ]
 
     resources: dict[str, GeneratedResource] = {}
     for res_name, res_def in charm.resources.items():
@@ -256,7 +306,7 @@ def _build_charm(
     return GeneratedCharm(
         name=charm.name,
         **{"charmcraft-yaml": charm.charmcraft_yaml},
-        output=ArtifactOutput(file=output_file),
+        output=CharmArtifactOutput(files=charm_files),
         resources=resources if resources else None,
     )
 

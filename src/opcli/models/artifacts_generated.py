@@ -8,6 +8,9 @@ Schema version: 1
 - Charm entries include a ``resources`` mapping with resolved output paths
   (file or image), making ``artifacts-generated.yaml`` self-contained for
   pytest flag assembly without needing to also read ``artifacts.yaml``.
+- Charm output uses ``files`` (a list of :class:`CharmFile` with path and
+  optional base annotation) rather than a single ``file``, because
+  ``charmcraft pack`` may produce one file per declared base.
 """
 
 from __future__ import annotations
@@ -31,6 +34,45 @@ class ArtifactOutput(BaseModel):
     def _at_least_one_output(self) -> ArtifactOutput:
         if not any([self.file, self.image, self.artifact]):
             msg = "ArtifactOutput must specify at least one of file, image, or artifact"
+            raise ValueError(msg)
+        if self.artifact and not self.run_id:
+            msg = "run-id is required when artifact is set"
+            raise ValueError(msg)
+        return self
+
+
+class CharmFile(BaseModel):
+    """A single charm file with its local path and optional base annotation.
+
+    The ``base`` field is parsed from the charmcraft output filename on a
+    best-effort basis (e.g. ``aproxy_ubuntu-22.04-amd64.charm`` →
+    ``ubuntu@22.04``).  It is ``None`` when the filename does not follow the
+    expected ``{name}_{distro}-{version}-{arch}.charm`` convention.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    base: str | None = None
+
+
+class CharmArtifactOutput(BaseModel):
+    """Output of a charm build — local files or a CI artifact reference.
+
+    Local builds populate ``files`` (one :class:`CharmFile` per built base).
+    CI builds populate ``artifact`` and ``run-id`` instead.
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    files: list[CharmFile] = []
+    artifact: str | None = None
+    run_id: str | None = Field(default=None, alias="run-id")
+
+    @model_validator(mode="after")
+    def _at_least_one_output(self) -> CharmArtifactOutput:
+        if not self.files and not self.artifact:
+            msg = "CharmArtifactOutput must specify files or artifact"
             raise ValueError(msg)
         if self.artifact and not self.run_id:
             msg = "run-id is required when artifact is set"
@@ -71,7 +113,7 @@ class GeneratedCharm(BaseModel):
 
     name: str
     charmcraft_yaml: str = Field(alias="charmcraft-yaml")
-    output: ArtifactOutput
+    output: CharmArtifactOutput
     resources: dict[str, GeneratedResource] | None = None
 
 

@@ -14,6 +14,8 @@ from opcli.models.artifacts import (
 from opcli.models.artifacts_generated import (
     ArtifactOutput,
     ArtifactsGenerated,
+    CharmArtifactOutput,
+    CharmFile,
     GeneratedCharm,
     GeneratedRock,
     GeneratedSnap,
@@ -189,12 +191,14 @@ class TestArtifactsGenerated:
                 GeneratedCharm(
                     name="indico",
                     charmcraft_yaml="charmcraft.yaml",
-                    output=ArtifactOutput(file="./indico.charm"),
+                    output=CharmArtifactOutput(
+                        files=[CharmFile(path="./indico.charm", base="ubuntu@22.04")]
+                    ),
                 )
             ],
         )
         assert gen.rocks[0].output.file == "./indico.rock"
-        assert gen.charms[0].output.file == "./indico.charm"
+        assert gen.charms[0].output.files[0].path == "./indico.charm"
 
     def test_generated_extra_fields_rejected(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs"):
@@ -211,3 +215,49 @@ class TestArtifactsGenerated:
             ],
         )
         assert gen.snaps[0].name == "mysnap"
+
+
+class TestCharmArtifactOutput:
+    """Validation tests for CharmArtifactOutput and CharmFile models."""
+
+    def test_local_single_base(self) -> None:
+        out = CharmArtifactOutput(
+            files=[
+                CharmFile(path="./aproxy_ubuntu-22.04-amd64.charm", base="ubuntu@22.04")
+            ]
+        )
+        assert len(out.files) == 1
+        assert out.files[0].base == "ubuntu@22.04"
+
+    def test_local_multi_base(self) -> None:
+        out = CharmArtifactOutput(
+            files=[
+                CharmFile(path="./a_ubuntu-20.04-amd64.charm", base="ubuntu@20.04"),
+                CharmFile(path="./a_ubuntu-22.04-amd64.charm", base="ubuntu@22.04"),
+            ]
+        )
+        expected_count = 2
+        assert len(out.files) == expected_count
+
+    def test_ci_artifact_output(self) -> None:
+        out = CharmArtifactOutput(artifact="charm-aproxy", run_id="999")
+        assert out.artifact == "charm-aproxy"
+        assert out.run_id == "999"
+        assert out.files == []
+
+    def test_ci_artifact_yaml_alias(self) -> None:
+        out = CharmArtifactOutput.model_validate({"artifact": "charm-x", "run-id": "1"})
+        assert out.run_id == "1"
+
+    def test_empty_output_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="files or artifact"):
+            CharmArtifactOutput()
+
+    def test_artifact_without_run_id_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="run-id"):
+            CharmArtifactOutput(artifact="charm-x")
+
+    def test_base_none_allowed(self) -> None:
+        """Base can be None when filename does not follow convention."""
+        out = CharmArtifactOutput(files=[CharmFile(path="./mycharm.charm")])
+        assert out.files[0].base is None

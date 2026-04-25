@@ -54,8 +54,9 @@ def assemble_pytest_args(
     args: list[str] = []
 
     for charm in generated.charms:
-        if charm.output.file:
-            args.append(f"--charm-file={charm.output.file}")
+        if charm.output.files:
+            for charm_file in charm.output.files:
+                args.append(f"--charm-file={charm_file.path}")
         elif charm.output.artifact:
             logger.warning(
                 "Skipping --charm-file for charm '%s': output is a CI artifact "
