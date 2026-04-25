@@ -108,9 +108,7 @@ class TestArtifactsBuild:
         assert gen.rocks[0].output.file is not None
         assert gen.rocks[0].output.file.startswith("./")
 
-    def test_build_rock_sets_experimental_extensions_env(
-        self, tmp_path: Path
-    ) -> None:
+    def test_build_rock_sets_experimental_extensions_env(self, tmp_path: Path) -> None:
         """rockcraft pack must always pass ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS."""
         _write(
             tmp_path / "artifacts.yaml",
