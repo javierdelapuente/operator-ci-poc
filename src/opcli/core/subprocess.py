@@ -11,6 +11,7 @@ failures can be reproduced manually by copy-pasting from the output.
 from __future__ import annotations
 
 import io
+import os
 import shlex
 import subprocess
 import sys
@@ -68,6 +69,7 @@ def run_command(  # noqa: PLR0913
     stream: bool = True,
     interactive: bool = False,
     stdin: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> SubprocessResult:
     """Execute *cmd* and return captured output.
 
@@ -89,6 +91,10 @@ def run_command(  # noqa: PLR0913
         stdin: Optional string to feed to the subprocess's standard input.
             Useful for commands that read from stdin (e.g. ``kubectl apply
             -f -``). Cannot be combined with *interactive*.
+        env: Optional extra environment variables to overlay on top of the
+            current process environment.  The subprocess inherits all of
+            ``os.environ``; any key in *env* overrides the corresponding
+            inherited value.
 
     Raises:
         SubprocessError: If the command fails and *check* is ``True``.
@@ -98,11 +104,16 @@ def run_command(  # noqa: PLR0913
     if interactive and stdin is not None:
         msg = "'interactive' and 'stdin' are mutually exclusive"
         raise ValueError(msg)
+    merged_env = {**os.environ, **env} if env else None
     if interactive:
-        return _run_interactive(cmd, cwd=cwd, check=check)
+        return _run_interactive(cmd, cwd=cwd, check=check, env=merged_env)
     if stream:
-        return _run_streaming(cmd, cwd=cwd, timeout=timeout, check=check, stdin=stdin)
-    return _run_captured(cmd, cwd=cwd, timeout=timeout, check=check, stdin=stdin)
+        return _run_streaming(
+            cmd, cwd=cwd, timeout=timeout, check=check, stdin=stdin, env=merged_env
+        )
+    return _run_captured(
+        cmd, cwd=cwd, timeout=timeout, check=check, stdin=stdin, env=merged_env
+    )
 
 
 def _log_command(cmd: list[str], cwd: str | None) -> None:
@@ -117,11 +128,12 @@ def _run_interactive(
     *,
     cwd: str | None = None,
     check: bool = True,
+    env: dict[str, str] | None = None,
 ) -> SubprocessResult:
     """Run *cmd* with inherited stdin/stdout/stderr for full TTY access."""
     _log_command(cmd, cwd)
     try:
-        proc = subprocess.run(cmd, cwd=cwd, check=False)
+        proc = subprocess.run(cmd, cwd=cwd, check=False, env=env)
     except OSError as exc:
         raise SubprocessError(
             cmd=cmd,
@@ -141,13 +153,14 @@ def _run_interactive(
     return result
 
 
-def _run_streaming(
+def _run_streaming(  # noqa: PLR0913
     cmd: list[str],
     *,
     cwd: str | None = None,
     timeout: int = _DEFAULT_TIMEOUT_SECONDS,
     check: bool = True,
     stdin: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> SubprocessResult:
     """Run *cmd* with real-time output to the terminal."""
     _log_command(cmd, cwd)
@@ -159,6 +172,7 @@ def _run_streaming(
             stdin=subprocess.PIPE if stdin is not None else None,
             text=True,
             cwd=cwd,
+            env=env,
         )
     except OSError as exc:
         raise SubprocessError(
@@ -234,13 +248,14 @@ def _run_streaming(
     return result
 
 
-def _run_captured(
+def _run_captured(  # noqa: PLR0913
     cmd: list[str],
     *,
     cwd: str | None = None,
     timeout: int = _DEFAULT_TIMEOUT_SECONDS,
     check: bool = True,
     stdin: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> SubprocessResult:
     """Run *cmd* with fully buffered output (no terminal echo)."""
     _log_command(cmd, cwd)
@@ -253,6 +268,7 @@ def _run_captured(
             timeout=timeout,
             check=False,
             input=stdin,
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         partial_err = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""

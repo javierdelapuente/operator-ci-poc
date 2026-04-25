@@ -199,7 +199,7 @@ class TestSubprocessWrapper:
             assert result.stdout == ""
             assert result.stderr == ""
             mock_run.assert_called_once_with(
-                ["spread", "-shell"], cwd=None, check=False
+                ["spread", "-shell"], cwd=None, check=False, env=None
             )
 
     def test_interactive_failure_raises(self) -> None:
