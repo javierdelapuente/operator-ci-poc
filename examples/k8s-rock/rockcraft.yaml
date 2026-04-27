@@ -12,16 +12,12 @@ license: Apache-2.0
 platforms:
   amd64:
 
+services:
+  app:
+    override: replace
+    startup: enabled
+    command: sleep infinity
+
 parts:
   app:
     plugin: nil
-    override-prime: |
-      mkdir -p ${CRAFT_PRIME}/etc/pebble/layers
-      cat > ${CRAFT_PRIME}/etc/pebble/layers/app.yaml << 'EOF'
-      summary: App layer
-      services:
-        app:
-          override: replace
-          startup: enabled
-          command: sleep infinity
-      EOF

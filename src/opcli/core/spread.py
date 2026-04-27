@@ -19,7 +19,6 @@ import logging
 import os
 import posixpath
 import shutil
-import subprocess
 import tempfile
 from copy import deepcopy
 from io import StringIO
@@ -73,31 +72,9 @@ def _discover_test_modules(root: Path) -> list[str]:
     return modules
 
 
-def _current_git_ref(project_root: Path) -> str:
-    """Return the current git branch name, or ``"main"`` as a fallback.
-
-    Runs ``git branch --show-current`` in *project_root*.  Falls back to
-    ``"main"`` if git is unavailable or the directory is not a git repo.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "branch", "--show-current"],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        ref = result.stdout.strip()
-        return ref if ref else "main"
-    except Exception:
-        return "main"
-
-
 def _generate_spread_yaml(
     project_name: str,
     modules: list[str],
-    git_ref: str = "main",
 ) -> str:
     """Build the default ``spread.yaml`` content."""
     buf = StringIO()
@@ -150,16 +127,10 @@ _TASK_YAML_CONTENT = (
     "execute: |\n"
     "    loginctl enable-linger ubuntu\n"
     '    cd "${SPREAD_PATH}"\n'
-    '    case "$MODULE" in\n'
-    "      *k8s*) JUJU_CONTROLLER=concierge-microk8s ;;\n"
-    "      *)     JUJU_CONTROLLER=concierge-lxd ;;\n"
-    "    esac\n"
     '    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}"'
     ' -- -k "$MODULE") || exit 1\n'
     "    runuser -l ubuntu -c"
-    ' "cd \\"${SPREAD_PATH}\\"'
-    " && PYTEST_OPERATOR_CONTROLLER=$JUJU_CONTROLLER"
-    ' $PYTEST_CMD"\n'
+    ' "cd \\"${SPREAD_PATH}\\" && $PYTEST_CMD"\n'
 )
 
 _TUTORIAL_TASK_YAML_CONTENT = (
@@ -303,11 +274,13 @@ _LOCAL_PREPARE = """\
 sudo snap install concierge --classic
 sudo snap install astral-uv --classic
 sudo apt-get update --quiet
-sudo apt-get install -y pipx --quiet
+sudo apt-get install -y pipx golang-go --quiet
 sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
     pipx install \
-    "git+https://github.com/javierdelapuente/operator-ci-poc@_OPCLI_GIT_REF_" \
+    "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
     --quiet
+go install github.com/canonical/spread/cmd/spread@latest
+sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
 runuser -l ubuntu -c "uv tool install tox --with tox-uv"
 if [ -f "$CONCIERGE" ]; then
   concierge prepare -c "$CONCIERGE"
@@ -325,12 +298,6 @@ if [ -f artifacts-generated.yaml ] && \
 fi
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
-
-
-def _local_prepare(git_ref: str) -> str:
-    """Return the local backend prepare script with *git_ref* embedded."""
-    return _LOCAL_PREPARE.replace("_OPCLI_GIT_REF_", git_ref)
-
 
 _CI_PREPARE = """\
 if [ -f "$CONCIERGE" ]; then
@@ -557,7 +524,6 @@ def _expand_backend(
     spread_data: dict[str, object],
     *,
     ci: bool | None = None,
-    git_ref: str = "main",
 ) -> dict[str, object]:
     """Replace all known virtual backends with concrete ones.
 
@@ -594,20 +560,13 @@ def _expand_backend(
     for virtual_name, (
         concrete_local,
         concrete_ci,
-        local_prepare_template,
+        local_prepare,
         ci_prepare,
     ) in _BACKEND_CONFIGS.items():
         virtual = backends.pop(virtual_name, None)
         if virtual is None:
             continue
         found_any = True
-
-        # For the integration-test backend, embed the resolved git ref so the
-        # prepare script installs the correct opcli version.
-        if virtual_name == _VIRTUAL_BACKEND:
-            local_prepare = _local_prepare(git_ref)
-        else:
-            local_prepare = local_prepare_template
 
         concrete_name = concrete_ci if use_ci else concrete_local
         backends[concrete_name] = _build_concrete_backend(
@@ -657,25 +616,7 @@ def _load_spread_yaml(root: Path) -> dict[str, Any]:
 def _expand(root: Path, *, ci: bool | None = None) -> dict[str, Any]:
     """Load ``spread.yaml``, expand its virtual backend, return the dict."""
     data = _load_spread_yaml(root)
-    git_ref = _current_git_ref(root.parent)
-    return _expand_backend(data, ci=ci, git_ref=git_ref)
-
-
-_SNAP_WRAPPER = Path("/usr/bin/snap")
-_SNAP_SPREAD_BIN = Path("/snap/spread/current/bin/spread")
-
-
-def _spread_binary() -> str:
-    """Return the path to the real spread binary.
-
-    ``/snap/bin/spread`` is a symlink to ``/usr/bin/snap``, which changes the
-    CWD.  When spread is installed as a snap we bypass the wrapper and call the
-    real binary directly so that ``subprocess.run(cwd=...)`` is honoured.
-    """
-    snap_bin = shutil.which("spread")
-    if snap_bin and Path(snap_bin).resolve() == _SNAP_WRAPPER:
-        return str(_SNAP_SPREAD_BIN)
-    return snap_bin or "spread"
+    return _expand_backend(data, ci=ci)
 
 
 def _compose_reroot(existing_reroot: object | None) -> str:
@@ -765,7 +706,7 @@ def spread_run(
         with original.open("w") as fh:
             _yaml.dump(_literalize(expanded), fh)
 
-        cmd = [_spread_binary()]
+        cmd = ["spread"]
         if extra_args:
             cmd.extend(extra_args)
         run_command(cmd, cwd=str(root), interactive=True)

@@ -351,13 +351,13 @@ class TestProvisionRegistry:
         # Three calls: k8s kubectl wait + apply + rollout status
         assert mock_run.call_count == 3  # noqa: PLR2004
         wait_cmd = mock_run.call_args_list[0][0][0]
-        assert wait_cmd[:3] == ["k8s", "kubectl", "wait"]
+        assert wait_cmd[:4] == ["sudo", "k8s", "kubectl", "wait"]
         assert "--for=condition=Ready" in wait_cmd
         apply_call = mock_run.call_args_list[1]
-        assert apply_call[0][0] == ["k8s", "kubectl", "apply", "-f", "-"]
+        assert apply_call[0][0] == ["sudo", "k8s", "kubectl", "apply", "-f", "-"]
         assert apply_call[1]["stdin"]  # manifest content passed via stdin
         rollout_cmd = mock_run.call_args_list[2][0][0]
-        assert rollout_cmd[:3] == ["k8s", "kubectl", "rollout"]
+        assert rollout_cmd[:4] == ["sudo", "k8s", "kubectl", "rollout"]
         assert "status" in rollout_cmd
         assert "deployment/registry" in rollout_cmd
         assert "container-registry" in rollout_cmd

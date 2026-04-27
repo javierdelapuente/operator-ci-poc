@@ -613,10 +613,7 @@ class TestSpreadRun:
     def test_uses_spread_binary(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
-        with (
-            patch("opcli.core.spread.run_command") as mock_run,
-            patch("opcli.core.spread._spread_binary", return_value="spread"),
-        ):
+        with patch("opcli.core.spread.run_command") as mock_run:
             spread_run(tmp_path, ci=False)
 
         cmd = mock_run.call_args[0][0]
@@ -643,10 +640,7 @@ class TestSpreadRun:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         _SELECTOR = "local:ubuntu-24.04:tests/integration/run:test_charm"
-        with (
-            patch("opcli.core.spread.run_command") as mock_run,
-            patch("opcli.core.spread._spread_binary", return_value="spread"),
-        ):
+        with patch("opcli.core.spread.run_command") as mock_run:
             spread_run(
                 tmp_path,
                 extra_args=["-v", _SELECTOR],
