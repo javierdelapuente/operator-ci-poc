@@ -2,6 +2,11 @@ juju:
   channel: 3.6/stable
 
 providers:
-  - lxd:
-      bootstrap: true
-      controller: localhost
+  lxd:
+    enable: true
+    bootstrap: true
+
+host:
+  snaps:
+    rockcraft:
+    charmcraft:

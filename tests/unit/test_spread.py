@@ -160,7 +160,7 @@ class TestSpreadExpand:
         assert "SPREAD_PASSWORD" in local["allocate"]
         assert "lxc delete --force" in local["discard"]
         prepare = local["prepare"]
-        assert "sudo concierge prepare" in prepare
+        assert "concierge prepare" in prepare
         assert "opcli provision registry" in prepare
         assert "runuser -l ubuntu" in prepare
         assert '"${SPREAD_PATH}"' in prepare
@@ -597,7 +597,7 @@ suites:
 
 
 class TestSpreadRun:
-    def test_runs_spread_from_temp_dir(self, tmp_path: Path) -> None:
+    def test_runs_spread_from_project_root(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         captured_cwd: list[str] = []
@@ -609,10 +609,8 @@ class TestSpreadRun:
             spread_run(tmp_path, ci=False)
 
         assert len(captured_cwd) == 1
-        cwd = Path(captured_cwd[0])
-        # Temp dir must be inside the project root
-        assert cwd.parent == tmp_path
-        assert cwd.name.startswith(".opcli-spread-")
+        # spread runs from the project root, not a temp subdir
+        assert Path(captured_cwd[0]) == tmp_path
 
     def test_no_fake_spread_flag(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
@@ -621,11 +619,13 @@ class TestSpreadRun:
             spread_run(tmp_path, ci=False)
 
         cmd = mock_run.call_args[0][0]
-        assert cmd == ["spread"]
+        # First element is the spread binary (may be resolved to actual path)
+        assert Path(cmd[0]).name == "spread"
+        assert len(cmd) == 1
         # No -spread= flag should ever appear
         assert not any(arg.startswith("-spread=") for arg in cmd)
 
-    def test_temp_dir_contains_spread_yaml_with_reroot(self, tmp_path: Path) -> None:
+    def test_spread_yaml_in_root_is_expanded(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         written_yaml: list[dict[str, object]] = []
@@ -641,7 +641,8 @@ class TestSpreadRun:
             spread_run(tmp_path, ci=False)
 
         assert len(written_yaml) == 1
-        assert written_yaml[0]["reroot"] == ".."
+        # No reroot injected — spread runs from project root directly
+        assert "reroot" not in written_yaml[0]
 
     def test_extra_args_forwarded(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
@@ -655,28 +656,25 @@ class TestSpreadRun:
             )
 
         cmd = mock_run.call_args[0][0]
-        assert cmd == ["spread", "-v", _SELECTOR]
+        assert Path(cmd[0]).name == "spread"
+        assert cmd[1:] == ["-v", _SELECTOR]
 
-    def test_temp_dir_cleaned_up_on_success(self, tmp_path: Path) -> None:
+    def test_original_spread_yaml_restored_on_success(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+        original_content = (tmp_path / "spread.yaml").read_text()
 
-        captured_cwd: list[str] = []
-
-        def capture_cmd(cmd: list[str], **kwargs: object) -> None:
-            captured_cwd.append(str(kwargs.get("cwd", "")))
-
-        with patch("opcli.core.spread.run_command", side_effect=capture_cmd):
+        with patch("opcli.core.spread.run_command"):
             spread_run(tmp_path, ci=False)
 
-        assert not Path(captured_cwd[0]).exists()
+        assert (tmp_path / "spread.yaml").read_text() == original_content
+        # No backup files left behind
+        assert not any(f.name.startswith(".spread-backup-") for f in tmp_path.iterdir())
 
-    def test_temp_dir_cleaned_up_on_failure(self, tmp_path: Path) -> None:
+    def test_original_spread_yaml_restored_on_failure(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
-
-        captured_cwd: list[str] = []
+        original_content = (tmp_path / "spread.yaml").read_text()
 
         def failing_cmd(cmd: list[str], **kwargs: object) -> None:
-            captured_cwd.append(str(kwargs.get("cwd", "")))
             raise SubprocessError(cmd=cmd, returncode=1, stderr="spread failed")
 
         with (
@@ -685,7 +683,8 @@ class TestSpreadRun:
         ):
             spread_run(tmp_path, ci=False)
 
-        assert not Path(captured_cwd[0]).exists()
+        assert (tmp_path / "spread.yaml").read_text() == original_content
+        assert not any(f.name.startswith(".spread-backup-") for f in tmp_path.iterdir())
 
     def test_preserves_existing_reroot(self, tmp_path: Path) -> None:
         spread_with_reroot = _MINIMAL_SPREAD + "reroot: custom/path\n"
@@ -701,22 +700,25 @@ class TestSpreadRun:
         with patch("opcli.core.spread.run_command", side_effect=capture_cmd):
             spread_run(tmp_path, ci=False)
 
-        # ../custom/path normalised
-        assert written_yaml[0]["reroot"] == "../custom/path"
+        # User's reroot is preserved unchanged (not composed with ..)
+        assert written_yaml[0]["reroot"] == "custom/path"
 
-    def test_non_string_reroot_raises(self, tmp_path: Path) -> None:
-        spread_with_bad_reroot = _MINIMAL_SPREAD + "reroot: 42\n"
-        _write(tmp_path / "spread.yaml", spread_with_bad_reroot)
+    def test_non_string_reroot_passed_through(self, tmp_path: Path) -> None:
+        spread_with_int_reroot = _MINIMAL_SPREAD + "reroot: 42\n"
+        _write(tmp_path / "spread.yaml", spread_with_int_reroot)
 
-        with pytest.raises(ConfigurationError, match="must be a string"):
+        written_yaml: list[dict[str, object]] = []
+
+        def capture_cmd(cmd: list[str], **kwargs: object) -> None:
+            cwd = Path(str(kwargs.get("cwd", "")))
+            with (cwd / "spread.yaml").open() as fh:
+                written_yaml.append(_yaml.load(fh))
+
+        with patch("opcli.core.spread.run_command", side_effect=capture_cmd):
             spread_run(tmp_path, ci=False)
 
-    def test_absolute_reroot_raises(self, tmp_path: Path) -> None:
-        spread_with_abs_reroot = _MINIMAL_SPREAD + "reroot: /absolute/path\n"
-        _write(tmp_path / "spread.yaml", spread_with_abs_reroot)
-
-        with pytest.raises(ConfigurationError, match="must be a relative path"):
-            spread_run(tmp_path, ci=False)
+        _INT_REROOT = 42
+        assert written_yaml[0]["reroot"] == _INT_REROOT
 
     def test_expand_output_has_no_reroot(self, tmp_path: Path) -> None:
         """spread_expand() for display should not include reroot."""
