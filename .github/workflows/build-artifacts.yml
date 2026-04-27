@@ -9,13 +9,14 @@ name: Build Artifacts
 #   jobs:
 #     build:
 #       uses: javierdelapuente/operator-ci-poc/.github/workflows/build-artifacts.yml@main
-#       with:
-#         working-directory: .   # directory containing artifacts.yaml (default: .)
+#       permissions:
+#         contents: read
+#         packages: write
+#         actions: read   # required for get-workflow-version-action
 #
-# opcli is installed from the same ref used to call this workflow (derived from
-# github.workflow_ref), so pinning @sha or @tag gives a fully reproducible build.
-# Override with opcli-ref only when you need a different ref (e.g. during CI of
-# this repo itself, where the PR head SHA must be passed explicitly).
+# opcli is installed at the exact commit SHA this workflow was called with,
+# resolved via canonical/get-workflow-version-action (workaround for
+# https://github.com/actions/toolkit/issues/1264).
 
 on:
   workflow_call:
@@ -24,27 +25,31 @@ on:
         description: "Directory containing artifacts.yaml (relative to workspace root)"
         type: string
         default: "."
-      opcli-ref:
-        description: >
-          Git ref to install opcli from. Leave empty to auto-derive from the ref
-          used to call this workflow (the default and recommended behaviour for
-          external callers). Override only when the auto-derived ref is not
-          directly fetchable (e.g. a PR test-merge commit).
-        type: string
-        default: ""
 
 jobs:
   # ── Job 1: produce the build matrix ────────────────────────────────────────
   build-matrix:
     name: Build matrix
     runs-on: ubuntu-latest
+    permissions:
+      actions: read  # required by get-workflow-version-action
+      contents: read
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      opcli-sha: ${{ steps.workflow-version.outputs.sha }}
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Get workflow version
+        id: workflow-version
+        uses: canonical/get-workflow-version-action@v1
+        with:
+          repository-name: javierdelapuente/operator-ci-poc
+          file-name: build-artifacts.yml
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: astral-sh/setup-uv@v6
         with:
@@ -52,15 +57,7 @@ jobs:
 
       - name: Install opcli
         run: |
-          # If opcli-ref was explicitly provided, use it; otherwise derive the ref
-          # from github.workflow_ref so the installed opcli matches the pinned
-          # workflow ref (e.g. @main, @sha, @v1.0) automatically.
-          opcli_ref="${{ inputs.opcli-ref }}"
-          if [ -z "$opcli_ref" ]; then
-            workflow_ref="${{ github.workflow_ref }}"
-            opcli_ref="${workflow_ref##*@}"
-          fi
-          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${opcli_ref}"
+          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ steps.workflow-version.outputs.sha }}"
 
       - name: Generate build matrix
         id: matrix
@@ -91,15 +88,7 @@ jobs:
 
       - name: Install opcli
         run: |
-          # If opcli-ref was explicitly provided, use it; otherwise derive the ref
-          # from github.workflow_ref so the installed opcli matches the pinned
-          # workflow ref (e.g. @main, @sha, @v1.0) automatically.
-          opcli_ref="${{ inputs.opcli-ref }}"
-          if [ -z "$opcli_ref" ]; then
-            workflow_ref="${{ github.workflow_ref }}"
-            opcli_ref="${workflow_ref##*@}"
-          fi
-          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${opcli_ref}"
+          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.build-matrix.outputs.opcli-sha }}"
 
       - name: Set up LXD
         uses: canonical/setup-lxd@main
@@ -143,7 +132,7 @@ jobs:
   # ── Job 3: merge all partials into the final artifacts-generated.yaml ───────
   collect:
     name: Collect artifacts
-    needs: build
+    needs: [build-matrix, build]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -157,15 +146,7 @@ jobs:
 
       - name: Install opcli
         run: |
-          # If opcli-ref was explicitly provided, use it; otherwise derive the ref
-          # from github.workflow_ref so the installed opcli matches the pinned
-          # workflow ref (e.g. @main, @sha, @v1.0) automatically.
-          opcli_ref="${{ inputs.opcli-ref }}"
-          if [ -z "$opcli_ref" ]; then
-            workflow_ref="${{ github.workflow_ref }}"
-            opcli_ref="${workflow_ref##*@}"
-          fi
-          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${opcli_ref}"
+          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.build-matrix.outputs.opcli-sha }}"
 
       - name: Download all partial artifacts-generated.yaml files
         uses: actions/download-artifact@v4

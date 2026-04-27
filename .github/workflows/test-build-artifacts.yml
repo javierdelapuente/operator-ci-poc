@@ -28,6 +28,7 @@ jobs:
     permissions:
       packages: write
       contents: read
+      actions: read
 
   verify:
     name: Verify CI output format
