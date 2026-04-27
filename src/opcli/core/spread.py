@@ -323,7 +323,7 @@ if [ ! -f ~/.ssh/id_ed25519 ]; then
   ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
 fi
 sudo mkdir -p /home/ubuntu/.ssh
-sudo cp ~/.ssh/id_ed25519.pub /home/ubuntu/.ssh/authorized_keys
+sudo sh -c "cat ~/.ssh/id_ed25519.pub >> /home/ubuntu/.ssh/authorized_keys"
 sudo chmod 700 /home/ubuntu/.ssh
 sudo chmod 600 /home/ubuntu/.ssh/authorized_keys
 sudo chown -R ubuntu:ubuntu /home/ubuntu/.ssh
