@@ -25,14 +25,10 @@ jobs:
     uses: ./.github/workflows/build-artifacts.yml
     with:
       working-directory: examples
-      # Pass the head commit SHA explicitly: same-repo workflow calls do not
-      # populate referenced_workflows, so get-workflow-version-action cannot
-      # auto-resolve the ref. For PRs this is the PR branch head; for pushes
-      # to main it is the merge commit.
-      opcli-ref: ${{ github.event.pull_request.head.sha || github.sha }}
     permissions:
       packages: write
       contents: read
+      actions: read
 
   verify:
     name: Verify CI output format

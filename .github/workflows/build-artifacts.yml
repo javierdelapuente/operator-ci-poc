@@ -15,12 +15,8 @@ name: Build Artifacts
 #         actions: read   # required for get-workflow-version-action
 #
 # opcli is installed at the exact commit SHA this workflow was called with,
-# resolved via canonical/get-workflow-version-action (a workaround for
-# https://github.com/actions/toolkit/issues/1264 — github.workflow_ref always
-# refers to the caller's workflow, not this one).
-#
-# Override with opcli-ref only when calling from the same repository (where
-# referenced_workflows is not populated), e.g. in test-build-artifacts.yml.
+# resolved via canonical/get-workflow-version-action (workaround for
+# https://github.com/actions/toolkit/issues/1264).
 
 on:
   workflow_call:
@@ -29,15 +25,6 @@ on:
         description: "Directory containing artifacts.yaml (relative to workspace root)"
         type: string
         default: "."
-      opcli-ref:
-        description: >
-          Git ref to install opcli from. Leave empty for external callers
-          (auto-resolved via get-workflow-version-action). Must be set
-          explicitly when calling from within the same repository (e.g.
-          tests), because referenced_workflows is not populated for
-          same-repo calls.
-        type: string
-        default: ""
 
 jobs:
   # ── Job 1: produce the build matrix ────────────────────────────────────────
@@ -49,7 +36,7 @@ jobs:
       contents: read
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
-      opcli-sha: ${{ inputs.opcli-ref != '' && inputs.opcli-ref || steps.workflow-version.outputs.sha }}
+      opcli-sha: ${{ steps.workflow-version.outputs.sha }}
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
@@ -58,7 +45,6 @@ jobs:
 
       - name: Get workflow version
         id: workflow-version
-        if: inputs.opcli-ref == ''
         uses: canonical/get-workflow-version-action@v1
         with:
           repository-name: javierdelapuente/operator-ci-poc
@@ -71,7 +57,7 @@ jobs:
 
       - name: Install opcli
         run: |
-          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ inputs.opcli-ref != '' && inputs.opcli-ref || steps.workflow-version.outputs.sha }}"
+          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ steps.workflow-version.outputs.sha }}"
 
       - name: Generate build matrix
         id: matrix
