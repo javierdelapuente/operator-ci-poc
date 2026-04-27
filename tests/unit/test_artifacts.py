@@ -977,3 +977,99 @@ class TestArtifactsCollectCIMode:
         # Charm itself still has artifact ref
         assert gen.charms[0].output.artifact == "built-charm-my-charm"
         assert gen.charms[0].output.run_id == "9876543210"
+
+
+class TestArtifactsLocalize:
+    """Tests for artifacts_localize()."""
+
+    _GENERATED_CI = (
+        "version: 1\n"
+        "charms:\n"
+        "- name: my-charm\n"
+        "  charmcraft-yaml: charmcraft.yaml\n"
+        "  output:\n"
+        "    artifact: built-charm-my-charm\n"
+        "    run-id: '9876543210'\n"
+    )
+
+    def test_localises_charm_from_downloaded_file(self, tmp_path: Path) -> None:
+        """Finds .charm file and updates output.files."""
+        from opcli.core.artifacts import artifacts_localize
+
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        charm_file = tmp_path / "my-charm_ubuntu-24.04-amd64.charm"
+        charm_file.write_bytes(b"")
+
+        count = artifacts_localize(tmp_path)
+
+        assert count == 1
+        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        assert gen.charms[0].output.files is not None
+        assert len(gen.charms[0].output.files) == 1
+        assert gen.charms[0].output.files[0].path.endswith(".charm")
+
+    def test_skips_charm_already_with_local_files(self, tmp_path: Path) -> None:
+        """Does not overwrite charms that already have output.files."""
+        from opcli.core.artifacts import artifacts_localize
+
+        generated = (
+            "version: 1\n"
+            "charms:\n"
+            "- name: my-charm\n"
+            "  charmcraft-yaml: charmcraft.yaml\n"
+            "  output:\n"
+            "    files:\n"
+            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
+        )
+        _write(tmp_path / "artifacts-generated.yaml", generated)
+        charm_file = tmp_path / "my-charm_new.charm"
+        charm_file.write_bytes(b"")
+
+        count = artifacts_localize(tmp_path)
+
+        assert count == 0
+
+    def test_warns_when_no_charm_file_found(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Logs a warning when no .charm file matches the charm name."""
+        import logging
+
+        from opcli.core.artifacts import artifacts_localize
+
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+
+        with caplog.at_level(logging.WARNING):
+            count = artifacts_localize(tmp_path)
+
+        assert count == 0
+        assert any("No .charm file found" in r.message for r in caplog.records)
+
+    def test_missing_generated_yaml_raises(self, tmp_path: Path) -> None:
+        """Raises ConfigurationError when artifacts-generated.yaml is missing."""
+        from opcli.core.artifacts import artifacts_localize
+
+        with pytest.raises(ConfigurationError):
+            artifacts_localize(tmp_path)
+
+    def test_skips_charm_without_artifact_ref(self, tmp_path: Path) -> None:
+        """Skips charms that have no CI artifact ref."""
+        from opcli.core.artifacts import artifacts_localize
+
+        generated = (
+            "version: 1\n"
+            "charms:\n"
+            "- name: my-charm\n"
+            "  charmcraft-yaml: charmcraft.yaml\n"
+            "  output:\n"
+            "    files:\n"
+            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
+        )
+        _write(tmp_path / "artifacts-generated.yaml", generated)
+        # Create a second charm file — should not be picked up since charm
+        # already has output.files
+        (tmp_path / "my-charm_new.charm").write_bytes(b"")
+
+        count = artifacts_localize(tmp_path)
+
+        assert count == 0

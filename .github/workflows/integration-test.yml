@@ -1,0 +1,170 @@
+name: Integration Test
+
+# Reusable workflow that:
+#   1. Builds all artifacts (calls build-artifacts.yml)
+#   2. Generates a spread test matrix (opcli spread tasks)
+#   3. Runs each spread test task in a dedicated job
+#
+# Call from your operator repository:
+#
+#   jobs:
+#     integration-test:
+#       uses: javierdelapuente/operator-ci-poc/.github/workflows/integration-test.yml@main
+#       permissions:
+#         contents: read
+#         packages: write
+#         actions: read
+#
+# Assumptions about the operator repository layout:
+#   - ``artifacts.yaml`` declares charms/rocks
+#   - ``spread.yaml`` uses the ``integration-test:`` virtual backend
+#   - ``tests/integration/`` contains the integration test modules
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory containing artifacts.yaml and spread.yaml (relative to workspace root)"
+        type: string
+        default: "."
+
+jobs:
+  # ── Job 1: build all artifacts ──────────────────────────────────────────────
+  build:
+    uses: ./.github/workflows/build-artifacts.yml
+    with:
+      working-directory: ${{ inputs.working-directory }}
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+
+  # ── Job 2: generate the spread test matrix ──────────────────────────────────
+  test-plan:
+    name: Generate test matrix
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      matrix: ${{ steps.tasks.outputs.matrix }}
+      opcli-sha: ${{ steps.workflow-version.outputs.sha }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get workflow version
+        id: workflow-version
+        uses: canonical/get-workflow-version-action@v1
+        with:
+          repository-name: javierdelapuente/operator-ci-poc
+          file-name: integration-test.yml
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install opcli
+        run: |
+          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ steps.workflow-version.outputs.sha }}"
+
+      - name: Generate spread task matrix
+        id: tasks
+        run: |
+          matrix=$(opcli spread tasks)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  # ── Job 3: run each spread task ─────────────────────────────────────────────
+  test:
+    name: "${{ matrix.name }}"
+    needs: [build, test-plan]
+    runs-on: ${{ fromJSON(matrix.runs-on) }}
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.test-plan.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install opcli
+        run: |
+          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.test-plan.outputs.opcli-sha }}"
+
+      # ── Ubuntu user + SSH setup so spread can SSH to localhost as ubuntu ──
+      # Spread runs as the runner user and SSHes to ubuntu@localhost.
+      # We generate a key pair for runner, then authorise it for ubuntu.
+      - name: Create ubuntu user and configure SSH
+        run: |
+          # Create ubuntu user
+          sudo useradd -m -s /bin/bash ubuntu
+          echo "ubuntu ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/ubuntu
+          sudo chmod 0440 /etc/sudoers.d/ubuntu
+
+          # Ensure sshd is installed and running
+          sudo apt-get install -y --quiet openssh-server
+          sudo systemctl enable --now ssh
+
+          # Generate SSH key pair for the runner user (SSH client)
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+
+          # Authorise runner's public key in ubuntu's account
+          sudo mkdir -p /home/ubuntu/.ssh
+          sudo cp ~/.ssh/id_ed25519.pub /home/ubuntu/.ssh/authorized_keys
+          sudo chmod 700 /home/ubuntu/.ssh
+          sudo chmod 600 /home/ubuntu/.ssh/authorized_keys
+          sudo chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+
+          # Accept localhost host key in runner's known_hosts
+          ssh-keyscan -H localhost >> ~/.ssh/known_hosts
+
+      # ── Install spread (direct binary, not snap) ──────────────────────────
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+          cache: false
+
+      - name: Install spread
+        run: go install github.com/canonical/spread/cmd/spread@latest
+
+      # ── Install concierge ─────────────────────────────────────────────────
+      - name: Install concierge
+        run: sudo snap install concierge --classic
+
+      # ── Download build artifacts ──────────────────────────────────────────
+      - name: Download artifacts-generated.yaml
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-generated
+          path: ${{ inputs.working-directory }}/
+
+      - name: Download built charm files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: built-charm-*
+          merge-multiple: true
+          path: ${{ inputs.working-directory }}/
+
+      # ── Localize charm artifact refs to downloaded files ──────────────────
+      - name: Localize artifacts
+        run: opcli artifacts localize
+
+      # ── Run the spread task ───────────────────────────────────────────────
+      - name: Run spread task
+        env:
+          CI: "true"
+        run: opcli spread run -- ${{ matrix.selector }}

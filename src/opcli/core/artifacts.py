@@ -631,3 +631,61 @@ def _filter_by_name[T: (RockArtifact, CharmArtifact, SnapArtifact)](
         msg = f"Unknown {kind}(s): {', '.join(sorted(unknown))}"
         raise ConfigurationError(msg)
     return [item for item in items if item.name in name_set]
+
+
+def artifacts_localize(root: Path) -> int:
+    """Update ``artifacts-generated.yaml`` with local charm file paths.
+
+    In CI, charm outputs are recorded as ``artifact + run-id`` references.
+    Before running integration tests, the workflow downloads the charm
+    artifacts to the working directory.  This command scans the project tree
+    for ``.charm`` files and rewrites ``artifacts-generated.yaml`` so that
+    each charm with only a CI artifact reference gets an ``output.files``
+    entry pointing to the discovered local file.
+
+    Returns the number of charms that were localised.
+
+    Raises:
+        ConfigurationError: If ``artifacts-generated.yaml`` is not found.
+    """
+    gen_path = root / _ARTIFACTS_GENERATED_YAML
+    if not gen_path.exists():
+        msg = f"{_ARTIFACTS_GENERATED_YAML} not found."
+        raise ConfigurationError(msg)
+
+    generated = load_artifacts_generated(gen_path)
+
+    updated = 0
+    for charm in generated.charms:
+        if charm.output.files:
+            continue  # Already has local files — nothing to do.
+        if not charm.output.artifact:
+            continue  # No CI ref either — skip.
+
+        # Search for .charm files whose name starts with the charm name.
+        pattern = str(root / "**" / f"{charm.name}*.charm")
+        matches = sorted(globmod.glob(pattern, recursive=True))
+        if not matches:
+            logger.warning(
+                "No .charm file found for charm '%s' (pattern: %s).",
+                charm.name,
+                pattern,
+            )
+            continue
+
+        if len(matches) > 1:
+            logger.warning(
+                "Multiple .charm files found for charm '%s'; using %s.",
+                charm.name,
+                matches[0],
+            )
+
+        charm.output.files = [CharmFile(path=matches[0])]
+        logger.info("Localised charm '%s' → %s", charm.name, matches[0])
+        updated += 1
+
+    if updated:
+        dump_artifacts_generated(generated, gen_path)
+        logger.info("Updated %s with %d localised charm(s).", gen_path, updated)
+
+    return updated

@@ -10,6 +10,7 @@ from opcli.core.artifacts import (
     artifacts_build,
     artifacts_collect,
     artifacts_init,
+    artifacts_localize,
     artifacts_matrix,
 )
 
@@ -80,3 +81,21 @@ def collect(
     """
     path = artifacts_collect(Path.cwd(), partials)
     typer.echo(f"Wrote {path}")
+
+
+@app.command()
+def localize() -> None:
+    """Update artifacts-generated.yaml with downloaded local charm file paths.
+
+    In CI, charm outputs are CI artifact references (artifact + run-id).
+    After the workflow downloads the built charm files, run this command to
+    rewrite artifacts-generated.yaml so each charm points to the local
+    ``.charm`` file instead of the CI reference.
+    """
+    updated = artifacts_localize(Path.cwd())
+    if updated:
+        typer.echo(f"Localised {updated} charm(s) in artifacts-generated.yaml.")
+    else:
+        typer.echo(
+            "No CI artifact references found; artifacts-generated.yaml unchanged."
+        )

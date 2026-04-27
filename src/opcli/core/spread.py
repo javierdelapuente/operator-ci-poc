@@ -15,6 +15,7 @@ uses ``reroot`` to locate the actual project tree one level up.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import posixpath
@@ -327,7 +328,7 @@ _BACKEND_CONFIGS: dict[str, tuple[str, str, str, str]] = {
 # meaningful to the CI backend; resource fields are used by the local allocate
 # script and have no meaning in spread's own backend model.
 _LOCAL_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk", "runner"})
-_CI_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk"})
+_CI_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk", "runner"})
 
 # Names of resource fields and their corresponding shell variable names.
 _RESOURCE_FIELDS: dict[str, str] = {"cpu": "CPU", "memory": "MEM", "disk": "DISK"}
@@ -478,7 +479,7 @@ def _build_concrete_backend(
             backend_def["prepare"] = ci_prepare
         if isinstance(systems, list):
             backend_def["systems"] = _transform_systems(
-                systems, strip_keys=_CI_STRIP_KEYS
+                systems, strip_keys=_CI_STRIP_KEYS, inject_username="ubuntu"
             )
     else:
         # Extract per-system resource overrides before stripping the fields.
@@ -700,3 +701,157 @@ def spread_run(
         if extra_args:
             cmd.extend(extra_args)
         run_command(cmd, cwd=tmp_dir, interactive=True)
+
+
+# ---------------------------------------------------------------------------
+#  spread tasks — enumerate CI test selectors for GitHub Actions matrix
+# ---------------------------------------------------------------------------
+
+_DEFAULT_RUNNER = "ubuntu-latest"
+
+
+def _runner_by_system(raw: dict[str, object]) -> dict[str, str]:
+    """Extract {system_name: runner_label_json} from the raw spread.yaml.
+
+    The runner value is always JSON-encoded so that the workflow can use
+    ``fromJSON(matrix.runs-on)`` for both plain strings and runner arrays.
+    """
+    result: dict[str, str] = {}
+    raw_backends = raw.get("backends") or {}
+    if not isinstance(raw_backends, dict):
+        return result
+    for backend_cfg in raw_backends.values():
+        if not isinstance(backend_cfg, dict):
+            continue
+        for system_entry in backend_cfg.get("systems") or []:
+            if isinstance(system_entry, str):
+                result.setdefault(system_entry, json.dumps(_DEFAULT_RUNNER))
+            elif isinstance(system_entry, dict):
+                for sys_name, sys_props in system_entry.items():
+                    raw_runner: object = _DEFAULT_RUNNER
+                    if isinstance(sys_props, dict):
+                        raw_runner = sys_props.get("runner", _DEFAULT_RUNNER)
+                    result.setdefault(sys_name, json.dumps(raw_runner))
+    return result
+
+
+def _task_dirs(root: Path, suite_dir: str) -> list[str]:
+    """Return sorted task directory names (dirs with task.yaml) inside *suite_dir*."""
+    suite_abs = root / suite_dir
+    if not suite_abs.is_dir():
+        return []
+    return sorted(
+        d.name for d in suite_abs.iterdir() if d.is_dir() and (d / "task.yaml").exists()
+    )
+
+
+def _system_entry_name(entry: object) -> str | None:
+    """Extract the system name from a spread systems-list entry."""
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        key = next(iter(entry))
+        return str(key)
+    return None
+
+
+def spread_tasks(root: Path) -> list[dict[str, str]]:
+    """Return all CI spread task selectors as a list of GitHub Actions matrix entries.
+
+    Reads the raw ``spread.yaml`` to extract per-system ``runner`` labels
+    (GitHub Actions runner selectors), then expands with CI mode to derive
+    the concrete backend name and system names.
+
+    Each entry has:
+    - ``name``: display name (variant name, or task directory if no variant)
+    - ``selector``: full spread selector (``backend:system:task/path:variant``)
+    - ``runs-on``: GitHub Actions runner label (from ``runner:`` system field,
+      or ``ubuntu-latest`` if absent)
+
+    Only enumerates ``MODULE/*`` variants.  For non-standard suite structures
+    use ``spread -list`` directly.
+
+    Raises:
+        ConfigurationError: If ``spread.yaml`` is missing or malformed.
+    """
+    raw = _load_spread_yaml(root)
+    expanded = _expand_backend(raw, ci=True)
+
+    runner_map = _runner_by_system(raw)
+    raw_suites = expanded.get("suites") or {}
+    raw_all_backends = expanded.get("backends") or {}
+    suites: dict[str, object] = raw_suites if isinstance(raw_suites, dict) else {}
+    all_backends: dict[str, object] = (
+        raw_all_backends if isinstance(raw_all_backends, dict) else {}
+    )
+
+    entries: list[dict[str, str]] = []
+    for suite_path, suite_cfg in suites.items():
+        if not isinstance(suite_cfg, dict):
+            continue
+        suite_dir = suite_path.rstrip("/")
+
+        suite_backend_names: list[str] = []
+        raw_suite_backends = suite_cfg.get("backends")
+        if isinstance(raw_suite_backends, list):
+            suite_backend_names = [str(b) for b in raw_suite_backends]
+        else:
+            suite_backend_names = list(all_backends.keys())
+
+        env = suite_cfg.get("environment") or {}
+        variants: list[str | None] = [
+            str(v) for k, v in env.items() if str(k).startswith("MODULE/")
+        ]
+        if not variants:
+            variants = [None]
+
+        dirs = _task_dirs(root, suite_dir)
+        if not dirs:
+            continue
+
+        entries.extend(
+            _collect_suite_entries(
+                suite_dir,
+                dirs,
+                variants,
+                suite_backend_names,
+                all_backends,
+                runner_map,
+            )
+        )
+
+    return entries
+
+
+def _collect_suite_entries(  # noqa: PLR0913
+    suite_dir: str,
+    dirs: list[str],
+    variants: list[str | None],
+    backend_names: list[str],
+    all_backends: dict[str, object],
+    runner_map: dict[str, str],
+) -> list[dict[str, str]]:
+    """Return matrix entries for one suite."""
+    entries: list[dict[str, str]] = []
+    for backend_name in backend_names:
+        backend_cfg = all_backends.get(backend_name)
+        if not isinstance(backend_cfg, dict):
+            continue
+        for system_entry in backend_cfg.get("systems") or []:
+            system_name = _system_entry_name(system_entry)
+            if system_name is None:
+                continue
+            runner = runner_map.get(system_name, _DEFAULT_RUNNER)
+            for task_dir in dirs:
+                task_path = f"{suite_dir}/{task_dir}"
+                for variant in variants:
+                    if variant:
+                        selector = f"{backend_name}:{system_name}:{task_path}:{variant}"
+                        name = variant
+                    else:
+                        selector = f"{backend_name}:{system_name}:{task_path}"
+                        name = task_dir
+                    entries.append(
+                        {"name": name, "selector": selector, "runs-on": runner}
+                    )
+    return entries
