@@ -1,0 +1,178 @@
+name: Build Artifacts
+
+# Reusable workflow that builds all charms, rocks, and snaps declared in
+# artifacts.yaml and publishes a merged artifacts-generated.yaml as a
+# GitHub artifact.
+#
+# Call from your operator repository:
+#
+#   jobs:
+#     build:
+#       uses: javierdelapuente/operator-ci-poc/.github/workflows/build-artifacts.yml@main
+#       with:
+#         working-directory: .   # directory containing artifacts.yaml (default: .)
+#
+# opcli is installed from the same ref used to call this workflow (derived from
+# github.workflow_ref), so pinning @sha or @tag gives a fully reproducible build.
+# Override with opcli-ref only when you need a different ref (e.g. during CI of
+# this repo itself, where the PR head SHA must be passed explicitly).
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory containing artifacts.yaml (relative to workspace root)"
+        type: string
+        default: "."
+      opcli-ref:
+        description: >
+          Git ref to install opcli from. Leave empty to auto-derive from the ref
+          used to call this workflow (the default and recommended behaviour for
+          external callers). Override only when the auto-derived ref is not
+          directly fetchable (e.g. a PR test-merge commit).
+        type: string
+        default: ""
+
+jobs:
+  # ── Job 1: produce the build matrix ────────────────────────────────────────
+  build-matrix:
+    name: Build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install opcli
+        run: |
+          # If opcli-ref was explicitly provided, use it; otherwise derive the ref
+          # from github.workflow_ref so the installed opcli matches the pinned
+          # workflow ref (e.g. @main, @sha, @v1.0) automatically.
+          opcli_ref="${{ inputs.opcli-ref }}"
+          if [ -z "$opcli_ref" ]; then
+            workflow_ref="${{ github.workflow_ref }}"
+            opcli_ref="${workflow_ref##*@}"
+          fi
+          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${opcli_ref}"
+
+      - name: Generate build matrix
+        id: matrix
+        run: |
+          matrix=$(opcli artifacts matrix)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  # ── Job 2: build each artifact in parallel ─────────────────────────────────
+  build:
+    name: "Build ${{ matrix.type }} ${{ matrix.name }}"
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.build-matrix.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install opcli
+        run: |
+          # If opcli-ref was explicitly provided, use it; otherwise derive the ref
+          # from github.workflow_ref so the installed opcli matches the pinned
+          # workflow ref (e.g. @main, @sha, @v1.0) automatically.
+          opcli_ref="${{ inputs.opcli-ref }}"
+          if [ -z "$opcli_ref" ]; then
+            workflow_ref="${{ github.workflow_ref }}"
+            opcli_ref="${workflow_ref##*@}"
+          fi
+          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${opcli_ref}"
+
+      - name: Set up LXD
+        uses: canonical/setup-lxd@main
+
+      - name: Install charmcraft
+        if: matrix.type == 'charm'
+        run: sudo snap install charmcraft --classic
+
+      - name: Install rockcraft
+        if: matrix.type == 'rock'
+        run: sudo snap install rockcraft --classic
+
+      - name: Install snapcraft
+        if: matrix.type == 'snap'
+        run: sudo snap install snapcraft --classic
+
+      - name: Build ${{ matrix.type }} ${{ matrix.name }}
+        run: opcli artifacts build --${{ matrix.type }} ${{ matrix.name }}
+
+      - name: Upload built ${{ matrix.type }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-${{ matrix.type }}-${{ matrix.name }}
+          path: ${{ inputs.working-directory }}/**/*.${{ matrix.type }}
+          if-no-files-found: error
+
+      - name: Upload partial artifacts-generated.yaml
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-generated-${{ matrix.type }}-${{ matrix.name }}
+          path: ${{ inputs.working-directory }}/artifacts-generated.yaml
+          if-no-files-found: error
+
+  # ── Job 3: merge all partials into the final artifacts-generated.yaml ───────
+  collect:
+    name: Collect artifacts
+    needs: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install opcli
+        run: |
+          # If opcli-ref was explicitly provided, use it; otherwise derive the ref
+          # from github.workflow_ref so the installed opcli matches the pinned
+          # workflow ref (e.g. @main, @sha, @v1.0) automatically.
+          opcli_ref="${{ inputs.opcli-ref }}"
+          if [ -z "$opcli_ref" ]; then
+            workflow_ref="${{ github.workflow_ref }}"
+            opcli_ref="${workflow_ref##*@}"
+          fi
+          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${opcli_ref}"
+
+      - name: Download all partial artifacts-generated.yaml files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-generated-*
+          path: ${{ inputs.working-directory }}/partial-artifacts/
+
+      - name: Merge partials
+        run: |
+          opcli artifacts collect \
+            $(find ./partial-artifacts -name "artifacts-generated.yaml" | sort | tr '\n' ' ')
+
+      - name: Upload merged artifacts-generated.yaml
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-generated
+          path: ${{ inputs.working-directory }}/artifacts-generated.yaml
+          if-no-files-found: error
+
+

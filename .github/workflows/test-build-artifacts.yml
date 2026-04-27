@@ -1,0 +1,27 @@
+name: Test Build Artifacts
+
+# Tests the build-artifacts reusable workflow using the examples/ directory
+# as a real operator repository fixture.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "src/**"
+      - ".github/workflows/build-artifacts.yml"
+      - ".github/workflows/test-build-artifacts.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "src/**"
+      - ".github/workflows/build-artifacts.yml"
+      - ".github/workflows/test-build-artifacts.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-artifacts.yml
+    with:
+      working-directory: examples
