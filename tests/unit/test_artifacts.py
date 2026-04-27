@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import patch
 
 import pytest
@@ -766,3 +767,220 @@ class TestArtifactsCollect:
 
         with pytest.raises(ConfigurationError, match="my-rock"):
             artifacts_collect(tmp_path, [rock1, rock2])
+
+
+class TestArtifactsBuildCIMode:
+    """Tests for artifacts_build() GitHub Actions CI output format."""
+
+    _CI_ENV: ClassVar[dict[str, str]] = {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_RUN_ID": "9876543210",
+        "GITHUB_REPOSITORY_OWNER": "MyOrg",
+        "GITHUB_REPOSITORY": "MyOrg/my-repo",
+        "GITHUB_SHA": "abc1234def5678",
+    }
+
+    def test_rock_build_pushes_to_ghcr_and_writes_image_ref(
+        self, tmp_path: Path
+    ) -> None:
+        """In CI, rock output should be a GHCR image ref, not a local file."""
+        _write(tmp_path / "rockcraft.yaml", "name: my-rock\n")
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\nrocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n",
+        )
+        rock_file = tmp_path / "my-rock_1.0_amd64.rock"
+        rock_file.write_bytes(b"fake rock")
+
+        with (
+            patch("opcli.core.artifacts.run_command") as mock_run,
+            patch.dict(os.environ, self._CI_ENV, clear=False),
+        ):
+            mock_run.side_effect = lambda cmd, **_: rock_file.touch()
+            result = artifacts_build(tmp_path, rock_names=["my-rock"])
+
+        gen = load_artifacts_generated(result)
+        assert len(gen.rocks) == 1
+        rock_out = gen.rocks[0].output
+        assert rock_out.file is None
+        assert rock_out.image == "ghcr.io/myorg/my-repo/my-rock:abc1234"
+
+        # Verify skopeo was called to push to GHCR
+        skopeo_calls = [c for c in mock_run.call_args_list if "skopeo" in str(c)]
+        assert len(skopeo_calls) == 1
+        skopeo_args = skopeo_calls[0][0][0]
+        assert "skopeo" in skopeo_args
+        assert any("ghcr.io/myorg/my-repo/my-rock:abc1234" in a for a in skopeo_args)
+
+    def test_charm_build_writes_artifact_ref(self, tmp_path: Path) -> None:
+        """In CI, charm output should be a GitHub artifact reference."""
+        _write(tmp_path / "charmcraft.yaml", "name: my-charm\n")
+        _write(
+            tmp_path / "artifacts.yaml",
+            (
+                "version: 1\ncharms:\n- name: my-charm\n"
+                "  charmcraft-yaml: charmcraft.yaml\n"
+            ),
+        )
+        charm_file = tmp_path / "my-charm_ubuntu-24.04-amd64.charm"
+
+        with (
+            patch("opcli.core.artifacts.run_command") as mock_run,
+            patch.dict(os.environ, self._CI_ENV, clear=False),
+        ):
+            mock_run.side_effect = lambda cmd, **_: charm_file.touch()
+            result = artifacts_build(tmp_path, charm_names=["my-charm"])
+
+        gen = load_artifacts_generated(result)
+        assert len(gen.charms) == 1
+        charm_out = gen.charms[0].output
+        assert charm_out.files == []
+        assert charm_out.artifact == "built-charm-my-charm"
+        assert charm_out.run_id == "9876543210"
+
+    def test_snap_build_writes_artifact_ref(self, tmp_path: Path) -> None:
+        """In CI, snap output should be a GitHub artifact reference."""
+        _write(tmp_path / "snap" / "snapcraft.yaml", "name: my-snap\n")
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\nsnaps:\n- name: my-snap\n"
+            "  snapcraft-yaml: snap/snapcraft.yaml\n",
+        )
+        snap_file = tmp_path / "snap" / "my-snap_1.0_amd64.snap"
+
+        with (
+            patch("opcli.core.artifacts.run_command") as mock_run,
+            patch.dict(os.environ, self._CI_ENV, clear=False),
+        ):
+            mock_run.side_effect = lambda cmd, **_: snap_file.touch()
+            result = artifacts_build(tmp_path, snap_names=["my-snap"])
+
+        gen = load_artifacts_generated(result)
+        assert len(gen.snaps) == 1
+        snap_out = gen.snaps[0].output
+        assert snap_out.file is None
+        assert snap_out.artifact == "built-snap-my-snap"
+        assert snap_out.run_id == "9876543210"
+
+    def test_local_build_unchanged_when_no_github_actions(self, tmp_path: Path) -> None:
+        """Without GITHUB_ACTIONS=true, build produces local file refs."""
+        _write(tmp_path / "charmcraft.yaml", "name: my-charm\n")
+        _write(
+            tmp_path / "artifacts.yaml",
+            (
+                "version: 1\ncharms:\n- name: my-charm\n"
+                "  charmcraft-yaml: charmcraft.yaml\n"
+            ),
+        )
+        charm_file = tmp_path / "my-charm_ubuntu-24.04-amd64.charm"
+
+        with (
+            patch("opcli.core.artifacts.run_command") as mock_run,
+            patch.dict(os.environ, {"GITHUB_ACTIONS": ""}, clear=False),
+        ):
+            mock_run.side_effect = lambda cmd, **_: charm_file.touch()
+            result = artifacts_build(tmp_path, charm_names=["my-charm"])
+
+        gen = load_artifacts_generated(result)
+        charm_out = gen.charms[0].output
+        assert charm_out.artifact is None
+        assert len(charm_out.files) == 1
+        assert "my-charm_ubuntu-24.04-amd64.charm" in charm_out.files[0].path
+
+    def test_ci_missing_env_vars_raises(self, tmp_path: Path) -> None:
+        """GITHUB_ACTIONS=true with missing env vars raises ConfigurationError."""
+        _write(tmp_path / "charmcraft.yaml", "name: my-charm\n")
+        _write(
+            tmp_path / "artifacts.yaml",
+            (
+                "version: 1\ncharms:\n- name: my-charm\n"
+                "  charmcraft-yaml: charmcraft.yaml\n"
+            ),
+        )
+        charm_file = tmp_path / "my-charm_ubuntu-24.04-amd64.charm"
+
+        with (
+            patch("opcli.core.artifacts.run_command") as mock_run,
+            patch.dict(
+                os.environ,
+                {
+                    "GITHUB_ACTIONS": "true",
+                    "GITHUB_RUN_ID": "",
+                    "GITHUB_REPOSITORY_OWNER": "",
+                    "GITHUB_REPOSITORY": "",
+                    "GITHUB_SHA": "",
+                },
+                clear=False,
+            ),
+            pytest.raises(ConfigurationError, match="GITHUB_RUN_ID"),
+        ):
+            mock_run.side_effect = lambda cmd, **_: charm_file.touch()
+            artifacts_build(tmp_path, charm_names=["my-charm"])
+
+    def test_owner_is_lowercased(self, tmp_path: Path) -> None:
+        """GITHUB_REPOSITORY_OWNER is lowercased in the image ref."""
+        _write(tmp_path / "rockcraft.yaml", "name: my-rock\n")
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\nrocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n",
+        )
+        rock_file = tmp_path / "my-rock_1.0_amd64.rock"
+        rock_file.write_bytes(b"fake rock")
+
+        with (
+            patch("opcli.core.artifacts.run_command") as mock_run,
+            patch.dict(os.environ, self._CI_ENV, clear=False),
+        ):
+            mock_run.side_effect = lambda cmd, **_: rock_file.touch()
+            result = artifacts_build(tmp_path, rock_names=["my-rock"])
+
+        gen = load_artifacts_generated(result)
+        assert gen.rocks[0].output.image is not None
+        assert "MyOrg" not in gen.rocks[0].output.image
+        assert "myorg" in gen.rocks[0].output.image
+
+
+class TestArtifactsCollectCIMode:
+    """Tests for artifacts_collect() with CI-format (image/artifact) partials."""
+
+    def _partial(self, tmp_path: Path, name: str, content: str) -> Path:
+        p = tmp_path / name / "artifacts-generated.yaml"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+        return p
+
+    def test_collect_fills_charm_resource_image_from_ghcr_rock(
+        self, tmp_path: Path
+    ) -> None:
+        """Collect must propagate rock GHCR image ref to charm resource."""
+        rock_partial = self._partial(
+            tmp_path,
+            "rock-job",
+            "version: 1\n"
+            "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
+            "  output:\n    image: ghcr.io/myorg/my-repo/my-rock:abc1234\n",
+        )
+        charm_partial = self._partial(
+            tmp_path,
+            "charm-job",
+            "version: 1\n"
+            "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
+            "  output:\n    artifact: built-charm-my-charm\n    run-id: '9876543210'\n"
+            "  resources:\n"
+            "    my-rock-image:\n"
+            "      type: oci-image\n"
+            "      rock: my-rock\n"
+            "      file: null\n"
+            "      image: null\n",
+        )
+
+        artifacts_collect(tmp_path, [rock_partial, charm_partial])
+
+        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        assert gen.rocks[0].output.image == "ghcr.io/myorg/my-repo/my-rock:abc1234"
+        resource = gen.charms[0].resources["my-rock-image"]  # type: ignore[index]
+        assert resource.image == "ghcr.io/myorg/my-repo/my-rock:abc1234"
+        assert resource.file is None
+        # Charm itself still has artifact ref
+        assert gen.charms[0].output.artifact == "built-charm-my-charm"
+        assert gen.charms[0].output.run_id == "9876543210"

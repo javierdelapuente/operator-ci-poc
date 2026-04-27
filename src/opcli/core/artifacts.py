@@ -11,6 +11,7 @@ import glob as globmod
 import logging
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from opcli.core.discovery import discover_artifacts
@@ -56,6 +57,121 @@ _OUTPUT_GLOBS: dict[str, str] = {
     "rock": "*.rock",
     "snap": "*.snap",
 }
+
+
+@dataclass
+class _CIContext:
+    """GitHub Actions environment variables needed to produce CI-format outputs."""
+
+    run_id: str
+    owner: str  # lowercased GITHUB_REPOSITORY_OWNER
+    repo: str  # repository name only (not org/repo)
+    sha: str  # GITHUB_SHA[:7]
+
+
+def _get_ci_context() -> _CIContext | None:
+    """Return GitHub Actions context if running inside GitHub Actions, else ``None``.
+
+    Reads ``GITHUB_ACTIONS``, ``GITHUB_RUN_ID``, ``GITHUB_REPOSITORY_OWNER``,
+    ``GITHUB_REPOSITORY``, and ``GITHUB_SHA`` from the environment.
+
+    Raises:
+        ConfigurationError: If ``GITHUB_ACTIONS=true`` but required variables
+            are missing or empty.
+    """
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return None
+
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    owner = os.environ.get("GITHUB_REPOSITORY_OWNER", "").lower()
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    sha = os.environ.get("GITHUB_SHA", "")
+
+    missing = [
+        name
+        for name, val in [
+            ("GITHUB_RUN_ID", run_id),
+            ("GITHUB_REPOSITORY_OWNER", owner),
+            ("GITHUB_REPOSITORY", repository),
+            ("GITHUB_SHA", sha),
+        ]
+        if not val
+    ]
+    if missing:
+        msg = (
+            f"GITHUB_ACTIONS=true but required variables are missing: "
+            f"{', '.join(missing)}"
+        )
+        raise ConfigurationError(msg)
+
+    repo = repository.split("/", 1)[-1]
+    return _CIContext(run_id=run_id, owner=owner, repo=repo, sha=sha[:7])
+
+
+def _push_rock_to_ghcr(
+    rock: GeneratedRock, ci: _CIContext, root: Path
+) -> GeneratedRock:
+    """Push a locally-built rock to GHCR and return an updated ``GeneratedRock``.
+
+    The rock ``.rock`` file is pushed to
+    ``ghcr.io/<owner>/<repo>/<name>:<sha7>`` using ``skopeo copy``.
+    The returned object has ``output.image`` set and no ``output.file``.
+
+    Raises:
+        OpcliError: If the rock file does not exist.
+        SubprocessError: If the skopeo push fails.
+    """
+    if not rock.output.file:
+        msg = f"Rock '{rock.name}' has no local file to push to GHCR."
+        raise OpcliError(msg)
+
+    rock_path = Path(rock.output.file)
+    if not rock_path.is_absolute():
+        rock_path = (root / rock_path).resolve()
+    if not rock_path.exists():
+        msg = f"Rock file not found: {rock_path}"
+        raise OpcliError(msg)
+
+    image_ref = f"ghcr.io/{ci.owner}/{ci.repo}/{rock.name}:{ci.sha}"
+    run_command(
+        [
+            "skopeo",
+            "--insecure-policy",
+            "copy",
+            f"oci-archive:{rock_path}",
+            f"docker://{image_ref}",
+        ],
+        cwd=str(root),
+    )
+    logger.info("Pushed rock '%s' to %s", rock.name, image_ref)
+    return GeneratedRock(
+        name=rock.name,
+        **{"rockcraft-yaml": rock.rockcraft_yaml},
+        output=ArtifactOutput(image=image_ref),
+    )
+
+
+def _to_ci_charm(charm: GeneratedCharm, ci: _CIContext) -> GeneratedCharm:
+    """Return a copy of *charm* with CI artifact-reference output."""
+    return GeneratedCharm(
+        name=charm.name,
+        **{"charmcraft-yaml": charm.charmcraft_yaml},
+        output=CharmArtifactOutput.model_validate(
+            {"artifact": f"built-charm-{charm.name}", "run-id": ci.run_id}
+        ),
+        resources=charm.resources,
+    )
+
+
+def _to_ci_snap(snap: GeneratedSnap, ci: _CIContext) -> GeneratedSnap:
+    """Return a copy of *snap* with CI artifact-reference output."""
+    return GeneratedSnap(
+        name=snap.name,
+        **{"snapcraft-yaml": snap.snapcraft_yaml},
+        output=ArtifactOutput.model_validate(
+            {"artifact": f"built-snap-{snap.name}", "run-id": ci.run_id}
+        ),
+    )
 
 
 def artifacts_init(root: Path, *, force: bool = False) -> Path:
@@ -378,6 +494,13 @@ def artifacts_build(
     all_rocks = {r.name: r for r in gen_rocks}
     gen_charms = [_build_charm(c, root, all_rocks) for c in charms_to_build]
     gen_snaps = [_build_snap(s, root) for s in snaps_to_build]
+
+    # In GitHub Actions, rewrite outputs to CI-format references.
+    ci = _get_ci_context()
+    if ci is not None:
+        gen_rocks = [_push_rock_to_ghcr(r, ci, root) for r in gen_rocks]
+        gen_charms = [_to_ci_charm(c, ci) for c in gen_charms]
+        gen_snaps = [_to_ci_snap(s, ci) for s in gen_snaps]
 
     generated = ArtifactsGenerated(
         rocks=gen_rocks,
