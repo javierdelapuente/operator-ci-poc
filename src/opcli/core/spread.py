@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import os
 import posixpath
-import shutil
 import tempfile
 from copy import deepcopy
 from io import StringIO
@@ -81,8 +80,9 @@ def _generate_spread_yaml(
 
     # Root environment: project-wide vars (CONCIERGE, standard vars)
     root_env: dict[str, str] = {
-        "SUDO_USER": "",
-        "SUDO_UID": "",
+        # Set to "ubuntu" so concierge writes Juju data directly to
+        # /home/ubuntu/.local/share/juju (the spread task user's home).
+        "SUDO_USER": "ubuntu",
         "LANG": "C.UTF-8",
         "LANGUAGE": "en",
         "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
@@ -287,11 +287,6 @@ sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
 runuser -l ubuntu -c "uv tool install tox --with tox-uv"
 if [ -f "$CONCIERGE" ]; then
   concierge prepare -c "$CONCIERGE"
-  if [ -d /root/.local/share/juju ]; then
-    mkdir -p /home/ubuntu/.local/share/juju
-    cp -rn /root/.local/share/juju/. /home/ubuntu/.local/share/juju/
-    chown -R ubuntu:ubuntu /home/ubuntu/.local/share/juju
-  fi
   runuser -l ubuntu -c \
     "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
 fi
@@ -684,35 +679,24 @@ def spread_run(
 ) -> None:
     """Expand ``spread.yaml`` and run ``spread``.
 
-    The expanded YAML is written directly over the original ``spread.yaml``
-    (backed up to a temp file) and spread runs from *root*.  The original is
-    always restored via ``try/finally``.
-
-    Spread 2018 ignores ``reroot`` when the backend has a real allocate script,
-    and symlinks cause broken paths inside VMs.  The backup/restore approach
-    avoids both problems while keeping the original file intact.
+    The expanded YAML is written to a temporary subdirectory inside *root*
+    with a ``reroot: ..`` field so spread resolves the project tree from the
+    parent directory.  Spread is invoked from that subdirectory; the original
+    ``spread.yaml`` is never modified.
 
     Raises:
         ConfigurationError: If ``spread.yaml`` is missing or malformed.
         SubprocessError: If spread exits non-zero.
     """
     expanded = _expand(root, ci=ci)
+    expanded["reroot"] = _compose_reroot(expanded.get("reroot"))
 
-    original = root / _SPREAD_YAML
-    backup_fd, backup_path_str = tempfile.mkstemp(
-        prefix=".spread-backup-", suffix=".yaml", dir=root
-    )
-    backup_path = Path(backup_path_str)
-    try:
-        os.close(backup_fd)
-        shutil.copy2(original, backup_path)
-        with original.open("w") as fh:
+    with tempfile.TemporaryDirectory(prefix=".spread-run-", dir=root) as tmp_dir:
+        tmp_yaml = Path(tmp_dir) / _SPREAD_YAML
+        with tmp_yaml.open("w") as fh:
             _yaml.dump(_literalize(expanded), fh)
 
         cmd = ["spread"]
         if extra_args:
             cmd.extend(extra_args)
-        run_command(cmd, cwd=str(root), interactive=True)
-    finally:
-        if backup_path.exists():
-            shutil.move(str(backup_path), original)
+        run_command(cmd, cwd=tmp_dir, interactive=True)

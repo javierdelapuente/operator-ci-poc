@@ -78,8 +78,8 @@ class TestSpreadInit:
 
         parsed = _yaml.load(StringIO(spread_path.read_text()))
         env = parsed["environment"]
-        assert env["SUDO_USER"] == ""
-        assert env["SUDO_UID"] == ""
+        assert env["SUDO_USER"] == "ubuntu"
+        assert "SUDO_UID" not in env
         assert env["LANG"] == "C.UTF-8"
         assert env["LANGUAGE"] == "en"
         assert "CONCIERGE" in env
@@ -596,7 +596,8 @@ suites:
 
 
 class TestSpreadRun:
-    def test_runs_spread_from_project_root(self, tmp_path: Path) -> None:
+    def test_runs_spread_from_temp_subdir(self, tmp_path: Path) -> None:
+        """spread is invoked from a temp subdirectory inside the project root."""
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         captured_cwd: list[str] = []
@@ -608,7 +609,10 @@ class TestSpreadRun:
             spread_run(tmp_path, ci=False)
 
         assert len(captured_cwd) == 1
-        assert Path(captured_cwd[0]) == tmp_path
+        cwd = Path(captured_cwd[0])
+        # Must be inside the project root, not the root itself
+        assert cwd.parent == tmp_path
+        assert cwd != tmp_path
 
     def test_uses_spread_binary(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
@@ -620,37 +624,28 @@ class TestSpreadRun:
         assert cmd[0] == "spread"
         assert not any(arg.startswith("-spread=") for arg in cmd)
 
-    def test_spread_yaml_expanded_during_run(self, tmp_path: Path) -> None:
+    def test_spread_yaml_in_temp_subdir_has_reroot(self, tmp_path: Path) -> None:
+        """The temp spread.yaml must contain reroot pointing to the project root."""
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
-        written_yaml: list[dict[str, object]] = []
+        captured_yaml: list[dict[str, object]] = []
 
         def capture_cmd(cmd: list[str], **kwargs: object) -> None:
-            with (tmp_path / "spread.yaml").open() as fh:
-                written_yaml.append(_yaml.load(fh))
+            cwd = kwargs.get("cwd", "")
+            tmp_yaml = Path(str(cwd)) / "spread.yaml"
+            with tmp_yaml.open() as fh:
+                captured_yaml.append(_yaml.load(fh))
 
         with patch("opcli.core.spread.run_command", side_effect=capture_cmd):
             spread_run(tmp_path, ci=False)
 
-        assert len(written_yaml) == 1
-        assert "local" in written_yaml[0]["backends"]
-        assert "integration-test" not in written_yaml[0]["backends"]
+        assert len(captured_yaml) == 1
+        written = captured_yaml[0]
+        assert "local" in written["backends"]
+        assert "integration-test" not in written["backends"]
+        assert written.get("reroot") == ".."
 
-    def test_extra_args_forwarded(self, tmp_path: Path) -> None:
-        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
-
-        _SELECTOR = "local:ubuntu-24.04:tests/integration/run:test_charm"
-        with patch("opcli.core.spread.run_command") as mock_run:
-            spread_run(
-                tmp_path,
-                extra_args=["-v", _SELECTOR],
-                ci=False,
-            )
-
-        cmd = mock_run.call_args[0][0]
-        assert cmd == ["spread", "-v", _SELECTOR]
-
-    def test_original_spread_yaml_restored_on_success(self, tmp_path: Path) -> None:
+    def test_original_spread_yaml_never_modified(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
         original_content = (tmp_path / "spread.yaml").read_text()
 
@@ -659,7 +654,7 @@ class TestSpreadRun:
 
         assert (tmp_path / "spread.yaml").read_text() == original_content
 
-    def test_original_spread_yaml_restored_on_failure(self, tmp_path: Path) -> None:
+    def test_original_spread_yaml_not_modified_on_failure(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
         original_content = (tmp_path / "spread.yaml").read_text()
 
@@ -674,14 +669,28 @@ class TestSpreadRun:
 
         assert (tmp_path / "spread.yaml").read_text() == original_content
 
-    def test_no_backup_file_left_on_success(self, tmp_path: Path) -> None:
+    def test_temp_dir_cleaned_up_on_success(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         with patch("opcli.core.spread.run_command"):
             spread_run(tmp_path, ci=False)
 
-        backup_files = list(tmp_path.glob(".spread-backup-*.yaml"))
-        assert backup_files == []
+        leftover = list(tmp_path.glob(".spread-run-*"))
+        assert leftover == []
+
+    def test_extra_args_forwarded(self, tmp_path: Path) -> None:
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+
+        _SELECTOR = "local:ubuntu-24.04:tests/integration/run:test_charm"
+        with patch("opcli.core.spread.run_command") as mock_run:
+            spread_run(
+                tmp_path,
+                extra_args=["-v", _SELECTOR],
+                ci=False,
+            )
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["spread", "-v", _SELECTOR]
 
     def test_expand_output_has_no_reroot(self, tmp_path: Path) -> None:
         """spread_expand() for display should not include reroot."""

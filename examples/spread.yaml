@@ -6,8 +6,7 @@ backends:
     systems:
     - ubuntu-24.04
 environment:
-  SUDO_USER: ''
-  SUDO_UID: ''
+  SUDO_USER: ubuntu
   LANG: C.UTF-8
   LANGUAGE: en
   CONCIERGE: '$(HOST: echo "${CONCIERGE:-concierge.yaml}")'
