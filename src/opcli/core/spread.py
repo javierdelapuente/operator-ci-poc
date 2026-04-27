@@ -706,33 +706,6 @@ def _compose_reroot(existing_reroot: object | None) -> str:
         raise ConfigurationError(msg)
 
     return posixpath.normpath(posixpath.join("..", existing_reroot))
-    """Return a ``reroot`` value that accounts for the temp sub-directory.
-
-    The expanded ``spread.yaml`` lives one directory below the project root,
-    so we need ``..`` to point back.  If the user already specified a
-    ``reroot`` in their original ``spread.yaml``, we compose ``../`` with
-    that existing value (normalised).
-
-    Raises:
-        ConfigurationError: If *existing_reroot* is not a string or is absolute.
-    """
-    if existing_reroot is None:
-        return ".."
-
-    if not isinstance(existing_reroot, str):
-        msg = (
-            "'reroot' in spread.yaml must be a string, "
-            f"got {type(existing_reroot).__name__}"
-        )
-        raise ConfigurationError(msg)
-
-    if posixpath.isabs(existing_reroot):
-        msg = (
-            f"'reroot' in spread.yaml must be a relative path, got '{existing_reroot}'"
-        )
-        raise ConfigurationError(msg)
-
-    return posixpath.normpath(posixpath.join("..", existing_reroot))
 
 
 def spread_expand(
