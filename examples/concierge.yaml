@@ -1,0 +1,7 @@
+juju:
+  channel: 3.6/stable
+
+providers:
+  - lxd:
+      bootstrap: true
+      controller: localhost
