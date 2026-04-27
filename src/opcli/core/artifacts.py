@@ -359,6 +359,17 @@ def artifacts_build(
         raise ConfigurationError(msg)
 
     plan = load_artifacts_plan(plan_path)
+
+    # If any type filter is provided, unspecified types default to empty so
+    # that `--charm foo` builds only the charm, not all rocks/snaps too.
+    any_filter = (
+        charm_names is not None or rock_names is not None or snap_names is not None
+    )
+    if any_filter:
+        rock_names = rock_names if rock_names is not None else []
+        charm_names = charm_names if charm_names is not None else []
+        snap_names = snap_names if snap_names is not None else []
+
     rocks_to_build = _filter_by_name(plan.rocks, rock_names, "rock")
     charms_to_build = _filter_by_name(plan.charms, charm_names, "charm")
     snaps_to_build = _filter_by_name(plan.snaps, snap_names, "snap")
@@ -514,8 +525,11 @@ def _filter_by_name[T: (RockArtifact, CharmArtifact, SnapArtifact)](
     names: list[str] | None,
     kind: str,
 ) -> list[T]:
-    """Return items filtered by *names*, or all if *names* is None/empty."""
-    if not names:
+    """Return items filtered by *names*, or all if *names* is None.
+
+    ``None`` means "no filter — build all".  An empty list means "build none".
+    """
+    if names is None:
         return items
     name_set = set(names)
     available = {item.name for item in items}

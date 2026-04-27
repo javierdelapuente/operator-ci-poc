@@ -226,6 +226,26 @@ class TestArtifactsBuild:
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "charm-a"
 
+    def test_charm_filter_does_not_build_rocks(self, tmp_path: Path) -> None:
+        """--charm only must not build rocks (each matrix job builds one artifact)."""
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\n"
+            "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
+            "charms:\n- name: mycharm\n  charmcraft-yaml: charm_dir/charmcraft.yaml\n",
+        )
+        (tmp_path / "charm_dir").mkdir()
+        _write(tmp_path / "charm_dir" / "charmcraft.yaml", "name: mycharm\n")
+        _write(tmp_path / "charm_dir" / "mycharm.charm", "fake")
+
+        with patch("opcli.core.artifacts.run_command") as mock_run:
+            artifacts_build(tmp_path, charm_names=["mycharm"])
+
+        # Only charmcraft should have been called — rockcraft must not be invoked.
+        for call in mock_run.call_args_list:
+            cmd = call[0][0]
+            assert "rockcraft" not in cmd[0], f"rockcraft unexpectedly invoked: {cmd}"
+
     def test_unknown_charm_name_raises(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "artifacts.yaml",
