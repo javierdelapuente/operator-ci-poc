@@ -12,6 +12,12 @@ license: Apache-2.0
 platforms:
   amd64:
 
+services:
+  app:
+    override: replace
+    startup: enabled
+    command: sleep infinity
+
 parts:
-  empty:
+  app:
     plugin: nil
