@@ -77,11 +77,8 @@ def assemble_pytest_args(
                 charm.output.artifact,
             )
 
-        # Only emit flags for resources not backed by a rock; rock-backed
-        # resources are already covered by the rock iteration above.
-        # Also skip any standalone resource whose flag name would duplicate a
-        # rock flag (e.g., a resource named "myrock-image" when "myrock" is in
-        # the rocks list).
+        # Resources backed by a rock are already covered by the rock
+        # iteration above. Resources without a rock link have no output info.
         for res_name, res in (charm.resources or {}).items():
             if res.rock:
                 continue
@@ -94,9 +91,6 @@ def assemble_pytest_args(
                     res_name,
                 )
                 continue
-            value = res.image or res.file
-            if value:
-                args.append(f"--{res_name}={value}")
 
     return args
 

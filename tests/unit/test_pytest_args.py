@@ -40,7 +40,6 @@ charms:
     myrock-image:
       type: oci-image
       rock: myrock
-      file: ./rock_dir/myrock.rock
 """
 
 _GENERATED_CI = """\
@@ -60,7 +59,6 @@ charms:
     myrock-image:
       type: oci-image
       rock: myrock
-      image: ghcr.io/canonical/myrock:abc123
 """
 
 _GENERATED_NO_RESOURCES = """\
@@ -245,8 +243,8 @@ class TestAssemblePytestArgs:
         assert "--expressjs-app-image=./expressjs-app_1.0_amd64.rock" in args
         assert "--fastapi-app-image=./fastapi-app_1.0_amd64.rock" in args
 
-    def test_resource_without_rock_uses_resource_name(self, tmp_path: Path) -> None:
-        """Resources not linked to a rock fall back to the resource name as flag."""
+    def test_resource_without_rock_link_produces_no_flag(self, tmp_path: Path) -> None:
+        """Resources not linked to a rock (no rock: field) produce no image flag."""
         _write(
             tmp_path / "artifacts-generated.yaml",
             "version: 1\ncharms:\n- name: mycharm\n"
@@ -254,13 +252,13 @@ class TestAssemblePytestArgs:
             "  output:\n    files:\n"
             "    - path: ./mycharm_ubuntu-22.04-amd64.charm\n"
             "      base: ubuntu@22.04\n"
-            "  resources:\n    standalone-image:\n      type: oci-image\n"
-            "      image: ghcr.io/canonical/standalone:latest\n",
+            "  resources:\n    standalone-image:\n      type: oci-image\n",
         )
 
         args = assemble_pytest_args(tmp_path)
 
-        assert "--standalone-image=ghcr.io/canonical/standalone:latest" in args
+        # Only charm-file; no image flag for a resource with no rock backing
+        assert args == ["--charm-file=./mycharm_ubuntu-22.04-amd64.charm"]
 
 
 class TestAssembleToxArgv:

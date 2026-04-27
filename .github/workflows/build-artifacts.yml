@@ -73,6 +73,9 @@ jobs:
     name: "Build ${{ matrix.type }} ${{ matrix.name }}"
     needs: build-matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.build-matrix.outputs.matrix) }}
@@ -113,10 +116,17 @@ jobs:
         if: matrix.type == 'snap'
         run: sudo snap install snapcraft --classic
 
+      - name: Login to GHCR
+        if: matrix.type == 'rock'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            skopeo login ghcr.io --username "${{ github.actor }}" --password-stdin
+
       - name: Build ${{ matrix.type }} ${{ matrix.name }}
         run: opcli artifacts build --${{ matrix.type }} ${{ matrix.name }}
 
       - name: Upload built ${{ matrix.type }}
+        if: matrix.type != 'rock'
         uses: actions/upload-artifact@v4
         with:
           name: built-${{ matrix.type }}-${{ matrix.name }}

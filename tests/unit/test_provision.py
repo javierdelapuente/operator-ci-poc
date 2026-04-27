@@ -45,6 +45,10 @@ rocks:
   rockcraft-yaml: rock_dir/rockcraft.yaml
   output:
     file: ./rock_dir/myrock.rock
+- name: otherrock
+  rockcraft-yaml: other_dir/rockcraft.yaml
+  output:
+    image: ghcr.io/canonical/otherrock:abc
 charms:
 - name: mycharm
   charmcraft-yaml: charmcraft.yaml
@@ -56,11 +60,9 @@ charms:
     myrock-image:
       type: oci-image
       rock: myrock
-      file: ./rock_dir/myrock.rock
     other-res:
       type: oci-image
       rock: otherrock
-      image: ghcr.io/canonical/otherrock:abc
 """
 
 
@@ -175,7 +177,7 @@ class TestProvisionLoad:
         assert myrock.output.file == "./rock_dir/myrock.rock"
 
     def test_updates_charm_resources_for_pushed_rock(self, tmp_path: Path) -> None:
-        """Charm resources referencing a pushed rock get image ref set."""
+        """provision_load pushes rocks; charm resources reference via rock: field."""
         _write(
             tmp_path / "artifacts-generated.yaml",
             _GENERATED_WITH_ROCKS_AND_RESOURCES,
@@ -185,13 +187,14 @@ class TestProvisionLoad:
             provision_load(tmp_path)
 
         updated = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        # Rock output.image is updated after push
+        myrock = next(r for r in updated.rocks if r.name == "myrock")
+        assert myrock.output.image == "localhost:32000/myrock:latest"
+        # Charm resources still only carry the rock reference, not a duplicated image
         charm = updated.charms[0]
-        myrock_res = charm.resources["myrock-image"]  # type: ignore[index]
-        assert myrock_res.image == "localhost:32000/myrock:latest"
-        assert myrock_res.file == "./rock_dir/myrock.rock"
-        # Resource referencing a different rock is not touched
-        other_res = charm.resources["other-res"]  # type: ignore[index]
-        assert other_res.image == "ghcr.io/canonical/otherrock:abc"
+        assert charm.resources is not None
+        assert charm.resources["myrock-image"].rock == "myrock"
+        assert charm.resources["other-res"].rock == "otherrock"
 
     def test_idempotent_skips_already_loaded_rock(self, tmp_path: Path) -> None:
         """Rock with image already set to the target ref is skipped."""

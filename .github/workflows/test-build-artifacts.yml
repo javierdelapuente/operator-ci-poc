@@ -25,3 +25,96 @@ jobs:
     uses: ./.github/workflows/build-artifacts.yml
     with:
       working-directory: examples
+    permissions:
+      packages: write
+      contents: read
+
+  verify:
+    name: Verify CI output format
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts-generated.yaml
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-generated
+          path: output/
+
+      - name: Assert CI-format refs in artifacts-generated.yaml
+        run: |
+          python3 - <<'EOF'
+          import sys
+          import yaml
+
+          with open("output/artifacts-generated.yaml") as f:
+              gen = yaml.safe_load(f)
+
+          errors = []
+
+          # Rocks must have output.image (GHCR ref), not output.file
+          for rock in gen.get("rocks", []):
+              output = rock.get("output", {})
+              image = output.get("image")
+              file_ = output.get("file")
+              if not image:
+                  errors.append(
+                      f"Rock '{rock['name']}': expected output.image, got {output}"
+                  )
+              elif not image.startswith("ghcr.io/"):
+                  errors.append(
+                      f"Rock '{rock['name']}': image must start with ghcr.io/, got {image!r}"
+                  )
+              if file_:
+                  errors.append(
+                      f"Rock '{rock['name']}': output.file must not be set in CI, got {file_!r}"
+                  )
+
+          # Charms must have output.artifact + output.run-id, no files
+          for charm in gen.get("charms", []):
+              output = charm.get("output", {})
+              artifact = output.get("artifact")
+              run_id = output.get("run-id")
+              files = output.get("files", [])
+              if not artifact:
+                  errors.append(
+                      f"Charm '{charm['name']}': expected output.artifact, got {output}"
+                  )
+              if not run_id:
+                  errors.append(
+                      f"Charm '{charm['name']}': expected output.run-id, got {output}"
+                  )
+              if files:
+                  errors.append(
+                      f"Charm '{charm['name']}': output.files must not be set in CI, got {files!r}"
+                  )
+              # OCI resources: only rock link expected, no image field
+              for res_name, res in (charm.get("resources") or {}).items():
+                  rock_link = res.get("rock")
+                  res_image = res.get("image")
+                  if not rock_link:
+                      errors.append(
+                          f"Charm '{charm['name']}' resource '{res_name}': "
+                          f"expected rock: reference, got {res!r}"
+                      )
+                  if res_image:
+                      errors.append(
+                          f"Charm '{charm['name']}' resource '{res_name}': "
+                          f"image must not be duplicated on resource (use rocks[].output.image)"
+                      )
+
+          if errors:
+              print("ASSERTION FAILURES:")
+              for e in errors:
+                  print(f"  - {e}")
+              sys.exit(1)
+
+          rocks = gen.get("rocks", [])
+          charms = gen.get("charms", [])
+          print("All CI-format assertions passed!")
+          print(f"  rocks  : {[r['name'] for r in rocks]}")
+          print(f"  charms : {[c['name'] for c in charms]}")
+          for rock in rocks:
+              print(f"    {rock['name']}.image = {rock['output']['image']}")
+          for charm in charms:
+              print(f"    {charm['name']}.artifact = {charm['output']['artifact']}")
+          EOF
