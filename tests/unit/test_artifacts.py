@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import ClassVar
@@ -14,6 +15,7 @@ from opcli.core.artifacts import (
     artifacts_build,
     artifacts_collect,
     artifacts_init,
+    artifacts_localize,
     artifacts_matrix,
 )
 from opcli.core.exceptions import ConfigurationError, OpcliError
@@ -994,7 +996,6 @@ class TestArtifactsLocalize:
 
     def test_localises_charm_from_downloaded_file(self, tmp_path: Path) -> None:
         """Finds .charm file and updates output.files."""
-        from opcli.core.artifacts import artifacts_localize
 
         _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
         charm_file = tmp_path / "my-charm_ubuntu-24.04-amd64.charm"
@@ -1010,7 +1011,6 @@ class TestArtifactsLocalize:
 
     def test_skips_charm_already_with_local_files(self, tmp_path: Path) -> None:
         """Does not overwrite charms that already have output.files."""
-        from opcli.core.artifacts import artifacts_localize
 
         generated = (
             "version: 1\n"
@@ -1033,9 +1033,6 @@ class TestArtifactsLocalize:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Logs a warning when no .charm file matches the charm name."""
-        import logging
-
-        from opcli.core.artifacts import artifacts_localize
 
         _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
 
@@ -1047,14 +1044,12 @@ class TestArtifactsLocalize:
 
     def test_missing_generated_yaml_raises(self, tmp_path: Path) -> None:
         """Raises ConfigurationError when artifacts-generated.yaml is missing."""
-        from opcli.core.artifacts import artifacts_localize
 
         with pytest.raises(ConfigurationError):
             artifacts_localize(tmp_path)
 
     def test_skips_charm_without_artifact_ref(self, tmp_path: Path) -> None:
         """Skips charms that have no CI artifact ref."""
-        from opcli.core.artifacts import artifacts_localize
 
         generated = (
             "version: 1\n"
@@ -1074,11 +1069,8 @@ class TestArtifactsLocalize:
 
         assert count == 0
 
-    def test_does_not_match_charm_with_longer_prefix_name(
-        self, tmp_path: Path
-    ) -> None:
+    def test_does_not_match_charm_with_longer_prefix_name(self, tmp_path: Path) -> None:
         """Does not pick up 'my-charm-k8s_*.charm' when localising 'my-charm'."""
-        from opcli.core.artifacts import artifacts_localize
 
         _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
         # Only the longer-prefix file exists — pattern must NOT match it

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -475,7 +476,7 @@ suites:
         assert sys_def["username"] == "ubuntu"
 
     def test_runner_stripped_from_ci_systems(self, tmp_path: Path) -> None:
-        """runner label is stripped from CI system entries (GitHub Actions field only)."""
+        """runner label is stripped from CI system entries (GitHub Actions only)."""
         spread = """\
 project: test-project
 path: /home/ubuntu/proj
@@ -938,8 +939,6 @@ class TestRunnerBySystem:
 
     def test_list_runner_label(self) -> None:
         """Runner list is JSON-encoded when system uses a list."""
-        import json
-
         raw = _yaml.load(StringIO(_SPREAD_WITH_RUNNER))
         result = _runner_by_system(raw)
         assert result["ubuntu-24.04"] == json.dumps(["self-hosted", "ubuntu-24.04"])
