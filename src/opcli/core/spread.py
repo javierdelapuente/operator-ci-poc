@@ -304,6 +304,36 @@ if [ -f "$CONCIERGE" ]; then
 fi
 """
 
+_CI_ALLOCATE = """\
+# Create ubuntu user so spread can SSH in as ubuntu@localhost.
+if ! id ubuntu &>/dev/null; then
+  sudo useradd -m -s /bin/bash ubuntu
+  echo "ubuntu ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/ubuntu > /dev/null
+  sudo chmod 0440 /etc/sudoers.d/ubuntu
+fi
+
+# Ensure sshd is running.
+sudo apt-get install -y --quiet openssh-server
+sudo systemctl enable --now ssh
+
+# Generate a key pair for the current user (spread runner) and authorise it
+# in ubuntu's account so spread can SSH to ubuntu@localhost without a password.
+mkdir -p ~/.ssh
+if [ ! -f ~/.ssh/id_ed25519 ]; then
+  ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+fi
+sudo mkdir -p /home/ubuntu/.ssh
+sudo cp ~/.ssh/id_ed25519.pub /home/ubuntu/.ssh/authorized_keys
+sudo chmod 700 /home/ubuntu/.ssh
+sudo chmod 600 /home/ubuntu/.ssh/authorized_keys
+sudo chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+
+# Accept localhost host key.
+ssh-keyscan -H localhost >> ~/.ssh/known_hosts
+
+ADDRESS localhost
+"""
+
 # Tutorial backend: install pip then opcli from the GitHub repo main branch so
 # that ``opcli tutorial expand`` is available inside the VM.
 _TUTORIAL_LOCAL_PREPARE = """\
@@ -474,7 +504,7 @@ def _build_concrete_backend(
     systems = backend_def.get("systems")
 
     if use_ci:
-        backend_def["allocate"] = "ADDRESS localhost"
+        backend_def["allocate"] = _CI_ALLOCATE
         if ci_prepare:
             backend_def["prepare"] = ci_prepare
         if isinstance(systems, list):

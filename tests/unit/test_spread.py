@@ -186,7 +186,9 @@ class TestSpreadExpand:
         assert "integration-test" not in result
         ci = parsed["backends"]["ci"]
         assert ci["type"] == "adhoc"
-        assert ci["allocate"] == "ADDRESS localhost"
+        assert "ADDRESS localhost" in ci["allocate"]
+        assert "useradd" in ci["allocate"]
+        assert "ssh-keygen" in ci["allocate"]
         assert "concierge" in ci["prepare"]
         assert "discard" not in ci
         # CI injects username: ubuntu per-system for SSH access
@@ -276,7 +278,7 @@ suites:
             result = spread_expand(tmp_path)
         parsed = _yaml.load(StringIO(result))
         assert "ci" in parsed["backends"]
-        assert parsed["backends"]["ci"]["allocate"] == "ADDRESS localhost"
+        assert "ADDRESS localhost" in parsed["backends"]["ci"]["allocate"]
 
         with patch.dict("os.environ", {"CI": ""}, clear=False):
             result = spread_expand(tmp_path)
@@ -797,7 +799,8 @@ suites:
 
         backend = parsed["backends"]["ci-tutorial"]
         assert backend["type"] == "adhoc"
-        assert backend["allocate"] == "ADDRESS localhost"
+        assert "ADDRESS localhost" in backend["allocate"]
+        assert "useradd" in backend["allocate"]
         assert "prepare" not in backend
 
     def test_tutorial_username_injected_local(self, tmp_path: Path) -> None:
