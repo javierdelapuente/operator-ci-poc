@@ -104,27 +104,31 @@ is **not** auto-generated and must be created manually if needed.
 
 ---
 
-## 5. CI-format `artifacts-generated.yaml` is only partially consumed
+## 5. `opcli artifacts build` produces CI-format output when run in GitHub Actions
 
-**Spec:** The CI variant of `artifacts-generated.yaml` contains
-`image: ghcr.io/...` for rocks and `artifact: + run-id:` for charms/snaps.
-The spec implies opcli participates in producing these (build collection step).
+**Spec:** Describes `output.file` paths for all artifact types. The spec
+mentions GHCR image refs and GitHub artifact refs in the CI-format YAML but
+does not explicitly specify how they are produced.
 
-**Implementation:**
+**Implementation:** When `GITHUB_ACTIONS=true`, `opcli artifacts build`:
 
-- The `ArtifactsGenerated` model (v1) correctly parses CI-format files.
-- `opcli pytest expand` emits `--<resource-name>=<image>` for charm resources
-  whose embedded `image:` field is set (resolved at build time from the rock's
-  CI output).
-- `opcli pytest expand` does **not** emit `--charm-file=` flags for charms
-  whose output is `artifact: + run-id:` (CI-built charms); those are skipped.
-- `opcli artifacts build` only produces local `output.file` paths; there is no
-  `opcli artifacts collect` (or equivalent) command that produces the CI format.
+- **Rocks**: pushes the built `.rock` image to GHCR via `skopeo` and writes
+  `output.image: ghcr.io/<owner-lowercased>/<repo>/<rock>:<sha7>` (no `output.file`).
+- **Charms / Snaps**: writes `output.artifact: built-<type>-<name>` and
+  `output.run-id: <GITHUB_RUN_ID>` (no `output.files`).
 
-**Rationale:** opcli owns the local side of the contract. CI artifact
-collection (waiting for parallel build jobs, downloading GitHub artifacts,
-tagging GHCR images) is GitHub workflow orchestration and belongs in the
-workflow YAML, not in opcli.
+A companion command `opcli artifacts collect` (also not in the spec — see below)
+merges the per-artifact partial files from parallel build jobs.
+
+`opcli pytest expand` emits rock image flags from `rocks[].output.image` for
+CI-format files. It logs a warning and skips `--charm-file=` for charms whose
+output is `artifact: + run-id:` (CI-built charms), because charm download
+belongs in the test workflow, not inside opcli.
+
+**Rationale:** Detecting `GITHUB_ACTIONS=true` rather than generic `CI` is
+necessary because CI-format output requires GitHub-specific environment
+variables (`GITHUB_RUN_ID`, `GITHUB_REPOSITORY_OWNER`, `GITHUB_REPOSITORY`,
+`GITHUB_SHA`, `GITHUB_TOKEN`) that are only available in GitHub Actions.
 
 ---
 
@@ -341,25 +345,25 @@ ecosystem.
 
 ---
 
-## 13. `opcli provision load` writes back image references to `artifacts-generated.yaml`
+## 13. `opcli provision load` writes back rock image refs to `artifacts-generated.yaml`
 
 **Spec:** `opcli provision load` loads rock images into the local registry.
 The spec does not describe any modification of `artifacts-generated.yaml`.
 
 **Implementation:** After successfully pushing each rock image,
-`opcli provision load` updates the corresponding `output.image` field and any
-charm resource `image` fields in `artifacts-generated.yaml` with the pushed
-image reference (e.g. `localhost:32000/myrock:latest`).
+`opcli provision load` updates the corresponding `rock.output.image` field in
+`artifacts-generated.yaml` with the pushed image reference (e.g.
+`localhost:32000/myrock:latest`).
 
 This means that after running `opcli provision load`, `opcli pytest expand`
 automatically emits `--<resource-name>=localhost:32000/myrock:latest` (the
-live registry reference) instead of `--<resource-name>=./myrock.rock` (the
-local file path), which is what Juju needs to deploy the charm with the
-correct OCI resource.
+live registry reference) for any charm resource linked to that rock, because
+pytest-args resolves image refs by looking up the rock — not by reading a
+separate field on the resource.
 
 **Rationale:** Without the writeback, users would have to manually update
-`artifacts-generated.yaml` after each `provision load`. Writing back makes
-the `provision load → pytest expand` pipeline seamless.
+`artifacts-generated.yaml` after each `provision load`. Writing back makes the
+`provision load → pytest expand` pipeline seamless.
 
 ---
 
@@ -379,3 +383,127 @@ rockcraft versions. Omitting the variable causes an immediate build failure with
 a confusing error. Since the variable is harmless when the rock does not use
 experimental extensions, always setting it avoids this footgun without any
 downside.
+
+---
+
+## 15. `opcli artifacts matrix` and `opcli artifacts collect` are new commands
+
+**Spec:** Does not describe these commands.
+
+**Implementation:** Two new commands support the parallel CI build pattern:
+
+- **`opcli artifacts matrix`** reads `artifacts.yaml` and prints a JSON object
+  suitable for use as a GitHub Actions `strategy.matrix`. Each artifact
+  (rocks, then charms, then snaps) becomes one entry with `name` and `type`:
+  ```json
+  {"include": [{"name": "my-rock", "type": "rock"}, {"name": "my-charm", "type": "charm"}]}
+  ```
+  This drives the parallel `build` job in the reusable `build-artifacts.yml` workflow.
+
+- **`opcli artifacts collect <partial1> <partial2> ...`** reads multiple partial
+  `artifacts-generated.yaml` files (one per parallel build job) and merges them
+  into a single `artifacts-generated.yaml`. It validates that:
+  - No artifact name appears in more than one partial.
+  - Every rock referenced by a charm resource is present in the collected set.
+
+**Rationale:** Each parallel build job produces its own partial
+`artifacts-generated.yaml`. The collect step merges them into the single file
+that downstream workflows consume. The matrix step decouples the artifact list
+from the workflow YAML — adding a new charm or rock to `artifacts.yaml`
+automatically adds a build job without touching the workflow file.
+
+---
+
+## 16. `GITHUB_ACTIONS` (not `CI`) controls artifact-build CI mode
+
+**Spec:** Uses `CI` as the environment variable that switches between local
+and CI behaviour throughout.
+
+**Implementation:** Two different env vars are used, each for its appropriate scope:
+
+| Env var | Controls | Why |
+|---|---|---|
+| `CI` | Spread backend expansion (`local:` vs `ci:`) | Generic CI detection; correct for spread, which runs on any CI |
+| `GITHUB_ACTIONS` | `artifacts build` CI-format output | Must be GitHub Actions because CI format requires `GITHUB_RUN_ID`, `GITHUB_REPOSITORY_OWNER`, `GITHUB_REPOSITORY`, `GITHUB_SHA`, `GITHUB_TOKEN` — all GitHub-specific |
+
+`GITHUB_ACTIONS` is set to `"true"` automatically by GitHub Actions runners and
+is not set in other CI environments or locally. This makes CI-format artifact
+output strictly GitHub-specific while keeping spread backend expansion
+environment-agnostic.
+
+---
+
+## 17. Rock images are not duplicated on charm resources
+
+**Spec:** The CI-format `artifacts-generated.yaml` example in the spec shows
+`image:` fields on both `rocks[].output` and `charms[].resources[]`.
+
+**Implementation:** The `GeneratedResource` model has no `image` field. Rock
+images live exclusively on `rocks[].output.image`. Charm resources only carry
+`type: oci-image` and `rock: <rock-name>`.
+
+```yaml
+# Implemented schema (single source of truth)
+rocks:
+  - name: my-rock
+    output:
+      image: ghcr.io/owner/repo/my-rock:abc1234   # ← image lives here only
+charms:
+  - name: my-charm
+    resources:
+      my-rock-image:
+        type: oci-image
+        rock: my-rock                              # ← link only, no image field
+```
+
+Any consumer that needs the image for `my-rock-image` looks up `my-rock` in
+the `rocks` list and reads `output.image` from there.
+
+**Affected consumers:**
+- `opcli pytest expand` — already iterates `rocks` for image flags; charm resource
+  entries for rock-backed resources are skipped (the rock flag covers them).
+- `opcli provision load` — updates only `rock.output.image`; no charm resource
+  fields to update.
+
+**Rationale:** Duplicating the image ref creates two sources of truth that can
+diverge (e.g. after `provision load` updates the rock image ref). Single source
+eliminates the consistency problem entirely.
+
+---
+
+## 18. Reusable GitHub Actions build workflow
+
+**Spec:** Describes the CI pipeline at a high level but does not provide a
+concrete GitHub Actions workflow.
+
+**Implementation:** A reusable workflow `.github/workflows/build-artifacts.yml`
+is provided that external operator repositories can call directly:
+
+```yaml
+jobs:
+  build:
+    uses: javierdelapuente/operator-ci-poc/.github/workflows/build-artifacts.yml@main
+    with:
+      working-directory: .
+    permissions:
+      contents: read
+      packages: write    # required for GHCR rock pushes
+```
+
+The workflow implements three jobs:
+
+1. **build-matrix** — runs `opcli artifacts matrix` to generate the GitHub
+   Actions matrix (one entry per rock/charm/snap).
+2. **build** (parallel matrix) — for each artifact, installs the appropriate
+   tool, runs `opcli artifacts build --<type> <name>`, pushes rocks to GHCR,
+   and uploads a partial `artifacts-generated.yaml`.
+3. **collect** — downloads all partials and runs `opcli artifacts collect` to
+   produce the final merged `artifacts-generated.yaml` artifact.
+
+**opcli self-pinning:** `opcli` is installed using the ref extracted from
+`github.workflow_ref` (the ref portion of
+`org/repo/.github/workflows/file.yml@ref`). This means calling the workflow
+at `@main`, `@v1.2`, or `@abc1234` automatically installs the matching opcli
+version — no separate version input needed. The `opcli-ref` input overrides
+this for cases where the auto-derived ref is not directly fetchable (e.g. a
+pull-request test-merge commit).
