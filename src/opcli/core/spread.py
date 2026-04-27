@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import posixpath
+import shutil
 import tempfile
 from copy import deepcopy
 from io import StringIO
@@ -85,6 +86,11 @@ def _generate_spread_yaml(
         "LANG": "C.UTF-8",
         "LANGUAGE": "en",
         "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
+        # Install opcli from the current git branch so local dev changes are picked up.
+        # Falls back to "main" if git is unavailable (e.g., no .git dir).
+        "OPCLI_GIT_REF": (
+            "$(HOST: git -C .. branch --show-current 2>/dev/null || echo main)"
+        ),
     }
 
     # Suite environment: MODULE variants + TOX_ENV (scoped to this suite)
@@ -126,9 +132,16 @@ _TASK_YAML_CONTENT = (
     "execute: |\n"
     "    loginctl enable-linger ubuntu\n"
     '    cd "${SPREAD_PATH}"\n'
+    '    case "$MODULE" in\n'
+    "      *k8s*) JUJU_CONTROLLER=concierge-microk8s ;;\n"
+    "      *)     JUJU_CONTROLLER=concierge-lxd ;;\n"
+    "    esac\n"
     '    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}"'
     ' -- -k "$MODULE") || exit 1\n'
-    '    runuser -l ubuntu -c "cd \\"${SPREAD_PATH}\\" && $PYTEST_CMD"\n'
+    "    runuser -l ubuntu -c"
+    ' "cd \\"${SPREAD_PATH}\\"'
+    " && PYTEST_OPERATOR_CONTROLLER=$JUJU_CONTROLLER"
+    ' $PYTEST_CMD"\n'
 )
 
 _TUTORIAL_TASK_YAML_CONTENT = (
@@ -274,15 +287,22 @@ sudo snap install astral-uv --classic
 sudo apt-get update --quiet
 sudo apt-get install -y pipx --quiet
 sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
-    pipx install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
+    pipx install \
+    "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF}" \
+    --quiet
 runuser -l ubuntu -c "uv tool install tox --with tox-uv"
 if [ -f "$CONCIERGE" ]; then
-  runuser -l ubuntu -c \
-    "cd \\"${SPREAD_PATH}\\" && sudo concierge prepare -c \\"$CONCIERGE\\""
+  concierge prepare -c "$CONCIERGE"
+  if [ -d /root/.local/share/juju ]; then
+    mkdir -p /home/ubuntu/.local/share/juju
+    cp -rn /root/.local/share/juju/. /home/ubuntu/.local/share/juju/
+    chown -R ubuntu:ubuntu /home/ubuntu/.local/share/juju
+  fi
   runuser -l ubuntu -c \
     "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
 fi
-if [ -f artifacts-generated.yaml ]; then
+if [ -f artifacts-generated.yaml ] && \
+    curl -sf --max-time 5 http://localhost:32000/v2/ > /dev/null 2>&1; then
   opcli provision load
 fi
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
@@ -608,7 +628,51 @@ def _expand(root: Path, *, ci: bool | None = None) -> dict[str, Any]:
     return _expand_backend(data, ci=ci)
 
 
+_SNAP_WRAPPER = Path("/usr/bin/snap")
+_SNAP_SPREAD_BIN = Path("/snap/spread/current/bin/spread")
+
+
+def _spread_binary() -> str:
+    """Return the path to the real spread binary.
+
+    ``/snap/bin/spread`` is a symlink to ``/usr/bin/snap``, which changes the
+    CWD.  When spread is installed as a snap we bypass the wrapper and call the
+    real binary directly so that ``subprocess.run(cwd=...)`` is honoured.
+    """
+    snap_bin = shutil.which("spread")
+    if snap_bin and Path(snap_bin).resolve() == _SNAP_WRAPPER:
+        return str(_SNAP_SPREAD_BIN)
+    return snap_bin or "spread"
+
+
 def _compose_reroot(existing_reroot: object | None) -> str:
+    """Return a ``reroot`` value that accounts for the temp sub-directory.
+
+    The expanded ``spread.yaml`` lives one directory below the project root,
+    so we need ``..`` to point back.  If the user already specified a
+    ``reroot`` in their original ``spread.yaml``, we compose ``../`` with
+    that existing value (normalised).
+
+    Raises:
+        ConfigurationError: If *existing_reroot* is not a string or is absolute.
+    """
+    if existing_reroot is None:
+        return ".."
+
+    if not isinstance(existing_reroot, str):
+        msg = (
+            "'reroot' in spread.yaml must be a string, "
+            f"got {type(existing_reroot).__name__}"
+        )
+        raise ConfigurationError(msg)
+
+    if posixpath.isabs(existing_reroot):
+        msg = (
+            f"'reroot' in spread.yaml must be a relative path, got '{existing_reroot}'"
+        )
+        raise ConfigurationError(msg)
+
+    return posixpath.normpath(posixpath.join("..", existing_reroot))
     """Return a ``reroot`` value that accounts for the temp sub-directory.
 
     The expanded ``spread.yaml`` lives one directory below the project root,
@@ -670,28 +734,35 @@ def spread_run(
 ) -> None:
     """Expand ``spread.yaml`` and run ``spread``.
 
-    A temporary directory is created **inside** *root* containing the
-    expanded ``spread.yaml`` with ``reroot: ..`` so that ``spread``
-    discovers the config in the temp dir and resolves the project tree
-    from the parent.  The original ``spread.yaml`` is never modified.
+    The expanded YAML is written directly over the original ``spread.yaml``
+    (backed up to a temp file) and spread runs from *root*.  The original is
+    always restored via ``try/finally``.
+
+    Spread 2018 ignores ``reroot`` when the backend has a real allocate script,
+    and symlinks cause broken paths inside VMs.  The backup/restore approach
+    avoids both problems while keeping the original file intact.
 
     Raises:
         ConfigurationError: If ``spread.yaml`` is missing or malformed.
         SubprocessError: If spread exits non-zero.
     """
     expanded = _expand(root, ci=ci)
-    expanded["reroot"] = _compose_reroot(expanded.get("reroot"))
 
-    with tempfile.TemporaryDirectory(
-        prefix=".opcli-spread-",
-        dir=root,
-    ) as temp_dir:
-        temp_dir_path = Path(temp_dir)
-        spread_file = temp_dir_path / _SPREAD_YAML
-        with spread_file.open("w") as fh:
+    original = root / _SPREAD_YAML
+    backup_fd, backup_path_str = tempfile.mkstemp(
+        prefix=".spread-backup-", suffix=".yaml", dir=root
+    )
+    backup_path = Path(backup_path_str)
+    try:
+        os.close(backup_fd)
+        shutil.copy2(original, backup_path)
+        with original.open("w") as fh:
             _yaml.dump(_literalize(expanded), fh)
 
-        cmd = ["spread"]
+        cmd = [_spread_binary()]
         if extra_args:
             cmd.extend(extra_args)
-        run_command(cmd, cwd=str(temp_dir_path), interactive=True)
+        run_command(cmd, cwd=str(root), interactive=True)
+    finally:
+        if backup_path.exists():
+            shutil.move(str(backup_path), original)

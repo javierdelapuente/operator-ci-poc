@@ -3,5 +3,9 @@ summary: integration tests
 execute: |
     loginctl enable-linger ubuntu
     cd "${SPREAD_PATH}"
+    case "$MODULE" in
+      *k8s*) JUJU_CONTROLLER=concierge-microk8s ;;
+      *)     JUJU_CONTROLLER=concierge-lxd ;;
+    esac
     PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}" -- -k "$MODULE") || exit 1
-    runuser -l ubuntu -c "cd \"${SPREAD_PATH}\" && $PYTEST_CMD"
+    runuser -l ubuntu -c "cd \"${SPREAD_PATH}\" && PYTEST_OPERATOR_CONTROLLER=$JUJU_CONTROLLER $PYTEST_CMD"

@@ -317,11 +317,13 @@ class TestProvisionRegistry:
         assert result == "deployed"
         # Three calls: microk8s kubectl wait + apply + rollout status
         assert mock_run.call_count == 3  # noqa: PLR2004
-        assert mock_run.call_args_list[0][0][0][:3] == ["microk8s", "kubectl", "wait"]
+        wait_prefix = ["sudo", "microk8s", "kubectl", "wait"]
+        assert mock_run.call_args_list[0][0][0][:4] == wait_prefix
         apply_call = mock_run.call_args_list[1]
-        assert apply_call[0][0] == ["microk8s", "kubectl", "apply", "-f", "-"]
+        assert apply_call[0][0] == ["sudo", "microk8s", "kubectl", "apply", "-f", "-"]
         assert apply_call[1]["stdin"]  # manifest content passed via stdin
-        assert mock_run.call_args_list[2][0][0][:3] == [
+        assert mock_run.call_args_list[2][0][0][:4] == [
+            "sudo",
             "microk8s",
             "kubectl",
             "rollout",

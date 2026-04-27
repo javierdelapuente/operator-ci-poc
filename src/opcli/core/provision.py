@@ -218,7 +218,9 @@ def provision_registry(
 
     # Use the provider-specific kubectl — MicroK8s and canonical k8s both
     # bundle their own kubectl rather than relying on a separate install.
-    kubectl = ["microk8s", "kubectl"] if microk8s_on else ["k8s", "kubectl"]
+    # MicroK8s uses snap confinement that requires sudo regardless of whether
+    # the caller is root or a group member in a non-interactive session.
+    kubectl = ["sudo", "microk8s", "kubectl"] if microk8s_on else ["k8s", "kubectl"]
 
     # Wait for at least one node to be Ready before deploying — freshly
     # bootstrapped clusters (e.g. in nested LXD) can take a while.
