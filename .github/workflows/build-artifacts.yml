@@ -10,10 +10,7 @@ name: Build Artifacts
 #     build:
 #       uses: javierdelapuente/operator-ci-poc/.github/workflows/build-artifacts.yml@main
 #       with:
-#         working-directory: .   # directory containing artifacts.yaml
-#
-# TODO: add workflow_call trigger with working-directory input when the
-# workflow is promoted from example to reusable.
+#         working-directory: .   # directory containing artifacts.yaml (default: .)
 
 on:
   push:
@@ -27,12 +24,12 @@ on:
       - "examples/**"
       - ".github/workflows/build-artifacts.yml"
   workflow_dispatch:
-
-defaults:
-  run:
-    # All run steps operate from the examples/ directory where artifacts.yaml
-    # lives.  actions/checkout is unaffected by working-directory.
-    working-directory: examples/
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory containing artifacts.yaml (relative to workspace root)"
+        type: string
+        default: "."
 
 jobs:
   # ── Job 1: produce the build matrix ────────────────────────────────────────
@@ -41,6 +38,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+    defaults:
+      run:
+        # Non-workflow_call triggers use examples/ (self-test); callers pass their own.
+        working-directory: ${{ inputs.working-directory || 'examples' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -48,8 +49,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install opcli
+      - name: Install opcli (local source, self-test only)
+        if: github.repository == 'javierdelapuente/operator-ci-poc'
         run: uv tool install ..
+
+      - name: Install opcli
+        if: github.repository != 'javierdelapuente/operator-ci-poc'
+        run: uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git"
 
       - name: Generate build matrix
         id: matrix
@@ -65,6 +71,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.build-matrix.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory || 'examples' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -72,8 +81,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install opcli
+      - name: Install opcli (local source, self-test only)
+        if: github.repository == 'javierdelapuente/operator-ci-poc'
         run: uv tool install ..
+
+      - name: Install opcli
+        if: github.repository != 'javierdelapuente/operator-ci-poc'
+        run: uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git"
 
       - name: Set up LXD
         uses: canonical/setup-lxd@main
@@ -93,11 +107,18 @@ jobs:
       - name: Build ${{ matrix.type }} ${{ matrix.name }}
         run: opcli artifacts build --${{ matrix.type }} ${{ matrix.name }}
 
+      - name: Upload built ${{ matrix.type }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-${{ matrix.type }}-${{ matrix.name }}
+          path: ${{ inputs.working-directory || 'examples' }}/**/*.${{ matrix.type }}
+          if-no-files-found: error
+
       - name: Upload partial artifacts-generated.yaml
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-generated-${{ matrix.type }}-${{ matrix.name }}
-          path: examples/artifacts-generated.yaml
+          path: ${{ inputs.working-directory || 'examples' }}/artifacts-generated.yaml
           if-no-files-found: error
 
   # ── Job 3: merge all partials into the final artifacts-generated.yaml ───────
@@ -105,6 +126,9 @@ jobs:
     name: Collect artifacts
     needs: build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory || 'examples' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -112,14 +136,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install opcli
+      - name: Install opcli (local source, self-test only)
+        if: github.repository == 'javierdelapuente/operator-ci-poc'
         run: uv tool install ..
+
+      - name: Install opcli
+        if: github.repository != 'javierdelapuente/operator-ci-poc'
+        run: uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git"
 
       - name: Download all partial artifacts-generated.yaml files
         uses: actions/download-artifact@v4
         with:
           pattern: artifacts-generated-*
-          path: examples/partial-artifacts/
+          path: ${{ inputs.working-directory || 'examples' }}/partial-artifacts/
 
       - name: Merge partials
         run: |
@@ -130,5 +159,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-generated
-          path: examples/artifacts-generated.yaml
+          path: ${{ inputs.working-directory || 'examples' }}/artifacts-generated.yaml
           if-no-files-found: error
+
