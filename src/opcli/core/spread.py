@@ -19,6 +19,7 @@ import logging
 import os
 import posixpath
 import shutil
+import subprocess
 import tempfile
 from copy import deepcopy
 from io import StringIO
@@ -72,9 +73,31 @@ def _discover_test_modules(root: Path) -> list[str]:
     return modules
 
 
+def _current_git_ref(project_root: Path) -> str:
+    """Return the current git branch name, or ``"main"`` as a fallback.
+
+    Runs ``git branch --show-current`` in *project_root*.  Falls back to
+    ``"main"`` if git is unavailable or the directory is not a git repo.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        ref = result.stdout.strip()
+        return ref if ref else "main"
+    except Exception:
+        return "main"
+
+
 def _generate_spread_yaml(
     project_name: str,
     modules: list[str],
+    git_ref: str = "main",
 ) -> str:
     """Build the default ``spread.yaml`` content."""
     buf = StringIO()
@@ -86,11 +109,6 @@ def _generate_spread_yaml(
         "LANG": "C.UTF-8",
         "LANGUAGE": "en",
         "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
-        # Install opcli from the current git branch so local dev changes are picked up.
-        # Falls back to "main" if git is unavailable (e.g., no .git dir).
-        "OPCLI_GIT_REF": (
-            "$(HOST: git -C .. branch --show-current 2>/dev/null || echo main)"
-        ),
     }
 
     # Suite environment: MODULE variants + TOX_ENV (scoped to this suite)
@@ -288,7 +306,7 @@ sudo apt-get update --quiet
 sudo apt-get install -y pipx --quiet
 sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
     pipx install \
-    "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF}" \
+    "git+https://github.com/javierdelapuente/operator-ci-poc@_OPCLI_GIT_REF_" \
     --quiet
 runuser -l ubuntu -c "uv tool install tox --with tox-uv"
 if [ -f "$CONCIERGE" ]; then
@@ -307,6 +325,12 @@ if [ -f artifacts-generated.yaml ] && \
 fi
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
+
+
+def _local_prepare(git_ref: str) -> str:
+    """Return the local backend prepare script with *git_ref* embedded."""
+    return _LOCAL_PREPARE.replace("_OPCLI_GIT_REF_", git_ref)
+
 
 _CI_PREPARE = """\
 if [ -f "$CONCIERGE" ]; then
@@ -533,6 +557,7 @@ def _expand_backend(
     spread_data: dict[str, object],
     *,
     ci: bool | None = None,
+    git_ref: str = "main",
 ) -> dict[str, object]:
     """Replace all known virtual backends with concrete ones.
 
@@ -569,13 +594,20 @@ def _expand_backend(
     for virtual_name, (
         concrete_local,
         concrete_ci,
-        local_prepare,
+        local_prepare_template,
         ci_prepare,
     ) in _BACKEND_CONFIGS.items():
         virtual = backends.pop(virtual_name, None)
         if virtual is None:
             continue
         found_any = True
+
+        # For the integration-test backend, embed the resolved git ref so the
+        # prepare script installs the correct opcli version.
+        if virtual_name == _VIRTUAL_BACKEND:
+            local_prepare = _local_prepare(git_ref)
+        else:
+            local_prepare = local_prepare_template
 
         concrete_name = concrete_ci if use_ci else concrete_local
         backends[concrete_name] = _build_concrete_backend(
@@ -625,7 +657,8 @@ def _load_spread_yaml(root: Path) -> dict[str, Any]:
 def _expand(root: Path, *, ci: bool | None = None) -> dict[str, Any]:
     """Load ``spread.yaml``, expand its virtual backend, return the dict."""
     data = _load_spread_yaml(root)
-    return _expand_backend(data, ci=ci)
+    git_ref = _current_git_ref(root.parent)
+    return _expand_backend(data, ci=ci, git_ref=git_ref)
 
 
 _SNAP_WRAPPER = Path("/usr/bin/snap")
