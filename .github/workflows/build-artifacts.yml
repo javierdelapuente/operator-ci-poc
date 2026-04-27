@@ -75,6 +75,9 @@ jobs:
       - name: Install opcli
         run: uv tool install ..
 
+      - name: Set up LXD
+        uses: canonical/setup-lxd@main
+
       - name: Install charmcraft
         if: matrix.type == 'charm'
         run: sudo snap install charmcraft --classic
