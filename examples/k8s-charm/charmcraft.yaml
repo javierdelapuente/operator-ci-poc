@@ -5,10 +5,10 @@ description: |
   Minimal k8s charm with a rock image resource, used to validate the
   opcli CI build workflow. Not intended for real deployment.
 
+base: ubuntu@24.04
+
 platforms:
-  ubuntu@24.04:
-    build-on: [amd64]
-    build-for: [amd64]
+  amd64:
 
 resources:
   k8s-rock-image:
