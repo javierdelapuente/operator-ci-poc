@@ -841,7 +841,7 @@ def _collect_suite_entries(  # noqa: PLR0913
             system_name = _system_entry_name(system_entry)
             if system_name is None:
                 continue
-            runner = runner_map.get(system_name, _DEFAULT_RUNNER)
+            runner = runner_map.get(system_name, json.dumps(_DEFAULT_RUNNER))
             for task_dir in dirs:
                 task_path = f"{suite_dir}/{task_dir}"
                 for variant in variants:

@@ -1073,3 +1073,17 @@ class TestArtifactsLocalize:
         count = artifacts_localize(tmp_path)
 
         assert count == 0
+
+    def test_does_not_match_charm_with_longer_prefix_name(
+        self, tmp_path: Path
+    ) -> None:
+        """Does not pick up 'my-charm-k8s_*.charm' when localising 'my-charm'."""
+        from opcli.core.artifacts import artifacts_localize
+
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        # Only the longer-prefix file exists — pattern must NOT match it
+        (tmp_path / "my-charm-k8s_ubuntu-24.04-amd64.charm").write_bytes(b"")
+
+        count = artifacts_localize(tmp_path)
+
+        assert count == 0

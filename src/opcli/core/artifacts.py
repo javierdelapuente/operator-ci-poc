@@ -662,8 +662,9 @@ def artifacts_localize(root: Path) -> int:
         if not charm.output.artifact:
             continue  # No CI ref either — skip.
 
-        # Search for .charm files whose name starts with the charm name.
-        pattern = str(root / "**" / f"{charm.name}*.charm")
+        # Search for .charm files whose name starts with the charm name followed
+        # by an underscore, to avoid prefix collisions (e.g., "foo" vs "foo-k8s").
+        pattern = str(root / "**" / f"{charm.name}_*.charm")
         matches = sorted(globmod.glob(pattern, recursive=True))
         if not matches:
             logger.warning(
