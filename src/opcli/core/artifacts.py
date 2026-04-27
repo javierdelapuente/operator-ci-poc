@@ -95,7 +95,7 @@ def _get_ci_context() -> _CIContext | None:
             ("GITHUB_REPOSITORY", repository),
             ("GITHUB_SHA", sha),
         ]
-        if not val
+        if not val.strip()
     ]
     if missing:
         msg = (
@@ -105,6 +105,9 @@ def _get_ci_context() -> _CIContext | None:
         raise ConfigurationError(msg)
 
     repo = repository.split("/", 1)[-1]
+    if not repo.strip():
+        msg = "GITHUB_REPOSITORY must be in 'owner/repo' format, got: {repository!r}"
+        raise ConfigurationError(msg)
     return _CIContext(run_id=run_id, owner=owner, repo=repo, sha=sha[:7])
 
 
