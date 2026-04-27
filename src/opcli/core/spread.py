@@ -80,8 +80,9 @@ def _generate_spread_yaml(
 
     # Root environment: project-wide vars (CONCIERGE, standard vars)
     root_env: dict[str, str] = {
-        "SUDO_USER": "",
-        "SUDO_UID": "",
+        # Set to "ubuntu" so concierge writes Juju data directly to
+        # /home/ubuntu/.local/share/juju (the spread task user's home).
+        "SUDO_USER": "ubuntu",
         "LANG": "C.UTF-8",
         "LANGUAGE": "en",
         "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
@@ -286,11 +287,6 @@ sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
 runuser -l ubuntu -c "uv tool install tox --with tox-uv"
 if [ -f "$CONCIERGE" ]; then
   concierge prepare -c "$CONCIERGE"
-  if [ -d /root/.local/share/juju ]; then
-    mkdir -p /home/ubuntu/.local/share/juju
-    cp -rn /root/.local/share/juju/. /home/ubuntu/.local/share/juju/
-    chown -R ubuntu:ubuntu /home/ubuntu/.local/share/juju
-  fi
   runuser -l ubuntu -c \
     "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
 fi

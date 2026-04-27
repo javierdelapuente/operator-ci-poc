@@ -78,8 +78,8 @@ class TestSpreadInit:
 
         parsed = _yaml.load(StringIO(spread_path.read_text()))
         env = parsed["environment"]
-        assert env["SUDO_USER"] == ""
-        assert env["SUDO_UID"] == ""
+        assert env["SUDO_USER"] == "ubuntu"
+        assert "SUDO_UID" not in env
         assert env["LANG"] == "C.UTF-8"
         assert env["LANGUAGE"] == "en"
         assert "CONCIERGE" in env
