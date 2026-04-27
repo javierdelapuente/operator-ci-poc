@@ -1,0 +1,24 @@
+name: k8s-charm
+type: charm
+summary: Trivial k8s charm for opcli CI workflow testing.
+description: |
+  Minimal k8s charm with a rock image resource, used to validate the
+  opcli CI build workflow. Not intended for real deployment.
+
+bases:
+  - build-on:
+      - name: ubuntu
+        channel: "24.04"
+    run-on:
+      - name: ubuntu
+        channel: "24.04"
+
+resources:
+  k8s-rock-image:
+    type: oci-image
+    description: The rock image for the k8s charm.
+
+parts:
+  charm:
+    plugin: charm
+    source: .

@@ -19,6 +19,7 @@ from opcli.core.subprocess import run_command
 from opcli.core.yaml_io import (
     dump_artifacts_generated,
     dump_artifacts_plan,
+    load_artifacts_generated,
     load_artifacts_plan,
 )
 from opcli.models.artifacts import (
@@ -376,6 +377,135 @@ def artifacts_build(
     dest = root / _ARTIFACTS_GENERATED_YAML
     dump_artifacts_generated(generated, dest)
     logger.info("Wrote %s", dest)
+    return dest
+
+
+def artifacts_matrix(root: Path) -> dict[str, list[dict[str, str]]]:
+    """Read ``artifacts.yaml`` and return a GitHub Actions matrix dict.
+
+    The returned dict has a single key ``"include"`` whose value is a list of
+    entries — one per artifact — each with ``"name"`` and ``"type"`` keys.
+    Rocks come first, then charms, then snaps.
+
+    The result is JSON-serialisable and suitable for use as a GitHub Actions
+    ``strategy.matrix`` value via ``$GITHUB_OUTPUT``.
+
+    Raises:
+        ConfigurationError: If ``artifacts.yaml`` does not exist.
+    """
+    plan_path = root / _ARTIFACTS_YAML
+    if not plan_path.exists():
+        msg = f"{_ARTIFACTS_YAML} not found. Run 'opcli artifacts init' first."
+        raise ConfigurationError(msg)
+
+    plan = load_artifacts_plan(plan_path)
+    include: list[dict[str, str]] = []
+    for rock in plan.rocks:
+        include.append({"name": rock.name, "type": "rock"})
+    for charm in plan.charms:
+        include.append({"name": charm.name, "type": "charm"})
+    for snap in plan.snaps:
+        include.append({"name": snap.name, "type": "snap"})
+
+    return {"include": include}
+
+
+def artifacts_collect(root: Path, partial_paths: list[Path]) -> Path:
+    """Merge partial ``artifacts-generated.yaml`` files into one.
+
+    In CI, each matrix build job produces a partial file containing only the
+    artifact it built.  This function merges all partials into a single
+    ``artifacts-generated.yaml`` and re-fills charm resource ``file``/``image``
+    references from the merged rock outputs (rocks and charms build in parallel
+    so charm partials have ``null`` resource refs at build time).
+
+    Args:
+        root: Repository root; the merged file is written here.
+        partial_paths: Paths to the partial ``artifacts-generated.yaml`` files.
+
+    Returns:
+        The path to the written merged file.
+
+    Raises:
+        ConfigurationError: If *partial_paths* is empty or a path does not exist.
+    """
+    if not partial_paths:
+        msg = "No partial artifacts-generated.yaml files provided to collect."
+        raise ConfigurationError(msg)
+
+    for p in partial_paths:
+        if not p.exists():
+            msg = f"Partial artifacts-generated.yaml not found: {p}"
+            raise ConfigurationError(msg)
+
+    all_rocks: list[GeneratedRock] = []
+    all_charms: list[GeneratedCharm] = []
+    all_snaps: list[GeneratedSnap] = []
+
+    for p in partial_paths:
+        partial = load_artifacts_generated(p)
+        all_rocks.extend(partial.rocks)
+        all_charms.extend(partial.charms)
+        all_snaps.extend(partial.snaps)
+
+    # Reject duplicate artifact names — each name must appear in exactly one partial.
+    for kind, names in (
+        ("rock", [r.name for r in all_rocks]),
+        ("charm", [c.name for c in all_charms]),
+        ("snap", [s.name for s in all_snaps]),
+    ):
+        dupes = {n for n in names if names.count(n) > 1}
+        if dupes:
+            msg = (
+                f"Duplicate {kind} name(s) across collected partials: "
+                f"{', '.join(sorted(dupes))}. Each artifact must appear in "
+                "exactly one partial file."
+            )
+            raise ConfigurationError(msg)
+
+    # Re-fill charm resource refs from the merged rock outputs.
+    rocks_by_name: dict[str, GeneratedRock] = {r.name: r for r in all_rocks}
+    filled_charms: list[GeneratedCharm] = []
+    for charm in all_charms:
+        if not charm.resources:
+            filled_charms.append(charm)
+            continue
+        filled: dict[str, GeneratedResource] = {}
+        for res_name, res in charm.resources.items():
+            if res.rock and res.rock in rocks_by_name:
+                rock_out = rocks_by_name[res.rock].output
+                filled[res_name] = GeneratedResource(
+                    type=res.type,
+                    rock=res.rock,
+                    file=rock_out.file,
+                    image=rock_out.image,
+                )
+            elif res.rock and res.rock not in rocks_by_name:
+                msg = (
+                    f"Charm '{charm.name}' resource '{res_name}' references rock "
+                    f"'{res.rock}' which was not found in the collected partials. "
+                    f"Ensure the rock build job partial is included."
+                )
+                raise ConfigurationError(msg)
+            else:
+                filled[res_name] = res
+        filled_charms.append(
+            GeneratedCharm(
+                name=charm.name,
+                **{"charmcraft-yaml": charm.charmcraft_yaml},
+                output=charm.output,
+                resources=filled,
+            )
+        )
+
+    generated = ArtifactsGenerated(
+        rocks=all_rocks,
+        charms=filled_charms,
+        snaps=all_snaps,
+    )
+    dest = root / _ARTIFACTS_GENERATED_YAML
+    dump_artifacts_generated(generated, dest)
+    logger.info("Wrote merged %s", dest)
     return dest
 
 
