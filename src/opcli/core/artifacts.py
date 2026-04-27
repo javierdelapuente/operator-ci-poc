@@ -385,7 +385,6 @@ def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
 def _build_charm(
     charm: CharmArtifact,
     root: Path,
-    all_rocks: dict[str, GeneratedRock],
 ) -> GeneratedCharm:
     yaml_path = (root / charm.charmcraft_yaml).resolve()
     if not yaml_path.is_file():
@@ -410,17 +409,9 @@ def _build_charm(
 
     resources: dict[str, GeneratedResource] = {}
     for res_name, res_def in charm.resources.items():
-        file_val: str | None = None
-        image_val: str | None = None
-        if res_def.rock and res_def.rock in all_rocks:
-            rock_out = all_rocks[res_def.rock].output
-            file_val = rock_out.file
-            image_val = rock_out.image
         resources[res_name] = GeneratedResource(
             type=res_def.type,
             rock=res_def.rock,
-            file=file_val,
-            image=image_val,
         )
 
     return GeneratedCharm(
@@ -494,8 +485,7 @@ def artifacts_build(
     snaps_to_build = _filter_by_name(plan.snaps, snap_names, "snap")
 
     gen_rocks = [_build_rock(r, root) for r in rocks_to_build]
-    all_rocks = {r.name: r for r in gen_rocks}
-    gen_charms = [_build_charm(c, root, all_rocks) for c in charms_to_build]
+    gen_charms = [_build_charm(c, root) for c in charms_to_build]
     gen_snaps = [_build_snap(s, root) for s in snaps_to_build]
 
     # In GitHub Actions, rewrite outputs to CI-format references.
@@ -600,44 +590,21 @@ def artifacts_collect(root: Path, partial_paths: list[Path]) -> Path:
             )
             raise ConfigurationError(msg)
 
-    # Re-fill charm resource refs from the merged rock outputs.
+    # Validate that every rock referenced by a charm resource is present.
     rocks_by_name: dict[str, GeneratedRock] = {r.name: r for r in all_rocks}
-    filled_charms: list[GeneratedCharm] = []
     for charm in all_charms:
-        if not charm.resources:
-            filled_charms.append(charm)
-            continue
-        filled: dict[str, GeneratedResource] = {}
-        for res_name, res in charm.resources.items():
-            if res.rock and res.rock in rocks_by_name:
-                rock_out = rocks_by_name[res.rock].output
-                filled[res_name] = GeneratedResource(
-                    type=res.type,
-                    rock=res.rock,
-                    file=rock_out.file,
-                    image=rock_out.image,
-                )
-            elif res.rock and res.rock not in rocks_by_name:
+        for res_name, res in (charm.resources or {}).items():
+            if res.rock and res.rock not in rocks_by_name:
                 msg = (
                     f"Charm '{charm.name}' resource '{res_name}' references rock "
                     f"'{res.rock}' which was not found in the collected partials. "
                     f"Ensure the rock build job partial is included."
                 )
                 raise ConfigurationError(msg)
-            else:
-                filled[res_name] = res
-        filled_charms.append(
-            GeneratedCharm(
-                name=charm.name,
-                **{"charmcraft-yaml": charm.charmcraft_yaml},
-                output=charm.output,
-                resources=filled,
-            )
-        )
 
     generated = ArtifactsGenerated(
         rocks=all_rocks,
-        charms=filled_charms,
+        charms=all_charms,
         snaps=all_snaps,
     )
     dest = root / _ARTIFACTS_GENERATED_YAML

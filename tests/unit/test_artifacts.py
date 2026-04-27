@@ -318,12 +318,9 @@ class TestArtifactsBuild:
         res = charm.resources["myrock-image"]
         assert res.type == "oci-image"
         assert res.rock == "myrock"
-        assert res.file is not None
-        assert res.file.startswith("./")
-        assert "myrock_1.0_amd64.rock" in res.file
 
-    def test_resource_unresolved_when_rock_not_built(self, tmp_path: Path) -> None:
-        """Resource referencing a rock not in artifacts.yaml has unresolved output."""
+    def test_resource_only_carries_rock_link(self, tmp_path: Path) -> None:
+        """Resource referencing a rock only stores type + rock; no file/image."""
         _write(
             tmp_path / "artifacts.yaml",
             "version: 1\n"
@@ -343,8 +340,8 @@ class TestArtifactsBuild:
         charm = gen.charms[0]
         assert charm.resources is not None
         res = charm.resources["myrock-image"]
-        assert res.file is None
-        assert res.image is None
+        assert res.type == "oci-image"
+        assert res.rock == "nonexistent-rock"
 
     def test_invalid_generated_fields_rejected(self, tmp_path: Path) -> None:
         _write(
@@ -665,7 +662,7 @@ class TestArtifactsCollect:
         assert gen.charms[0].name == "my-charm"
 
     def test_fills_charm_resource_from_merged_rock(self, tmp_path: Path) -> None:
-        """Rock built in parallel job — resource ref must be filled during collect."""
+        """Collect validates rock reference; image lives on rock, not resource."""
         rock_partial = self._partial(
             tmp_path,
             "rock-job",
@@ -684,16 +681,16 @@ class TestArtifactsCollect:
             "  resources:\n"
             "    my-rock-image:\n"
             "      type: oci-image\n"
-            "      rock: my-rock\n"
-            "      file: null\n"
-            "      image: null\n",
+            "      rock: my-rock\n",
         )
 
         artifacts_collect(tmp_path, [rock_partial, charm_partial])
 
         gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        # Image lives on the rock, not on the resource
+        assert gen.rocks[0].output.file == "./my-rock_1.0_amd64.rock"
         resource = gen.charms[0].resources["my-rock-image"]  # type: ignore[index]
-        assert resource.file == "./my-rock_1.0_amd64.rock"
+        assert resource.rock == "my-rock"
 
     def test_merges_multiple_rocks(self, tmp_path: Path) -> None:
         rock1 = self._partial(
@@ -740,9 +737,7 @@ class TestArtifactsCollect:
             "  resources:\n"
             "    missing-rock-image:\n"
             "      type: oci-image\n"
-            "      rock: missing-rock\n"
-            "      file: null\n"
-            "      image: null\n",
+            "      rock: missing-rock\n",
         )
 
         with pytest.raises(ConfigurationError, match="missing-rock"):
@@ -952,7 +947,7 @@ class TestArtifactsCollectCIMode:
     def test_collect_fills_charm_resource_image_from_ghcr_rock(
         self, tmp_path: Path
     ) -> None:
-        """Collect must propagate rock GHCR image ref to charm resource."""
+        """Collect merges partials; rock GHCR image lives on rock, not the resource."""
         rock_partial = self._partial(
             tmp_path,
             "rock-job",
@@ -969,9 +964,7 @@ class TestArtifactsCollectCIMode:
             "  resources:\n"
             "    my-rock-image:\n"
             "      type: oci-image\n"
-            "      rock: my-rock\n"
-            "      file: null\n"
-            "      image: null\n",
+            "      rock: my-rock\n",
         )
 
         artifacts_collect(tmp_path, [rock_partial, charm_partial])
@@ -979,8 +972,8 @@ class TestArtifactsCollectCIMode:
         gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
         assert gen.rocks[0].output.image == "ghcr.io/myorg/my-repo/my-rock:abc1234"
         resource = gen.charms[0].resources["my-rock-image"]  # type: ignore[index]
-        assert resource.image == "ghcr.io/myorg/my-repo/my-rock:abc1234"
-        assert resource.file is None
+        # Resource carries the rock reference; image resolved from rock.output.image
+        assert resource.rock == "my-rock"
         # Charm itself still has artifact ref
         assert gen.charms[0].output.artifact == "built-charm-my-charm"
         assert gen.charms[0].output.run_id == "9876543210"

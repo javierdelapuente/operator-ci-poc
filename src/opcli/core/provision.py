@@ -120,10 +120,6 @@ def provision_load(
         )
 
         rock.output.image = image_ref
-        for charm in generated.charms:
-            for res in (charm.resources or {}).values():
-                if res.rock == rock.name:
-                    res.image = image_ref
 
         pushed.append(image_ref)
         logger.info("Pushed %s", image_ref)

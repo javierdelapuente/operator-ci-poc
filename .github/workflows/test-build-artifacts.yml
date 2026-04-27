@@ -87,18 +87,19 @@ jobs:
                   errors.append(
                       f"Charm '{charm['name']}': output.files must not be set in CI, got {files!r}"
                   )
-              # OCI resources must carry the rock's GHCR image ref
+              # OCI resources: only rock link expected, no image field
               for res_name, res in (charm.get("resources") or {}).items():
+                  rock_link = res.get("rock")
                   res_image = res.get("image")
-                  if not res_image:
+                  if not rock_link:
                       errors.append(
                           f"Charm '{charm['name']}' resource '{res_name}': "
-                          f"expected image, got {res!r}"
+                          f"expected rock: reference, got {res!r}"
                       )
-                  elif not res_image.startswith("ghcr.io/"):
+                  if res_image:
                       errors.append(
                           f"Charm '{charm['name']}' resource '{res_name}': "
-                          f"image must start with ghcr.io/, got {res_image!r}"
+                          f"image must not be duplicated on resource (use rocks[].output.image)"
                       )
 
           if errors:
