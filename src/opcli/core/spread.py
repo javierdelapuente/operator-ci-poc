@@ -86,6 +86,9 @@ def _generate_spread_yaml(
         "LANG": "C.UTF-8",
         "LANGUAGE": "en",
         "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
+        # Defaults to "main"; override on the host with OPCLI_GIT_REF=<branch>
+        # before running spread to install opcli from a specific branch.
+        "OPCLI_GIT_REF": '$(HOST: echo "${OPCLI_GIT_REF:-main}")',
     }
 
     # Suite environment: MODULE variants + TOX_ENV (scoped to this suite)
@@ -277,7 +280,7 @@ sudo apt-get update --quiet
 sudo apt-get install -y pipx golang-go --quiet
 sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
     pipx install \
-    "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
+    "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF}" \
     --quiet
 go install github.com/canonical/spread/cmd/spread@latest
 sudo ln -sf ~/go/bin/spread /usr/local/bin/spread

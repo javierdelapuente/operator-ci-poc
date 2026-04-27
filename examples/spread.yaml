@@ -11,6 +11,7 @@ environment:
   LANG: C.UTF-8
   LANGUAGE: en
   CONCIERGE: '$(HOST: echo "${CONCIERGE:-concierge.yaml}")'
+  OPCLI_GIT_REF: '$(HOST: echo "${OPCLI_GIT_REF:-main}")'
 exclude:
 - .git
 - .tox
