@@ -103,6 +103,12 @@ jobs:
         run: |
           uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.test-plan.outputs.opcli-sha }}"
 
+      # ── Install LXD ──────────────────────────────────────────────────────
+      - name: Install LXD
+        run: |
+          sudo snap install lxd
+          sudo lxd init --auto
+
       # ── Install spread (direct binary, not snap) ──────────────────────────
       - name: Install Go
         uses: actions/setup-go@v5
