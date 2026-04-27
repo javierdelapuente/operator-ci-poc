@@ -25,6 +25,3 @@ jobs:
     uses: ./.github/workflows/build-artifacts.yml
     with:
       working-directory: examples
-      # github.sha on pull_request is the test-merge commit (not in git history).
-      # Use the actual PR head SHA, falling back to github.sha for push/dispatch.
-      opcli-ref: ${{ github.event.pull_request.head.sha || github.sha }}
