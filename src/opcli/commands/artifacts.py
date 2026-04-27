@@ -1,17 +1,10 @@
 """CLI commands for artifact discovery and building."""
 
-import json
 from pathlib import Path
-from typing import Annotated
 
 import typer
 
-from opcli.core.artifacts import (
-    artifacts_build,
-    artifacts_collect,
-    artifacts_init,
-    artifacts_matrix,
-)
+from opcli.core.artifacts import artifacts_build, artifacts_init
 
 app = typer.Typer(
     help="Discover and build charms, rocks, and snaps.",
@@ -51,32 +44,4 @@ def build(
         rock_names=rock or None,
         snap_names=snap or None,
     )
-    typer.echo(f"Wrote {path}")
-
-
-@app.command()
-def matrix() -> None:
-    """Print the GitHub Actions build matrix as JSON.
-
-    Reads artifacts.yaml and outputs a JSON object with an ``include`` key
-    suitable for use as a GitHub Actions ``strategy.matrix`` value.
-    """
-    result = artifacts_matrix(Path.cwd())
-    typer.echo(json.dumps(result))
-
-
-@app.command()
-def collect(
-    partials: Annotated[
-        list[Path],
-        typer.Argument(help="Partial artifacts-generated.yaml files to merge."),
-    ],
-) -> None:
-    """Merge partial artifacts-generated.yaml files into one.
-
-    Downloads from each parallel CI build job produce a partial
-    artifacts-generated.yaml.  This command merges them and re-fills charm
-    resource references from the merged rock outputs.
-    """
-    path = artifacts_collect(Path.cwd(), partials)
     typer.echo(f"Wrote {path}")

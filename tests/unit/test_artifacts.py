@@ -1,20 +1,14 @@
-"""Tests for ``opcli artifacts init``, ``build``, ``matrix``, and ``collect``."""
+"""Tests for ``opcli artifacts init`` and ``opcli artifacts build``."""
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from opcli.core.artifacts import (
-    artifacts_build,
-    artifacts_collect,
-    artifacts_init,
-    artifacts_matrix,
-)
+from opcli.core.artifacts import artifacts_build, artifacts_init
 from opcli.core.exceptions import ConfigurationError, OpcliError
 from opcli.core.yaml_io import load_artifacts_generated, load_artifacts_plan
 
@@ -225,26 +219,6 @@ class TestArtifactsBuild:
         gen = load_artifacts_generated(result)
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "charm-a"
-
-    def test_charm_filter_does_not_build_rocks(self, tmp_path: Path) -> None:
-        """--charm only must not build rocks (each matrix job builds one artifact)."""
-        _write(
-            tmp_path / "artifacts.yaml",
-            "version: 1\n"
-            "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
-            "charms:\n- name: mycharm\n  charmcraft-yaml: charm_dir/charmcraft.yaml\n",
-        )
-        (tmp_path / "charm_dir").mkdir()
-        _write(tmp_path / "charm_dir" / "charmcraft.yaml", "name: mycharm\n")
-        _write(tmp_path / "charm_dir" / "mycharm.charm", "fake")
-
-        with patch("opcli.core.artifacts.run_command") as mock_run:
-            artifacts_build(tmp_path, charm_names=["mycharm"])
-
-        # Only charmcraft should have been called — rockcraft must not be invoked.
-        for call in mock_run.call_args_list:
-            cmd = call[0][0]
-            assert "rockcraft" not in cmd[0], f"rockcraft unexpectedly invoked: {cmd}"
 
     def test_unknown_charm_name_raises(self, tmp_path: Path) -> None:
         _write(
@@ -563,206 +537,3 @@ class TestArtifactsBuild:
         paths = {f.path for f in files}
         assert "./mycharm_ubuntu-22.04-amd64.charm" in paths
         assert "./mycharm_ubuntu-24.04-amd64.charm" in paths
-
-
-class TestArtifactsMatrix:
-    """Tests for artifacts_matrix()."""
-
-    def test_returns_include_list_for_all_types(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path / "artifacts.yaml",
-            "version: 1\n"
-            "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "snaps:\n- name: my-snap\n  snapcraft-yaml: snap/snapcraft.yaml\n",
-        )
-
-        result = artifacts_matrix(tmp_path)
-
-        assert result == {
-            "include": [
-                {"name": "my-rock", "type": "rock"},
-                {"name": "my-charm", "type": "charm"},
-                {"name": "my-snap", "type": "snap"},
-            ]
-        }
-
-    def test_only_charms_no_rocks_no_snaps(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path / "artifacts.yaml",
-            "version: 1\n"
-            "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n",
-        )
-
-        result = artifacts_matrix(tmp_path)
-
-        assert result == {"include": [{"name": "my-charm", "type": "charm"}]}
-
-    def test_empty_artifacts_yaml_returns_empty_include(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts.yaml", "version: 1\n")
-
-        result = artifacts_matrix(tmp_path)
-
-        assert result == {"include": []}
-
-    def test_missing_artifacts_yaml_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ConfigurationError, match=r"artifacts\.yaml"):
-            artifacts_matrix(tmp_path)
-
-    def test_result_is_json_serializable(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path / "artifacts.yaml",
-            "version: 1\n"
-            "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n",
-        )
-
-        result = artifacts_matrix(tmp_path)
-
-        serialized = json.dumps(result)
-        assert json.loads(serialized) == result
-
-
-class TestArtifactsCollect:
-    """Tests for artifacts_collect()."""
-
-    def _partial(
-        self,
-        tmp_path: Path,
-        name: str,
-        content: str,
-    ) -> Path:
-        p = tmp_path / name / "artifacts-generated.yaml"
-        _write(p, content)
-        return p
-
-    def test_merges_rock_and_charm_partials(self, tmp_path: Path) -> None:
-        rock_partial = self._partial(
-            tmp_path,
-            "rock-job",
-            "version: 1\n"
-            "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n    file: ./my-rock_1.0_amd64.rock\n",
-        )
-        charm_partial = self._partial(
-            tmp_path,
-            "charm-job",
-            "version: 1\n"
-            "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n    files:\n"
-            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
-            "      base: ubuntu@24.04\n",
-        )
-
-        dest = tmp_path / "artifacts-generated.yaml"
-        artifacts_collect(tmp_path, [rock_partial, charm_partial])
-
-        gen = load_artifacts_generated(dest)
-        assert len(gen.rocks) == 1
-        assert len(gen.charms) == 1
-        assert gen.rocks[0].name == "my-rock"
-        assert gen.charms[0].name == "my-charm"
-
-    def test_fills_charm_resource_from_merged_rock(self, tmp_path: Path) -> None:
-        """Rock built in parallel job — resource ref must be filled during collect."""
-        rock_partial = self._partial(
-            tmp_path,
-            "rock-job",
-            "version: 1\n"
-            "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n    file: ./my-rock_1.0_amd64.rock\n",
-        )
-        charm_partial = self._partial(
-            tmp_path,
-            "charm-job",
-            "version: 1\n"
-            "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n    files:\n"
-            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
-            "      base: ubuntu@24.04\n"
-            "  resources:\n"
-            "    my-rock-image:\n"
-            "      type: oci-image\n"
-            "      rock: my-rock\n"
-            "      file: null\n"
-            "      image: null\n",
-        )
-
-        artifacts_collect(tmp_path, [rock_partial, charm_partial])
-
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
-        resource = gen.charms[0].resources["my-rock-image"]  # type: ignore[index]
-        assert resource.file == "./my-rock_1.0_amd64.rock"
-
-    def test_merges_multiple_rocks(self, tmp_path: Path) -> None:
-        rock1 = self._partial(
-            tmp_path,
-            "rock1-job",
-            "version: 1\n"
-            "rocks:\n- name: rock-a\n  rockcraft-yaml: rock-a/rockcraft.yaml\n"
-            "  output:\n    file: ./rock-a_1.0_amd64.rock\n",
-        )
-        rock2 = self._partial(
-            tmp_path,
-            "rock2-job",
-            "version: 1\n"
-            "rocks:\n- name: rock-b\n  rockcraft-yaml: rock-b/rockcraft.yaml\n"
-            "  output:\n    file: ./rock-b_1.0_amd64.rock\n",
-        )
-
-        artifacts_collect(tmp_path, [rock1, rock2])
-
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
-        expected_count = 2
-        assert len(gen.rocks) == expected_count
-        names = {r.name for r in gen.rocks}
-        assert names == {"rock-a", "rock-b"}
-
-    def test_no_partials_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ConfigurationError, match="partial"):
-            artifacts_collect(tmp_path, [])
-
-    def test_missing_partial_file_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ConfigurationError, match="not found"):
-            artifacts_collect(tmp_path, [tmp_path / "nonexistent.yaml"])
-
-    def test_missing_rock_partial_raises(self, tmp_path: Path) -> None:
-        """Charm references a rock that has no corresponding partial — must fail."""
-        charm_partial = self._partial(
-            tmp_path,
-            "charm-job",
-            "version: 1\n"
-            "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n    files:\n"
-            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
-            "      base: ubuntu@24.04\n"
-            "  resources:\n"
-            "    missing-rock-image:\n"
-            "      type: oci-image\n"
-            "      rock: missing-rock\n"
-            "      file: null\n"
-            "      image: null\n",
-        )
-
-        with pytest.raises(ConfigurationError, match="missing-rock"):
-            artifacts_collect(tmp_path, [charm_partial])
-
-    def test_duplicate_rock_names_across_partials_raises(self, tmp_path: Path) -> None:
-        """Two partials with the same rock name must be rejected."""
-        rock1 = self._partial(
-            tmp_path,
-            "rock-job-1",
-            "version: 1\n"
-            "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n    file: ./my-rock_1.0_amd64.rock\n",
-        )
-        rock2 = self._partial(
-            tmp_path,
-            "rock-job-2",
-            "version: 1\n"
-            "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n    file: ./my-rock_2.0_amd64.rock\n",
-        )
-
-        with pytest.raises(ConfigurationError, match="my-rock"):
-            artifacts_collect(tmp_path, [rock1, rock2])
