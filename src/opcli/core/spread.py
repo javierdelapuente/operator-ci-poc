@@ -309,7 +309,7 @@ fi
 uv tool install tox --with tox-uv --quiet
 if [ -f "$CONCIERGE" ]; then
   snap install concierge --classic
-  runuser -l "${SUDO_USER}" -c "concierge prepare -c '${CONCIERGE}'"
+  concierge prepare -c "$CONCIERGE"
 fi
 chown -R "${SUDO_USER}:${SUDO_USER}" "${SPREAD_PATH}"
 """

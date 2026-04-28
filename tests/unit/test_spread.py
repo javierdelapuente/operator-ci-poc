@@ -196,7 +196,7 @@ class TestSpreadExpand:
         assert "opcli" in ci["prepare"]
         assert "SPREAD_PATH" in ci["prepare"]
         assert "chown" in ci["prepare"]
-        assert "runuser" in ci["prepare"]
+        assert "runuser" not in ci["prepare"]
         # CI backend overrides SUDO_USER so concierge targets the actual host user
         assert ci.get("environment", {}).get("SUDO_USER") == "$(HOST: id -un)"
         assert "pipx install" not in ci["prepare"]
