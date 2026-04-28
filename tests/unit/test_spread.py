@@ -196,10 +196,13 @@ class TestSpreadExpand:
         assert "opcli" in ci["prepare"]
         assert "SPREAD_PATH" in ci["prepare"]
         assert "chown" in ci["prepare"]
-        assert "runuser" not in ci["prepare"]
+        # tox is installed for the ubuntu user via runuser
+        assert "runuser" in ci["prepare"]
+        assert 'runuser -l ubuntu' in ci["prepare"]
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in ci["prepare"]
-        # CI backend overrides SUDO_USER so concierge targets the actual host user
-        assert ci.get("environment", {}).get("SUDO_USER") == "$(HOST: id -un)"
+        # CI backend does NOT override SUDO_USER; ubuntu is created in allocate
+        assert "environment" not in ci
+        assert "useradd" in ci["allocate"]
         assert "pipx install" not in ci["prepare"]
         assert "discard" not in ci
         # CI injects username: root per-system for SSH access
