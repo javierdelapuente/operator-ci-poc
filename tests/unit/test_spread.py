@@ -217,8 +217,7 @@ class TestSpreadExpand:
         # tox is installed for the ubuntu user via runuser with explicit bin dir
         assert "runuser" in ci["prepare"]
         assert "runuser -l ubuntu" in ci["prepare"]
-        assert "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox" not in ci["prepare"]
-        assert "uv tool install tox" in ci["prepare"]
+        assert "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox" in ci["prepare"]
         assert "loginctl enable-linger ubuntu" in ci["prepare"]
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in ci["prepare"]
         # CI prepare waits for and downloads build artifacts via gh CLI
