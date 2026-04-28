@@ -307,15 +307,16 @@ else
       "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
       --quiet
 fi
-uv tool install tox --with tox-uv --quiet
+runuser -l ubuntu -c "uv tool install tox --with tox-uv --quiet"
 if [ -f "$CONCIERGE" ]; then
   snap install concierge --classic
   concierge prepare -c "$CONCIERGE"
 fi
-chown -R "${SUDO_USER}:${SUDO_USER}" "${SPREAD_PATH}"
+chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
 _CI_ALLOCATE = """\
+id ubuntu &>/dev/null || sudo useradd -m -s /bin/bash ubuntu
 sudo sed -i 's/^[[:space:]]*#\\?[[:space:]]*\\(PermitRootLogin\\|PasswordAuthentication\\).*/\\1 yes/' \
     /etc/ssh/sshd_config
 if [ -d /etc/ssh/sshd_config.d ]; then
@@ -499,9 +500,6 @@ def _build_concrete_backend(
 
     if use_ci:
         backend_def["allocate"] = _CI_ALLOCATE
-        # Override SUDO_USER so concierge and runuser target the actual host
-        # user (e.g. "runner" on GitHub-hosted runners, not hardcoded "ubuntu").
-        backend_def["environment"] = {"SUDO_USER": "$(HOST: id -un)"}
         if ci_prepare:
             backend_def["prepare"] = ci_prepare
         if isinstance(systems, list):
