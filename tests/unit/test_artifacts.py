@@ -1007,7 +1007,10 @@ class TestArtifactsLocalize:
         gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
         assert gen.charms[0].output.files is not None
         assert len(gen.charms[0].output.files) == 1
-        assert gen.charms[0].output.files[0].path.endswith(".charm")
+        path = gen.charms[0].output.files[0].path
+        assert path.endswith(".charm")
+        assert path.startswith("./"), f"Expected relative path, got: {path}"
+        assert "/home/" not in path, f"Expected no absolute home path, got: {path}"
 
     def test_skips_charm_already_with_local_files(self, tmp_path: Path) -> None:
         """Does not overwrite charms that already have output.files."""
