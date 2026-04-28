@@ -213,6 +213,7 @@ class TestSpreadExpand:
         assert "tox" in ci["prepare"]
         assert "opcli" in ci["prepare"]
         assert "SPREAD_PATH" in ci["prepare"]
+        assert "GITHUB_WORKSPACE" in ci["prepare"]
         assert "chown" in ci["prepare"]
         # tox is installed for the ubuntu user via runuser with explicit bin dir
         assert "runuser" in ci["prepare"]

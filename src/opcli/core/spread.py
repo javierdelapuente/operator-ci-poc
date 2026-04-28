@@ -306,7 +306,9 @@ _CI_PREPARE = """\
 loginctl enable-linger ubuntu
 snap install astral-uv --classic || true
 export UV_TOOL_BIN_DIR=/usr/local/bin
-if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
+if [ -n "${GITHUB_WORKSPACE:-}" ] && grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
+  uv tool install "${GITHUB_WORKSPACE}" --quiet
+elif grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
   uv tool install "${SPREAD_PATH}" --quiet
 else
   uv tool install \
