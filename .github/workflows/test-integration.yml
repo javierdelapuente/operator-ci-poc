@@ -32,13 +32,12 @@ jobs:
       contents: read
       actions: read
 
-  # Run spread with the local (LXD) backend after the full build+CI-test cycle.
-  # Downloads CI-built artifacts via 'opcli artifacts fetch', then runs spread
-  # without CI=true so the local: backend (LXD VM) is used.  This exercises the
-  # same path a developer would take on their workstation.
+  # Run spread with the local (LXD) backend in parallel with the CI tests.
+  # Uses 'opcli artifacts fetch --wait' to poll until the build uploads
+  # artifacts-generated, then downloads artifacts and runs spread without
+  # CI=true so the local: backend (LXD VM) is used.
   test-local:
     name: "Spread (local/LXD)"
-    needs: [integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -89,15 +88,15 @@ jobs:
             sudo ip6tables -I DOCKER-USER -o lxdbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
           fi
 
-      # The build is guaranteed complete (integration-test finished).
-      # No --wait needed — artifacts-generated artifact exists already.
+      # --wait polls until artifacts-generated appears (build may still be running).
       - name: Fetch CI artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           opcli artifacts fetch \
             --run-id "${{ github.run_id }}" \
-            --repo "${{ github.repository }}"
+            --repo "${{ github.repository }}" \
+            --wait
 
       # No CI=true → spread uses the local: backend (LXD VM).
       # _LOCAL_PREPARE inside the VM runs concierge and opcli provision load.
