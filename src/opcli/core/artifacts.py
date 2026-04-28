@@ -1,8 +1,9 @@
-"""Core logic for ``opcli artifacts init`` and ``opcli artifacts build``.
+"""Core logic for ``opcli artifacts`` commands.
 
 ``init`` discovers artifacts and writes ``artifacts.yaml``.
 ``build`` reads the plan, invokes pack tools, and writes
 ``artifacts-generated.yaml``.
+``fetch`` downloads a completed CI run's artifacts so tests can run locally.
 """
 
 from __future__ import annotations
@@ -633,21 +634,43 @@ def _filter_by_name[T: (RockArtifact, CharmArtifact, SnapArtifact)](
     return [item for item in items if item.name in name_set]
 
 
+def _find_local_file(root: Path, name: str, extension: str) -> str | None:
+    """Find a single ``name_*.{extension}`` file under *root*.
+
+    Returns the relative path (``./...``) on success, or ``None`` if no file
+    is found (caller should report the error).  Logs a warning when multiple
+    matches exist and picks the first.
+    """
+    pattern = str(root / "**" / f"{name}_*.{extension}")
+    matches = sorted(globmod.glob(pattern, recursive=True))
+    if not matches:
+        return None
+    if len(matches) > 1:
+        logger.warning(
+            "Multiple .%s files found for '%s'; using %s.",
+            extension,
+            name,
+            matches[0],
+        )
+    return "./" + str(Path(matches[0]).relative_to(root))
+
+
 def artifacts_localize(root: Path) -> int:
-    """Update ``artifacts-generated.yaml`` with local charm file paths.
+    """Update ``artifacts-generated.yaml`` with local artifact file paths.
 
-    In CI, charm outputs are recorded as ``artifact + run-id`` references.
-    Before running integration tests, the workflow downloads the charm
-    artifacts to the working directory.  This command scans the project tree
-    for ``.charm`` files and rewrites ``artifacts-generated.yaml`` so that
-    each charm with only a CI artifact reference gets an ``output.files``
-    entry pointing to the discovered local file.
+    In CI, charm and snap outputs are recorded as ``artifact + run-id``
+    references.  Before running integration tests, the workflow downloads
+    the artifacts to the working directory.  This command scans the project
+    tree for ``.charm`` / ``.snap`` files and rewrites
+    ``artifacts-generated.yaml`` so that each artifact with only a CI
+    artifact reference gets an ``output.file(s)`` entry pointing to the
+    discovered local file.
 
-    Returns the number of charms that were localised.
+    Returns the total number of artifacts that were localised.
 
     Raises:
         ConfigurationError: If ``artifacts-generated.yaml`` is not found or
-            if a charm with a CI artifact reference has no matching file.
+            if any artifact with a CI reference has no matching local file.
     """
     gen_path = root / _ARTIFACTS_GENERATED_YAML
     if not gen_path.exists():
@@ -658,46 +681,162 @@ def artifacts_localize(root: Path) -> int:
 
     updated = 0
     missing: list[str] = []
+
     for charm in generated.charms:
-        if charm.output.files:
-            continue  # Already has local files — nothing to do.
-        if not charm.output.artifact:
-            continue  # No CI ref either — skip.
-
-        # Search for .charm files whose name starts with the charm name followed
-        # by an underscore, to avoid prefix collisions (e.g., "foo" vs "foo-k8s").
-        pattern = str(root / "**" / f"{charm.name}_*.charm")
-        matches = sorted(globmod.glob(pattern, recursive=True))
-        if not matches:
-            missing.append(charm.name)
-            logger.error(
-                "No .charm file found for charm '%s' (pattern: %s).",
-                charm.name,
-                pattern,
-            )
+        if charm.output.files or not charm.output.artifact:
             continue
-
-        if len(matches) > 1:
-            logger.warning(
-                "Multiple .charm files found for charm '%s'; using %s.",
-                charm.name,
-                matches[0],
-            )
-
-        rel = "./" + str(Path(matches[0]).relative_to(root))
+        rel = _find_local_file(root, charm.name, "charm")
+        if rel is None:
+            missing.append(charm.name)
+            logger.error("No .charm file found for charm '%s'.", charm.name)
+            continue
         charm.output.files = [CharmFile(path=rel)]
-        logger.info("Localised charm '%s' → %s", charm.name, matches[0])
+        logger.info("Localised charm '%s' → %s", charm.name, rel)
+        updated += 1
+
+    for snap in generated.snaps:
+        if snap.output.file or not snap.output.artifact:
+            continue
+        rel = _find_local_file(root, snap.name, "snap")
+        if rel is None:
+            missing.append(snap.name)
+            logger.error("No .snap file found for snap '%s'.", snap.name)
+            continue
+        snap.output.file = rel
+        logger.info("Localised snap '%s' → %s", snap.name, rel)
         updated += 1
 
     if missing:
         msg = (
-            f"Could not find downloaded charm files for: {', '.join(missing)}. "
-            "Ensure charm artifacts were downloaded before running localize."
+            f"Could not find downloaded artifact files for: {', '.join(missing)}. "
+            "Ensure artifacts were downloaded before running localize."
         )
         raise ConfigurationError(msg)
 
     if updated:
         dump_artifacts_generated(generated, gen_path)
-        logger.info("Updated %s with %d localised charm(s).", gen_path, updated)
+        logger.info("Updated %s with %d localised artifact(s).", gen_path, updated)
 
     return updated
+
+
+# ---------------------------------------------------------------------------
+# artifacts fetch
+# ---------------------------------------------------------------------------
+
+_GITHUB_URL_RE = re.compile(r"github\.com[:/](.+?)(?:\.git)?/?$")
+
+
+def _infer_repo_from_git(root: Path) -> str:
+    """Return ``owner/repo`` inferred from the git remote of *root*.
+
+    Raises:
+        ConfigurationError: If the git remote URL cannot be parsed.
+    """
+    try:
+        result = run_command(["git", "remote", "get-url", "origin"], cwd=str(root))
+    except Exception as exc:
+        msg = (
+            "Could not read git remote 'origin'. Use --repo to specify the repository."
+        )
+        raise ConfigurationError(msg) from exc
+
+    url = result.stdout.strip()
+    m = _GITHUB_URL_RE.search(url)
+    if not m:
+        msg = (
+            f"Could not parse a GitHub 'owner/repo' from remote URL {url!r}. "
+            "Use --repo to specify the repository."
+        )
+        raise ConfigurationError(msg)
+    return m.group(1)
+
+
+def artifacts_fetch(root: Path, run_id: str, repo: str | None = None) -> Path:
+    """Download a CI run's artifacts and prepare for local testing.
+
+    Steps:
+    1. Infer ``owner/repo`` from the local git remote if *repo* is not given.
+    2. Download ``artifacts-generated.yaml`` from the named GitHub Actions artifact.
+    3. For every charm/snap that carries a CI artifact reference, download the
+       corresponding artifact archive.
+    4. Call :func:`artifacts_localize` to rewrite ``artifacts-generated.yaml``
+       with the local ``.charm`` / ``.snap`` file paths.
+
+    Rock artifacts are OCI images on GHCR and need no download — their
+    ``output.image`` reference is already usable locally.
+
+    Args:
+        root: Working directory; all artifacts are downloaded here.
+        run_id: GitHub Actions workflow run ID.
+        repo: GitHub repository in ``owner/name`` format.  Inferred from the
+            local git remote when ``None``.
+
+    Returns:
+        Path to the updated ``artifacts-generated.yaml``.
+
+    Raises:
+        ConfigurationError: If the repo cannot be inferred or the yaml is missing
+            after download.
+        SubprocessError: If ``gh run download`` fails.
+    """
+    if repo is None:
+        repo = _infer_repo_from_git(root)
+
+    # Download the merged artifacts-generated.yaml
+    run_command(
+        [
+            "gh",
+            "run",
+            "download",
+            run_id,
+            "--repo",
+            repo,
+            "--name",
+            "artifacts-generated",
+            "--dir",
+            str(root),
+        ],
+        cwd=str(root),
+    )
+
+    gen_path = root / _ARTIFACTS_GENERATED_YAML
+    if not gen_path.exists():
+        msg = (
+            f"{_ARTIFACTS_GENERATED_YAML} not found after download. "
+            "Ensure the CI run completed its build phase."
+        )
+        raise ConfigurationError(msg)
+
+    generated = load_artifacts_generated(gen_path)
+
+    # Download each charm / snap artifact archive (deduplicated)
+    seen_artifacts: set[str] = set()
+    for charm in generated.charms:
+        if charm.output.artifact:
+            seen_artifacts.add(charm.output.artifact)
+    for snap in generated.snaps:
+        if snap.output.artifact:
+            seen_artifacts.add(snap.output.artifact)
+
+    for name in sorted(seen_artifacts):
+        run_command(
+            [
+                "gh",
+                "run",
+                "download",
+                run_id,
+                "--repo",
+                repo,
+                "--name",
+                name,
+                "--dir",
+                str(root),
+            ],
+            cwd=str(root),
+        )
+        logger.info("Downloaded artifact '%s'.", name)
+
+    # Rewrite artifact refs to local file paths
+    artifacts_localize(root)
+    return gen_path

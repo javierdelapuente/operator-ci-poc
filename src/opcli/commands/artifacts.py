@@ -9,6 +9,7 @@ import typer
 from opcli.core.artifacts import (
     artifacts_build,
     artifacts_collect,
+    artifacts_fetch,
     artifacts_init,
     artifacts_localize,
     artifacts_matrix,
@@ -81,6 +82,33 @@ def collect(
     """
     path = artifacts_collect(Path.cwd(), partials)
     typer.echo(f"Wrote {path}")
+
+
+@app.command()
+def fetch(
+    *,
+    run_id: Annotated[
+        str,
+        typer.Option("--run-id", help="GitHub Actions workflow run ID."),
+    ],
+    repo: Annotated[
+        str | None,
+        typer.Option(
+            "--repo",
+            help="GitHub repository in 'owner/name' format. "
+            "Defaults to the current git remote.",
+        ),
+    ] = None,
+) -> None:
+    """Download artifacts from a CI run and prepare for local testing.
+
+    Downloads artifacts-generated.yaml, then downloads all charm/snap artifact
+    archives. Rock artifacts are GHCR images and require no download.
+    Finally rewrites artifacts-generated.yaml with local file paths so that
+    ``opcli pytest run`` and ``opcli spread run`` work without a local build.
+    """
+    path = artifacts_fetch(Path.cwd(), run_id=run_id, repo=repo)
+    typer.echo(f"Fetched artifacts and updated {path}")
 
 
 @app.command()
