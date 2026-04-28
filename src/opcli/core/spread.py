@@ -90,11 +90,6 @@ def _generate_spread_yaml(
         # Defaults to "main"; override on the host with OPCLI_GIT_REF=<branch>
         # before running spread to install opcli from a specific branch.
         "OPCLI_GIT_REF": '$(HOST: echo "${OPCLI_GIT_REF:-main}")',
-        # GitHub Actions vars forwarded so _CI_PREPARE can download artifacts.
-        # Empty locally — the download block checks GITHUB_RUN_ID before acting.
-        "GITHUB_TOKEN": '$(HOST: echo "${GITHUB_TOKEN:-}")',
-        "GITHUB_RUN_ID": '$(HOST: echo "${GITHUB_RUN_ID:-}")',
-        "GITHUB_REPOSITORY": '$(HOST: echo "${GITHUB_REPOSITORY:-}")',
     }
 
     # Suite environment: MODULE variants + TOX_ENV (scoped to this suite)
@@ -535,6 +530,14 @@ def _build_concrete_backend(
         backend_def["allocate"] = _CI_ALLOCATE
         if ci_prepare:
             backend_def["prepare"] = ci_prepare
+        # GitHub Actions vars are only needed for the CI backend so that
+        # _CI_PREPARE can authenticate and download build artifacts via gh.
+        # Scoping them here keeps the root spread.yaml clean for local runs.
+        backend_def["environment"] = {
+            "GITHUB_TOKEN": '$(HOST: echo "${GITHUB_TOKEN:-}")',
+            "GITHUB_RUN_ID": '$(HOST: echo "${GITHUB_RUN_ID:-}")',
+            "GITHUB_REPOSITORY": '$(HOST: echo "${GITHUB_REPOSITORY:-}")',
+        }
         if isinstance(systems, list):
             backend_def["systems"] = _transform_systems(
                 systems, strip_keys=_CI_STRIP_KEYS, inject_username="root"

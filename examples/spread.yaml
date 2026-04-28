@@ -11,9 +11,6 @@ environment:
   LANGUAGE: en
   CONCIERGE: '$(HOST: echo "${CONCIERGE:-concierge.yaml}")'
   OPCLI_GIT_REF: '$(HOST: echo "${OPCLI_GIT_REF:-main}")'
-  GITHUB_TOKEN: '$(HOST: echo "${GITHUB_TOKEN:-}")'
-  GITHUB_RUN_ID: '$(HOST: echo "${GITHUB_RUN_ID:-}")'
-  GITHUB_REPOSITORY: '$(HOST: echo "${GITHUB_REPOSITORY:-}")'
 exclude:
 - .git
 - .tox
