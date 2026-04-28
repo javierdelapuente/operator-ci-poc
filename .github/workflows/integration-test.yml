@@ -115,10 +115,7 @@ jobs:
           sudo ln -sf "$(command -v opcli)" /usr/local/bin/opcli
 
       - name: Install tox
-        run: |
-          uv tool install tox --with tox-uv
-          # Symlink into /usr/local/bin so the ubuntu spread user finds tox on PATH.
-          sudo ln -sf "$(command -v tox)" /usr/local/bin/tox
+        run: sudo pip install tox tox-uv --break-system-packages
 
       # ── Install LXD ──────────────────────────────────────────────────────
       - name: Install LXD
