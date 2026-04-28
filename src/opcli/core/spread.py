@@ -321,7 +321,6 @@ if [ -d /etc/ssh/sshd_config.d ]; then
   printf 'PermitRootLogin yes\\nPasswordAuthentication yes\\n' | \
       sudo tee /etc/ssh/sshd_config.d/00-spread.conf > /dev/null
 fi
-sudo systemctl daemon-reload
 sudo systemctl restart ssh
 echo "root:${SPREAD_PASSWORD}" | sudo chpasswd
 
