@@ -101,6 +101,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup tmate session
+        if: runner.debug == 1
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+          timeout-minutes: 60
+
       - name: Install uv
         run: sudo snap install astral-uv --classic
 
@@ -110,23 +117,6 @@ jobs:
             uv tool install "${GITHUB_WORKSPACE}"
           else
             uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.test-plan.outputs.opcli-sha }}"
-          fi
-
-      # ── Install LXD ──────────────────────────────────────────────────────
-      - name: Install LXD
-        run: |
-          sudo snap install lxd
-          sudo lxd waitready
-          sudo lxd init --auto
-          sudo usermod -aG lxd $USER
-          sudo chmod 0666 /var/snap/lxd/common/lxd/unix.socket
-          if sudo iptables -nL DOCKER-USER 2>/dev/null; then
-            sudo iptables -I DOCKER-USER -i lxdbr0 -j ACCEPT
-            sudo iptables -I DOCKER-USER -o lxdbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-          fi
-          if sudo ip6tables -nL DOCKER-USER 2>/dev/null; then
-            sudo ip6tables -I DOCKER-USER -i lxdbr0 -j ACCEPT
-            sudo ip6tables -I DOCKER-USER -o lxdbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
           fi
 
       # ── Install spread ────────────────────────────────────────────────────
