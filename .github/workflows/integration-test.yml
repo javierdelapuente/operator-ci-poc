@@ -64,9 +64,8 @@ jobs:
           file-name: integration-test.yml
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
+      - name: Install uv
+        run: sudo snap install astral-uv --classic
 
       - name: Install opcli
         run: |
@@ -95,9 +94,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
+      - name: Install uv
+        run: sudo snap install astral-uv --classic
 
       - name: Install opcli
         run: |

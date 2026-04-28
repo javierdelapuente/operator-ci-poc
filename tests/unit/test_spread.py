@@ -189,9 +189,9 @@ class TestSpreadExpand:
         assert ci["type"] == "adhoc"
         assert "ADDRESS localhost" in ci["allocate"]
         assert "useradd" in ci["allocate"]
-        assert "chpasswd" in ci["allocate"]
+        assert "usermod" in ci["allocate"]
         assert "PasswordAuthentication yes" in ci["allocate"]
-        assert ci["password"] == "ubuntu"
+        assert "password" not in ci
         assert "concierge" in ci["prepare"]
         assert "discard" not in ci
         # CI injects username: ubuntu per-system for SSH access
@@ -804,7 +804,7 @@ suites:
         assert backend["type"] == "adhoc"
         assert "ADDRESS localhost" in backend["allocate"]
         assert "useradd" in backend["allocate"]
-        assert "chpasswd" in backend["allocate"]
+        assert "usermod" in backend["allocate"]
         assert "prepare" not in backend
 
     def test_tutorial_username_injected_local(self, tmp_path: Path) -> None:

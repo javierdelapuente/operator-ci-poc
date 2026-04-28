@@ -51,9 +51,8 @@ jobs:
           file-name: build-artifacts.yml
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
+      - name: Install uv
+        run: sudo snap install astral-uv --classic
 
       - name: Install opcli
         run: |
@@ -82,16 +81,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
+      - name: Install uv
+        run: sudo snap install astral-uv --classic
 
       - name: Install opcli
         run: |
           uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.build-matrix.outputs.opcli-sha }}"
 
-      - name: Set up LXD
-        uses: canonical/setup-lxd@main
+      - name: Install LXD
+        run: |
+          sudo snap install lxd
+          sudo lxd init --auto
 
       - name: Install charmcraft
         if: matrix.type == 'charm'
@@ -140,9 +140,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
+      - name: Install uv
+        run: sudo snap install astral-uv --classic
 
       - name: Install opcli
         run: |
@@ -165,5 +164,3 @@ jobs:
           name: artifacts-generated
           path: ${{ inputs.working-directory }}/artifacts-generated.yaml
           if-no-files-found: error
-
-
