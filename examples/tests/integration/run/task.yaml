@@ -1,7 +1,7 @@
 summary: integration tests
 
 execute: |
-    loginctl enable-linger ubuntu
+    loginctl enable-linger "${SUDO_USER}"
     cd "${SPREAD_PATH}"
     PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}" -- -k "$MODULE") || exit 1
-    runuser -l ubuntu -c "cd \"${SPREAD_PATH}\" && $PYTEST_CMD"
+    runuser -l "${SUDO_USER}" -c "cd \"${SPREAD_PATH}\" && $PYTEST_CMD"

@@ -81,8 +81,8 @@ def _generate_spread_yaml(
 
     # Root environment: project-wide vars (CONCIERGE, standard vars)
     root_env: dict[str, str] = {
-        # Set to "ubuntu" so concierge writes Juju data directly to
-        # /home/ubuntu/.local/share/juju (the spread task user's home).
+        # Default to "ubuntu" (local LXD VM user); CI backends override this
+        # with $(HOST: id -un) so concierge and runuser target the right user.
         "SUDO_USER": "ubuntu",
         "LANG": "C.UTF-8",
         "LANGUAGE": "en",
@@ -129,11 +129,11 @@ _TASK_YAML_CONTENT = (
     "summary: integration tests\n"
     "\n"
     "execute: |\n"
-    "    loginctl enable-linger ubuntu\n"
+    '    loginctl enable-linger "${SUDO_USER}"\n'
     '    cd "${SPREAD_PATH}"\n'
     '    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}"'
     ' -- -k "$MODULE") || exit 1\n'
-    "    runuser -l ubuntu -c"
+    '    runuser -l "${SUDO_USER}" -c'
     ' "cd \\"${SPREAD_PATH}\\" && $PYTEST_CMD"\n'
 )
 
@@ -141,8 +141,8 @@ _TUTORIAL_TASK_YAML_CONTENT = (
     "summary: tutorial test\n"
     "\n"
     "execute: |\n"
-    "    loginctl enable-linger ubuntu\n"
-    '    runuser -l ubuntu -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'
+    '    loginctl enable-linger "${SUDO_USER}"\n'
+    '    runuser -l "${SUDO_USER}" -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'
 )
 
 
@@ -309,8 +309,9 @@ fi
 uv tool install tox --with tox-uv --quiet
 if [ -f "$CONCIERGE" ]; then
   snap install concierge --classic
-  concierge prepare -c "$CONCIERGE"
+  runuser -l "${SUDO_USER}" -c "concierge prepare -c '${CONCIERGE}'"
 fi
+chown -R "${SUDO_USER}:${SUDO_USER}" "${SPREAD_PATH}"
 """
 
 _CI_ALLOCATE = """\
@@ -498,6 +499,9 @@ def _build_concrete_backend(
 
     if use_ci:
         backend_def["allocate"] = _CI_ALLOCATE
+        # Override SUDO_USER so concierge and runuser target the actual host
+        # user (e.g. "runner" on GitHub-hosted runners, not hardcoded "ubuntu").
+        backend_def["environment"] = {"SUDO_USER": "$(HOST: id -un)"}
         if ci_prepare:
             backend_def["prepare"] = ci_prepare
         if isinstance(systems, list):
