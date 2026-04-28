@@ -313,6 +313,33 @@ if [ -f "$CONCIERGE" ]; then
   snap install concierge --classic
   concierge prepare -c "$CONCIERGE"
 fi
+if [ -n "${GITHUB_RUN_ID:-}" ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "Error: gh CLI is required for CI artifact download but was not found" >&2
+    exit 1
+  fi
+  export GH_TOKEN="${GITHUB_TOKEN}"
+  echo "Waiting for artifacts-generated artifact (run ${GITHUB_RUN_ID})..."
+  _MAX_WAIT=60
+  _n=0
+  until gh run download "${GITHUB_RUN_ID}" \
+      --repo "${GITHUB_REPOSITORY}" \
+      --name artifacts-generated \
+      --dir "${SPREAD_PATH}" 2>/dev/null; do
+    _n=$((_n + 1))
+    if [ "$_n" -ge "$_MAX_WAIT" ]; then
+      echo "Timed out waiting for artifacts-generated after $((_n * 30))s" >&2
+      exit 1
+    fi
+    echo "  ...attempt ${_n}/${_MAX_WAIT}, retrying in 30s"
+    sleep 30
+  done
+  gh run download "${GITHUB_RUN_ID}" \
+      --repo "${GITHUB_REPOSITORY}" \
+      --pattern "built-charm-*" \
+      --dir "${SPREAD_PATH}" || true
+  cd "${SPREAD_PATH}" && opcli artifacts localize
+fi
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
@@ -503,6 +530,14 @@ def _build_concrete_backend(
         backend_def["allocate"] = _CI_ALLOCATE
         if ci_prepare:
             backend_def["prepare"] = ci_prepare
+        # GitHub Actions vars are only needed for the CI backend so that
+        # _CI_PREPARE can authenticate and download build artifacts via gh.
+        # Scoping them here keeps the root spread.yaml clean for local runs.
+        backend_def["environment"] = {
+            "GITHUB_TOKEN": '$(HOST: echo "${GITHUB_TOKEN:-}")',
+            "GITHUB_RUN_ID": '$(HOST: echo "${GITHUB_RUN_ID:-}")',
+            "GITHUB_REPOSITORY": '$(HOST: echo "${GITHUB_REPOSITORY:-}")',
+        }
         if isinstance(systems, list):
             backend_def["systems"] = _transform_systems(
                 systems, strip_keys=_CI_STRIP_KEYS, inject_username="root"

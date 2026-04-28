@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 from pathlib import Path
 from typing import ClassVar
@@ -1032,18 +1031,13 @@ class TestArtifactsLocalize:
 
         assert count == 0
 
-    def test_warns_when_no_charm_file_found(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Logs a warning when no .charm file matches the charm name."""
+    def test_raises_when_no_charm_file_found(self, tmp_path: Path) -> None:
+        """Raises ConfigurationError when a CI-ref charm has no matching .charm file."""
 
         _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
 
-        with caplog.at_level(logging.WARNING):
-            count = artifacts_localize(tmp_path)
-
-        assert count == 0
-        assert any("No .charm file found" in r.message for r in caplog.records)
+        with pytest.raises(ConfigurationError, match="my-charm"):
+            artifacts_localize(tmp_path)
 
     def test_missing_generated_yaml_raises(self, tmp_path: Path) -> None:
         """Raises ConfigurationError when artifacts-generated.yaml is missing."""
@@ -1079,6 +1073,5 @@ class TestArtifactsLocalize:
         # Only the longer-prefix file exists — pattern must NOT match it
         (tmp_path / "my-charm-k8s_ubuntu-24.04-amd64.charm").write_bytes(b"")
 
-        count = artifacts_localize(tmp_path)
-
-        assert count == 0
+        with pytest.raises(ConfigurationError, match="my-charm"):
+            artifacts_localize(tmp_path)

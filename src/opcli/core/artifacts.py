@@ -646,7 +646,8 @@ def artifacts_localize(root: Path) -> int:
     Returns the number of charms that were localised.
 
     Raises:
-        ConfigurationError: If ``artifacts-generated.yaml`` is not found.
+        ConfigurationError: If ``artifacts-generated.yaml`` is not found or
+            if a charm with a CI artifact reference has no matching file.
     """
     gen_path = root / _ARTIFACTS_GENERATED_YAML
     if not gen_path.exists():
@@ -656,6 +657,7 @@ def artifacts_localize(root: Path) -> int:
     generated = load_artifacts_generated(gen_path)
 
     updated = 0
+    missing: list[str] = []
     for charm in generated.charms:
         if charm.output.files:
             continue  # Already has local files — nothing to do.
@@ -667,7 +669,8 @@ def artifacts_localize(root: Path) -> int:
         pattern = str(root / "**" / f"{charm.name}_*.charm")
         matches = sorted(globmod.glob(pattern, recursive=True))
         if not matches:
-            logger.warning(
+            missing.append(charm.name)
+            logger.error(
                 "No .charm file found for charm '%s' (pattern: %s).",
                 charm.name,
                 pattern,
@@ -685,6 +688,13 @@ def artifacts_localize(root: Path) -> int:
         charm.output.files = [CharmFile(path=rel)]
         logger.info("Localised charm '%s' → %s", charm.name, matches[0])
         updated += 1
+
+    if missing:
+        msg = (
+            f"Could not find downloaded charm files for: {', '.join(missing)}. "
+            "Ensure charm artifacts were downloaded before running localize."
+        )
+        raise ConfigurationError(msg)
 
     if updated:
         dump_artifacts_generated(generated, gen_path)
