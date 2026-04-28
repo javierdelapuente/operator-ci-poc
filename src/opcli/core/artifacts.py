@@ -681,7 +681,8 @@ def artifacts_localize(root: Path) -> int:
                 matches[0],
             )
 
-        charm.output.files = [CharmFile(path=matches[0])]
+        rel = "./" + str(Path(matches[0]).relative_to(root))
+        charm.output.files = [CharmFile(path=rel)]
         logger.info("Localised charm '%s' → %s", charm.name, matches[0])
         updated += 1
 

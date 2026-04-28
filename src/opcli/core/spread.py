@@ -307,8 +307,9 @@ else
       "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
       --quiet
 fi
-runuser -l ubuntu -c "uv tool install tox --with tox-uv --quiet"
+runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
 if [ -f "$CONCIERGE" ]; then
+  loginctl enable-linger ubuntu
   snap install concierge --classic
   concierge prepare -c "$CONCIERGE"
 fi
