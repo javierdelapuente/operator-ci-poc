@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -10,7 +11,13 @@ import pytest
 from ruamel.yaml import YAML
 
 from opcli.core.exceptions import ConfigurationError, SubprocessError, ValidationError
-from opcli.core.spread import spread_expand, spread_init, spread_run
+from opcli.core.spread import (
+    _runner_by_system,
+    spread_expand,
+    spread_init,
+    spread_run,
+    spread_tasks,
+)
 
 _yaml = YAML()
 
@@ -180,11 +187,25 @@ class TestSpreadExpand:
         assert "integration-test" not in result
         ci = parsed["backends"]["ci"]
         assert ci["type"] == "adhoc"
-        assert ci["allocate"] == "ADDRESS localhost"
+        assert "ADDRESS localhost" in ci["allocate"]
+        assert "chpasswd" in ci["allocate"]
+        assert "PasswordAuthentication yes" in ci["allocate"]
+        assert "password" not in ci
         assert "concierge" in ci["prepare"]
+        assert "tox" in ci["prepare"]
+        assert "opcli" in ci["prepare"]
+        assert "SPREAD_PATH" in ci["prepare"]
+        assert "chown" in ci["prepare"]
+        assert "runuser" not in ci["prepare"]
+        # CI backend overrides SUDO_USER so concierge targets the actual host user
+        assert ci.get("environment", {}).get("SUDO_USER") == "$(HOST: id -un)"
+        assert "pipx install" not in ci["prepare"]
         assert "discard" not in ci
-        # CI should NOT inject username — systems stay as plain strings
-        assert ci["systems"] == ["ubuntu-24.04"]
+        # CI injects username: root per-system for SSH access
+        systems = ci["systems"]
+        assert len(systems) == 1
+        assert isinstance(systems[0], dict)
+        assert systems[0]["ubuntu-24.04"]["username"] == "root"
 
     def test_preserves_other_sections(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
@@ -267,7 +288,7 @@ suites:
             result = spread_expand(tmp_path)
         parsed = _yaml.load(StringIO(result))
         assert "ci" in parsed["backends"]
-        assert parsed["backends"]["ci"]["allocate"] == "ADDRESS localhost"
+        assert "ADDRESS localhost" in parsed["backends"]["ci"]["allocate"]
 
         with patch.dict("os.environ", {"CI": ""}, clear=False):
             result = spread_expand(tmp_path)
@@ -308,7 +329,7 @@ suites:
         assert "[ -f artifacts-generated.yaml ]" in prepare
 
     def test_ci_prepare_conditional(self, tmp_path: Path) -> None:
-        """CI prepare also gates concierge on file existence."""
+        """CI prepare gates concierge on file existence."""
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         result = spread_expand(tmp_path, ci=True)
@@ -316,6 +337,9 @@ suites:
         prepare = parsed["backends"]["ci"]["prepare"]
 
         assert '[ -f "$CONCIERGE" ]' in prepare
+        assert "tox" in prepare
+        assert "SPREAD_PATH" in prepare
+        assert "pipx install" not in prepare
 
     def test_local_username_injection_mapping_systems(self, tmp_path: Path) -> None:
         """Username injection deep-merges; runner is stripped; native fields kept."""
@@ -428,9 +452,15 @@ suites:
 
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
-        # After stripping the only keys, entry collapses to plain string
+        # After stripping resource keys, only username: ubuntu remains
         systems = parsed["backends"]["ci"]["systems"]
-        assert systems == ["ubuntu-24.04"]
+        assert len(systems) == 1
+        assert isinstance(systems[0], dict)
+        sys_props = systems[0]["ubuntu-24.04"]
+        assert "cpu" not in sys_props
+        assert "memory" not in sys_props
+        assert "disk" not in sys_props
+        assert sys_props.get("username") == "root"
 
     def test_runner_stripped_from_local_systems(self, tmp_path: Path) -> None:
         """runner label is stripped from local system entries (CI-only field)."""
@@ -457,8 +487,8 @@ suites:
         assert "runner" not in sys_def
         assert sys_def["username"] == "ubuntu"
 
-    def test_runner_preserved_in_ci_systems(self, tmp_path: Path) -> None:
-        """runner label is preserved in CI system entries."""
+    def test_runner_stripped_from_ci_systems(self, tmp_path: Path) -> None:
+        """runner label is stripped from CI system entries (GitHub Actions only)."""
         spread = """\
 project: test-project
 path: /home/ubuntu/proj
@@ -481,7 +511,8 @@ suites:
 
         assert len(systems) == 1
         sys_def = systems[0]["ubuntu-24.04"]
-        assert sys_def["runner"] == ["self-hosted", "noble"]
+        assert "runner" not in sys_def
+        assert sys_def.get("username") == "root"
 
     def test_multiple_systems_with_different_resources(self, tmp_path: Path) -> None:
         """Each system gets its own case arm in the allocate preamble."""
@@ -781,7 +812,8 @@ suites:
 
         backend = parsed["backends"]["ci-tutorial"]
         assert backend["type"] == "adhoc"
-        assert backend["allocate"] == "ADDRESS localhost"
+        assert "ADDRESS localhost" in backend["allocate"]
+        assert "chpasswd" in backend["allocate"]
         assert "prepare" not in backend
 
     def test_tutorial_username_injected_local(self, tmp_path: Path) -> None:
@@ -861,3 +893,181 @@ suites:
         suite = parsed["suites"]["tests/integration/"]
         assert "integration-test" not in suite.get("backends", [])
         assert "local" in suite["backends"]
+
+
+# ---------------------------------------------------------------------------
+#  Tests for _runner_by_system and spread_tasks
+# ---------------------------------------------------------------------------
+
+_SPREAD_WITH_RUNNER = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-22.04:
+          runner: ubuntu-22.04-runner
+      - ubuntu-24.04:
+          runner: [self-hosted, ubuntu-24.04]
+environment:
+  CONCIERGE: concierge.yaml
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+      MODULE/test_other: test_other
+"""
+
+_SPREAD_NO_RUNNER = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04
+environment:
+  CONCIERGE: concierge.yaml
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+"""
+
+
+class TestRunnerBySystem:
+    """Tests for _runner_by_system()."""
+
+    def test_string_runner_label(self) -> None:
+        """Runner string label is JSON-encoded in result."""
+        raw = _yaml.load(StringIO(_SPREAD_WITH_RUNNER))
+        result = _runner_by_system(raw)
+        assert result["ubuntu-22.04"] == '"ubuntu-22.04-runner"'
+
+    def test_list_runner_label(self) -> None:
+        """Runner list is JSON-encoded when system uses a list."""
+        raw = _yaml.load(StringIO(_SPREAD_WITH_RUNNER))
+        result = _runner_by_system(raw)
+        assert result["ubuntu-24.04"] == json.dumps(["self-hosted", "ubuntu-24.04"])
+
+    def test_no_runner_defaults_to_ubuntu_latest(self) -> None:
+        """Systems without runner: default to JSON-encoded ubuntu-latest."""
+        raw = _yaml.load(StringIO(_SPREAD_NO_RUNNER))
+        result = _runner_by_system(raw)
+        assert result.get("ubuntu-24.04") == '"ubuntu-latest"'
+
+    def test_empty_backends(self) -> None:
+        """No backends → empty result."""
+        result = _runner_by_system({})
+        assert result == {}
+
+
+class TestSpreadTasks:
+    """Tests for spread_tasks()."""
+
+    def _make_task_dir(self, root: Path, path: str) -> None:
+        task_path = root / path / "task.yaml"
+        task_path.parent.mkdir(parents=True, exist_ok=True)
+        task_path.write_text("summary: test task\n")
+
+    def test_returns_selectors_for_each_variant(self, tmp_path: Path) -> None:
+        """Returns one entry per (system, task_dir, variant) combination."""
+        _write(tmp_path / "spread.yaml", _SPREAD_WITH_RUNNER)
+        self._make_task_dir(tmp_path, "tests/integration/run")
+
+        entries = spread_tasks(tmp_path)
+
+        names = [e["name"] for e in entries]
+        assert "test_charm" in names
+        assert "test_other" in names
+
+    def test_selector_format(self, tmp_path: Path) -> None:
+        """Selector includes backend:system:suite/task:variant."""
+        _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
+        self._make_task_dir(tmp_path, "tests/integration/run")
+
+        entries = spread_tasks(tmp_path)
+
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["selector"].startswith("ci:")
+        assert "ubuntu-24.04" in entry["selector"]
+        assert ":test_charm" in entry["selector"]
+
+    def test_runs_on_from_runner_field(self, tmp_path: Path) -> None:
+        """runs-on matches the system's runner: label (JSON-encoded)."""
+        _write(tmp_path / "spread.yaml", _SPREAD_WITH_RUNNER)
+        self._make_task_dir(tmp_path, "tests/integration/run")
+
+        entries = spread_tasks(tmp_path)
+
+        ubuntu_22_entries = [e for e in entries if "ubuntu-22.04" in e["selector"]]
+        assert all(e["runs-on"] == '"ubuntu-22.04-runner"' for e in ubuntu_22_entries)
+
+    def test_no_variants_uses_task_dir_name(self, tmp_path: Path) -> None:
+        """When no MODULE/ variants, name is the task directory name."""
+        spread_no_variants = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04
+environment:
+  CONCIERGE: concierge.yaml
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+"""
+        _write(tmp_path / "spread.yaml", spread_no_variants)
+        self._make_task_dir(tmp_path, "tests/integration/run")
+
+        entries = spread_tasks(tmp_path)
+
+        assert len(entries) == 1
+        assert entries[0]["name"] == "run"
+
+    def test_missing_spread_yaml_raises(self, tmp_path: Path) -> None:
+        """Raises ConfigurationError when spread.yaml is missing."""
+        with pytest.raises(ConfigurationError):
+            spread_tasks(tmp_path)
+
+    def test_ci_backend_has_username_root(self, tmp_path: Path) -> None:
+        """Expanded CI backend sets username: root per system for SSH."""
+        _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
+
+        result = spread_expand(tmp_path, ci=True)
+        parsed = _yaml.load(StringIO(result))
+
+        ci_backend = parsed["backends"].get("ci")
+        assert ci_backend is not None
+        systems = ci_backend.get("systems", [])
+        assert len(systems) > 0
+        # username is set per-system entry
+        for system_entry in systems:
+            if isinstance(system_entry, dict):
+                for _sys_name, sys_props in system_entry.items():
+                    assert isinstance(sys_props, dict)
+                    assert sys_props.get("username") == "root"
+
+    def test_ci_backend_strips_runner_field(self, tmp_path: Path) -> None:
+        """Expanded CI backend does not contain runner: key in systems."""
+        _write(tmp_path / "spread.yaml", _SPREAD_WITH_RUNNER)
+
+        result = spread_expand(tmp_path, ci=True)
+        parsed = _yaml.load(StringIO(result))
+
+        ci_backend = parsed["backends"].get("ci")
+        assert ci_backend is not None
+        for system_entry in ci_backend.get("systems", []):
+            if isinstance(system_entry, dict):
+                for _sys_name, sys_props in system_entry.items():
+                    if isinstance(sys_props, dict):
+                        assert "runner" not in sys_props

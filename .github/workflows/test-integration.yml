@@ -1,0 +1,33 @@
+name: Test Integration
+
+# Tests the integration-test reusable workflow using the examples/ directory
+# as a real operator repository fixture.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "src/**"
+      - ".github/workflows/build-artifacts.yml"
+      - ".github/workflows/integration-test.yml"
+      - ".github/workflows/test-integration.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "src/**"
+      - ".github/workflows/build-artifacts.yml"
+      - ".github/workflows/integration-test.yml"
+      - ".github/workflows/test-integration.yml"
+  workflow_dispatch:
+
+jobs:
+  integration-test:
+    uses: ./.github/workflows/integration-test.yml
+    with:
+      working-directory: examples
+    permissions:
+      packages: write
+      contents: read
+      actions: read

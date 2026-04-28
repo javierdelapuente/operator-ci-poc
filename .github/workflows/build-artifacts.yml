@@ -51,13 +51,16 @@ jobs:
           file-name: build-artifacts.yml
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
+      - name: Install uv
+        run: sudo snap install astral-uv --classic
 
       - name: Install opcli
         run: |
-          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ steps.workflow-version.outputs.sha }}"
+          if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
+            uv tool install "${GITHUB_WORKSPACE}"
+          else
+            uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ steps.workflow-version.outputs.sha }}"
+          fi
 
       - name: Generate build matrix
         id: matrix
@@ -82,16 +85,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
+      - name: Install uv
+        run: sudo snap install astral-uv --classic
 
       - name: Install opcli
         run: |
-          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.build-matrix.outputs.opcli-sha }}"
+          if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
+            uv tool install "${GITHUB_WORKSPACE}"
+          else
+            uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.build-matrix.outputs.opcli-sha }}"
+          fi
 
-      - name: Set up LXD
-        uses: canonical/setup-lxd@main
+      - name: Install LXD
+        run: |
+          sudo snap install lxd
+          sudo lxd waitready
+          sudo lxd init --auto
+          sudo usermod -aG lxd $USER
+          sudo chmod 0666 /var/snap/lxd/common/lxd/unix.socket
+          if sudo iptables -nL DOCKER-USER 2>/dev/null; then
+            sudo iptables -I DOCKER-USER -i lxdbr0 -j ACCEPT
+            sudo iptables -I DOCKER-USER -o lxdbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+          fi
+          if sudo ip6tables -nL DOCKER-USER 2>/dev/null; then
+            sudo ip6tables -I DOCKER-USER -i lxdbr0 -j ACCEPT
+            sudo ip6tables -I DOCKER-USER -o lxdbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+          fi
 
       - name: Install charmcraft
         if: matrix.type == 'charm'
@@ -140,13 +159,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
+      - name: Install uv
+        run: sudo snap install astral-uv --classic
 
       - name: Install opcli
         run: |
-          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.build-matrix.outputs.opcli-sha }}"
+          if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
+            uv tool install "${GITHUB_WORKSPACE}"
+          else
+            uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.build-matrix.outputs.opcli-sha }}"
+          fi
 
       - name: Download all partial artifacts-generated.yaml files
         uses: actions/download-artifact@v4
@@ -165,5 +187,3 @@ jobs:
           name: artifacts-generated
           path: ${{ inputs.working-directory }}/artifacts-generated.yaml
           if-no-files-found: error
-
-
