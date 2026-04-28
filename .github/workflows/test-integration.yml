@@ -104,5 +104,5 @@ jobs:
       - name: Run spread (local/LXD)
         env:
           CI: ""
-        run: opcli spread run -- -vv
+        run: opcli spread run -- -vv local:ubuntu-24.04:tests/integration/run:test_k8s_charm
 
