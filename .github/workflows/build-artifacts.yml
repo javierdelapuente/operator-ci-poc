@@ -92,6 +92,8 @@ jobs:
         run: |
           sudo snap install lxd
           sudo lxd init --auto
+          sudo usermod -aG lxd $USER
+          sudo chmod 0666 /var/snap/lxd/common/lxd/unix.socket
 
       - name: Install charmcraft
         if: matrix.type == 'charm'
