@@ -179,6 +179,7 @@ class TestSpreadExpand:
         assert "pipx" not in prepare
         assert "uv tool install" in prepare
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in prepare
+        assert "UV_TOOL_DIR=/usr/local/share/uv-tools" in prepare
         assert "pyproject.toml" in prepare
         assert "SPREAD_PATH" in prepare
         # spread installed if not already present
@@ -213,6 +214,7 @@ class TestSpreadExpand:
         assert "tox" in ci["prepare"]
         assert "opcli" in ci["prepare"]
         assert "SPREAD_PATH" in ci["prepare"]
+        assert "GITHUB_WORKSPACE" in ci["prepare"]
         assert "chown" in ci["prepare"]
         # tox is installed for the ubuntu user via runuser with explicit bin dir
         assert "runuser" in ci["prepare"]
@@ -220,20 +222,22 @@ class TestSpreadExpand:
         assert "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox" in ci["prepare"]
         assert "loginctl enable-linger ubuntu" in ci["prepare"]
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in ci["prepare"]
-        # CI prepare waits for and downloads build artifacts via gh CLI
-        assert "gh run download" in ci["prepare"]
-        assert "artifacts-generated" in ci["prepare"]
-        assert "built-charm-*" in ci["prepare"]
+        # CI prepare downloads build artifacts via opcli artifacts fetch
+        assert "opcli artifacts fetch" in ci["prepare"]
+        assert "artifacts-generated" not in ci["prepare"]  # no manual gh download
+        assert "built-charm-*" not in ci["prepare"]  # handled by fetch
         assert "GH_TOKEN" in ci["prepare"]
         assert "GITHUB_RUN_ID" in ci["prepare"]
-        assert "opcli artifacts localize" in ci["prepare"]
+        assert "opcli artifacts localize" not in ci["prepare"]  # fetch does it
         assert "command -v gh" in ci["prepare"]
+        assert "--wait" in ci["prepare"]
         # CI backend has GitHub Actions vars scoped to it for artifact download
         assert "environment" in ci
         ci_env = ci["environment"]
         assert "GITHUB_TOKEN" in ci_env
         assert "GITHUB_RUN_ID" in ci_env
         assert "GITHUB_REPOSITORY" in ci_env
+        assert "GITHUB_WORKSPACE" in ci_env
         # CI backend does NOT override SUDO_USER; ubuntu is created in allocate
         assert "SUDO_USER" not in ci_env
         assert "useradd" in ci["allocate"]

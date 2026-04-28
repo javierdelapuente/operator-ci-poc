@@ -276,6 +276,7 @@ _LOCAL_PREPARE = """\
 loginctl enable-linger ubuntu
 sudo snap install astral-uv --classic || true
 export UV_TOOL_BIN_DIR=/usr/local/bin
+export UV_TOOL_DIR=/usr/local/share/uv-tools
 if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
   uv tool install "${SPREAD_PATH}" --quiet
 else
@@ -288,7 +289,7 @@ if ! command -v spread >/dev/null 2>&1; then
   go install github.com/canonical/spread/cmd/spread@latest
   sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
 fi
-runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
+UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/usr/local/share/uv-tools uv tool install tox --with tox-uv --quiet
 if [ -f "$CONCIERGE" ]; then
   sudo snap install concierge --classic || true
   concierge prepare -c "$CONCIERGE"
@@ -306,7 +307,9 @@ _CI_PREPARE = """\
 loginctl enable-linger ubuntu
 snap install astral-uv --classic || true
 export UV_TOOL_BIN_DIR=/usr/local/bin
-if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
+if [ -n "${GITHUB_WORKSPACE:-}" ] && grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
+  uv tool install "${GITHUB_WORKSPACE}" --quiet
+elif grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
   uv tool install "${SPREAD_PATH}" --quiet
 else
   uv tool install \
@@ -329,26 +332,10 @@ if [ -n "${GITHUB_RUN_ID:-}" ]; then
     exit 1
   fi
   export GH_TOKEN="${GITHUB_TOKEN}"
-  echo "Waiting for artifacts-generated artifact (run ${GITHUB_RUN_ID})..."
-  _MAX_WAIT=60
-  _n=0
-  until gh run download "${GITHUB_RUN_ID}" \
-      --repo "${GITHUB_REPOSITORY}" \
-      --name artifacts-generated \
-      --dir "${SPREAD_PATH}" 2>/dev/null; do
-    _n=$((_n + 1))
-    if [ "$_n" -ge "$_MAX_WAIT" ]; then
-      echo "Timed out waiting for artifacts-generated after $((_n * 30))s" >&2
-      exit 1
-    fi
-    echo "  ...attempt ${_n}/${_MAX_WAIT}, retrying in 30s"
-    sleep 30
-  done
-  gh run download "${GITHUB_RUN_ID}" \
-      --repo "${GITHUB_REPOSITORY}" \
-      --pattern "built-charm-*" \
-      --dir "${SPREAD_PATH}" || true
-  cd "${SPREAD_PATH}" && opcli artifacts localize
+  cd "${SPREAD_PATH}" && opcli artifacts fetch \
+    --run-id "${GITHUB_RUN_ID}" \
+    --repo "${GITHUB_REPOSITORY}" \
+    --wait
 fi
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
@@ -552,6 +539,7 @@ def _build_concrete_backend(
             "GITHUB_TOKEN": '$(HOST: echo "${GITHUB_TOKEN:-}")',
             "GITHUB_RUN_ID": '$(HOST: echo "${GITHUB_RUN_ID:-}")',
             "GITHUB_REPOSITORY": '$(HOST: echo "${GITHUB_REPOSITORY:-}")',
+            "GITHUB_WORKSPACE": '$(HOST: echo "${GITHUB_WORKSPACE:-}")',
         }
         if isinstance(systems, list):
             backend_def["systems"] = _transform_systems(

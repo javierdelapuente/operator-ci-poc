@@ -99,6 +99,14 @@ def fetch(
             "Defaults to the current git remote.",
         ),
     ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option(
+            "--wait/--no-wait",
+            help="Retry until artifacts-generated appears (use when the build "
+            "job may still be running).",
+        ),
+    ] = False,
 ) -> None:
     """Download artifacts from a CI run and prepare for local testing.
 
@@ -107,7 +115,7 @@ def fetch(
     Finally rewrites artifacts-generated.yaml with local file paths so that
     ``opcli pytest run`` and ``opcli spread run`` work without a local build.
     """
-    path = artifacts_fetch(Path.cwd(), run_id=run_id, repo=repo)
+    path = artifacts_fetch(Path.cwd(), run_id=run_id, repo=repo, wait=wait)
     typer.echo(f"Fetched artifacts and updated {path}")
 
 
