@@ -1100,6 +1100,12 @@ class TestArtifactsFetch:
         "  output:\n"
         "    artifact: built-charm-other-charm\n"
         "    run-id: '99887766'\n"
+        "snaps:\n"
+        "- name: my-snap\n"
+        "  snapcraft-yaml: snap/snapcraft.yaml\n"
+        "  output:\n"
+        "    artifact: built-snap-my-snap\n"
+        "    run-id: '99887766'\n"
     )
 
     _GH_RESULT = SubprocessResult(stdout="", stderr="", returncode=0)
@@ -1118,10 +1124,17 @@ class TestArtifactsFetch:
         d2.mkdir()
         (d2 / "other-charm_ubuntu-24.04-amd64.charm").write_bytes(b"")
 
+    def _make_snap_files(self, tmp_path: Path) -> None:
+        """Create dummy .snap file so localize succeeds for snaps."""
+        d = tmp_path / "built-snap-my-snap"
+        d.mkdir(exist_ok=True)
+        (d / "my-snap_amd64.snap").write_bytes(b"")
+
     def test_downloads_generated_and_charm_artifacts(self, tmp_path: Path) -> None:
-        """Downloads artifacts-generated + each charm artifact, then localises."""
+        """Downloads artifacts-generated + each charm/snap artifact, then localises."""
         _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
+        self._make_snap_files(tmp_path)
 
         patch_target = "opcli.core.artifacts.run_command"
         with patch(patch_target, return_value=self._GH_RESULT) as mock_run:
@@ -1145,16 +1158,22 @@ class TestArtifactsFetch:
             ],
             cwd=str(tmp_path),
         )
-        # Subsequent calls: one per charm artifact
+        # Subsequent calls: one per charm/snap artifact (rocks are skipped)
         artifact_names = {c.args[0][7] for c in calls[1:]}
-        assert artifact_names == {"built-charm-my-charm", "built-charm-other-charm"}
+        assert artifact_names == {
+            "built-charm-my-charm",
+            "built-charm-other-charm",
+            "built-snap-my-snap",
+        }
 
     def test_skips_rocks_no_download(self, tmp_path: Path) -> None:
-        """Rock OCI images are not downloaded — only the initial yaml + charms."""
+        """Rock OCI images are not downloaded — only the initial yaml + charms/snaps."""
         _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
+        self._make_snap_files(tmp_path)
 
-        _EXPECTED_CALLS = 3  # 1 artifacts-generated + 2 charm artifacts
+        # 1 artifacts-generated + 2 charms + 1 snap = 4; no rock download
+        _EXPECTED_CALLS = 4
         patch_target = "opcli.core.artifacts.run_command"
         with patch(patch_target, return_value=self._GH_RESULT) as mock_run:
             artifacts_fetch(tmp_path, run_id="99887766", repo="owner/my-repo")
@@ -1165,8 +1184,11 @@ class TestArtifactsFetch:
         """Infers owner/repo from git remote when --repo is not given."""
         _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
+        self._make_snap_files(tmp_path)
 
-        results = [self._GIT_RESULT, self._GH_RESULT, self._GH_RESULT, self._GH_RESULT]
+        # git + artifacts-generated + 2 charms + 1 snap = 5 calls
+        gh = self._GH_RESULT
+        results = [self._GIT_RESULT, gh, gh, gh, gh]
         patch_target = "opcli.core.artifacts.run_command"
         with patch(patch_target, side_effect=results) as mock_run:
             artifacts_fetch(tmp_path, run_id="99887766")
@@ -1183,11 +1205,13 @@ class TestArtifactsFetch:
         """Parses SSH-format git remote URLs (git@github.com:owner/repo.git)."""
         _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
+        self._make_snap_files(tmp_path)
 
         ssh_result = SubprocessResult(
             stdout="git@github.com:owner/my-repo.git\n", stderr="", returncode=0
         )
-        results = [ssh_result, self._GH_RESULT, self._GH_RESULT, self._GH_RESULT]
+        gh = self._GH_RESULT
+        results = [ssh_result, gh, gh, gh, gh]
         with patch("opcli.core.artifacts.run_command", side_effect=results):
             artifacts_fetch(tmp_path, run_id="99887766")
 
@@ -1206,6 +1230,7 @@ class TestArtifactsFetch:
         """artifacts-generated.yaml is updated with local file paths after fetch."""
         _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
+        self._make_snap_files(tmp_path)
 
         with patch("opcli.core.artifacts.run_command", return_value=self._GH_RESULT):
             artifacts_fetch(tmp_path, run_id="99887766", repo="owner/my-repo")
@@ -1214,3 +1239,6 @@ class TestArtifactsFetch:
         for charm in gen.charms:
             assert charm.output.files, f"Charm '{charm.name}' was not localised"
             assert charm.output.files[0].path.endswith(".charm")
+        for snap in gen.snaps:
+            assert snap.output.file, f"Snap '{snap.name}' was not localised"
+            assert snap.output.file.endswith(".snap")

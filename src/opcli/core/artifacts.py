@@ -634,21 +634,43 @@ def _filter_by_name[T: (RockArtifact, CharmArtifact, SnapArtifact)](
     return [item for item in items if item.name in name_set]
 
 
+def _find_local_file(root: Path, name: str, extension: str) -> str | None:
+    """Find a single ``name_*.{extension}`` file under *root*.
+
+    Returns the relative path (``./...``) on success, or ``None`` if no file
+    is found (caller should report the error).  Logs a warning when multiple
+    matches exist and picks the first.
+    """
+    pattern = str(root / "**" / f"{name}_*.{extension}")
+    matches = sorted(globmod.glob(pattern, recursive=True))
+    if not matches:
+        return None
+    if len(matches) > 1:
+        logger.warning(
+            "Multiple .%s files found for '%s'; using %s.",
+            extension,
+            name,
+            matches[0],
+        )
+    return "./" + str(Path(matches[0]).relative_to(root))
+
+
 def artifacts_localize(root: Path) -> int:
-    """Update ``artifacts-generated.yaml`` with local charm file paths.
+    """Update ``artifacts-generated.yaml`` with local artifact file paths.
 
-    In CI, charm outputs are recorded as ``artifact + run-id`` references.
-    Before running integration tests, the workflow downloads the charm
-    artifacts to the working directory.  This command scans the project tree
-    for ``.charm`` files and rewrites ``artifacts-generated.yaml`` so that
-    each charm with only a CI artifact reference gets an ``output.files``
-    entry pointing to the discovered local file.
+    In CI, charm and snap outputs are recorded as ``artifact + run-id``
+    references.  Before running integration tests, the workflow downloads
+    the artifacts to the working directory.  This command scans the project
+    tree for ``.charm`` / ``.snap`` files and rewrites
+    ``artifacts-generated.yaml`` so that each artifact with only a CI
+    artifact reference gets an ``output.file(s)`` entry pointing to the
+    discovered local file.
 
-    Returns the number of charms that were localised.
+    Returns the total number of artifacts that were localised.
 
     Raises:
         ConfigurationError: If ``artifacts-generated.yaml`` is not found or
-            if a charm with a CI artifact reference has no matching file.
+            if any artifact with a CI reference has no matching local file.
     """
     gen_path = root / _ARTIFACTS_GENERATED_YAML
     if not gen_path.exists():
@@ -659,47 +681,41 @@ def artifacts_localize(root: Path) -> int:
 
     updated = 0
     missing: list[str] = []
+
     for charm in generated.charms:
-        if charm.output.files:
-            continue  # Already has local files — nothing to do.
-        if not charm.output.artifact:
-            continue  # No CI ref either — skip.
-
-        # Search for .charm files whose name starts with the charm name followed
-        # by an underscore, to avoid prefix collisions (e.g., "foo" vs "foo-k8s").
-        pattern = str(root / "**" / f"{charm.name}_*.charm")
-        matches = sorted(globmod.glob(pattern, recursive=True))
-        if not matches:
-            missing.append(charm.name)
-            logger.error(
-                "No .charm file found for charm '%s' (pattern: %s).",
-                charm.name,
-                pattern,
-            )
+        if charm.output.files or not charm.output.artifact:
             continue
-
-        if len(matches) > 1:
-            logger.warning(
-                "Multiple .charm files found for charm '%s'; using %s.",
-                charm.name,
-                matches[0],
-            )
-
-        rel = "./" + str(Path(matches[0]).relative_to(root))
+        rel = _find_local_file(root, charm.name, "charm")
+        if rel is None:
+            missing.append(charm.name)
+            logger.error("No .charm file found for charm '%s'.", charm.name)
+            continue
         charm.output.files = [CharmFile(path=rel)]
-        logger.info("Localised charm '%s' → %s", charm.name, matches[0])
+        logger.info("Localised charm '%s' → %s", charm.name, rel)
+        updated += 1
+
+    for snap in generated.snaps:
+        if snap.output.file or not snap.output.artifact:
+            continue
+        rel = _find_local_file(root, snap.name, "snap")
+        if rel is None:
+            missing.append(snap.name)
+            logger.error("No .snap file found for snap '%s'.", snap.name)
+            continue
+        snap.output.file = rel
+        logger.info("Localised snap '%s' → %s", snap.name, rel)
         updated += 1
 
     if missing:
         msg = (
-            f"Could not find downloaded charm files for: {', '.join(missing)}. "
-            "Ensure charm artifacts were downloaded before running localize."
+            f"Could not find downloaded artifact files for: {', '.join(missing)}. "
+            "Ensure artifacts were downloaded before running localize."
         )
         raise ConfigurationError(msg)
 
     if updated:
         dump_artifacts_generated(generated, gen_path)
-        logger.info("Updated %s with %d localised charm(s).", gen_path, updated)
+        logger.info("Updated %s with %d localised artifact(s).", gen_path, updated)
 
     return updated
 
