@@ -299,16 +299,6 @@ chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
 _CI_PREPARE = """\
-sudo apt-get install -y pipx --quiet
-if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
-  sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
-      pipx install "${SPREAD_PATH}" --quiet
-else
-  sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
-      pipx install \
-      "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
-      --quiet
-fi
 if [ -f "$CONCIERGE" ]; then
   sudo concierge prepare -c "$CONCIERGE"
 fi

@@ -193,9 +193,7 @@ class TestSpreadExpand:
         assert "PasswordAuthentication yes" in ci["allocate"]
         assert "password" not in ci
         assert "concierge" in ci["prepare"]
-        assert "pipx install" in ci["prepare"]
-        assert "SPREAD_PATH" in ci["prepare"]
-        assert "OPCLI_GIT_REF" in ci["prepare"]
+        assert "pipx install" not in ci["prepare"]
         assert "discard" not in ci
         # CI injects username: ubuntu per-system for SSH access
         systems = ci["systems"]
@@ -325,7 +323,7 @@ suites:
         assert "[ -f artifacts-generated.yaml ]" in prepare
 
     def test_ci_prepare_conditional(self, tmp_path: Path) -> None:
-        """CI prepare gates concierge on file existence and installs opcli."""
+        """CI prepare gates concierge on file existence."""
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         result = spread_expand(tmp_path, ci=True)
@@ -333,8 +331,7 @@ suites:
         prepare = parsed["backends"]["ci"]["prepare"]
 
         assert '[ -f "$CONCIERGE" ]' in prepare
-        assert "pipx install" in prepare
-        assert "SPREAD_PATH" in prepare
+        assert "pipx install" not in prepare
 
     def test_local_username_injection_mapping_systems(self, tmp_path: Path) -> None:
         """Username injection deep-merges; runner is stripped; native fields kept."""
