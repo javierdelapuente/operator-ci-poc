@@ -274,31 +274,7 @@ fi
 
 _LOCAL_PREPARE = """\
 loginctl enable-linger ubuntu
-sudo snap install concierge --classic
-sudo snap install astral-uv --classic
-sudo apt-get update --quiet
-sudo apt-get install -y pipx golang-go --quiet
-sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
-    pipx install \
-    "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF}" \
-    --quiet
-go install github.com/canonical/spread/cmd/spread@latest
-sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
-runuser -l ubuntu -c "uv tool install tox --with tox-uv"
-if [ -f "$CONCIERGE" ]; then
-  concierge prepare -c "$CONCIERGE"
-  runuser -l ubuntu -c \
-    "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
-fi
-if [ -f artifacts-generated.yaml ] && \
-    curl -sf --max-time 5 http://localhost:32000/v2/ > /dev/null 2>&1; then
-  opcli provision load
-fi
-chown -R ubuntu:ubuntu "${SPREAD_PATH}"
-"""
-
-_CI_PREPARE = """\
-loginctl enable-linger ubuntu
+sudo snap install astral-uv --classic || true
 export UV_TOOL_BIN_DIR=/usr/local/bin
 if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
   uv tool install "${SPREAD_PATH}" --quiet
@@ -307,9 +283,44 @@ else
       "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
       --quiet
 fi
+if ! command -v spread >/dev/null 2>&1; then
+  sudo snap install go --classic
+  go install github.com/canonical/spread/cmd/spread@latest
+  sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
+fi
 runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
 if [ -f "$CONCIERGE" ]; then
-  snap install concierge --classic
+  sudo snap install concierge --classic || true
+  concierge prepare -c "$CONCIERGE"
+  runuser -l ubuntu -c \
+    "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
+fi
+if [ -f "${SPREAD_PATH}/artifacts-generated.yaml" ] && \
+    curl -sf --max-time 5 http://localhost:32000/v2/ > /dev/null 2>&1; then
+  opcli provision load
+fi
+chown -R ubuntu:ubuntu "${SPREAD_PATH}"
+"""
+
+_CI_PREPARE = """\
+loginctl enable-linger ubuntu
+snap install astral-uv --classic || true
+export UV_TOOL_BIN_DIR=/usr/local/bin
+if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
+  uv tool install "${SPREAD_PATH}" --quiet
+else
+  uv tool install \
+      "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
+      --quiet
+fi
+if ! command -v spread >/dev/null 2>&1; then
+  snap install go --classic
+  go install github.com/canonical/spread/cmd/spread@latest
+  ln -sf ~/go/bin/spread /usr/local/bin/spread
+fi
+runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
+if [ -f "$CONCIERGE" ]; then
+  snap install concierge --classic || true
   concierge prepare -c "$CONCIERGE"
 fi
 if [ -n "${GITHUB_RUN_ID:-}" ]; then
@@ -356,13 +367,18 @@ echo "root:${SPREAD_PASSWORD}" | sudo chpasswd
 ADDRESS localhost
 """
 
-# Tutorial backend: install pip then opcli from the GitHub repo main branch so
-# that ``opcli tutorial expand`` is available inside the VM.
+# Tutorial backend: install uv then opcli so that ``opcli tutorial expand``
+# is available inside the VM.
 _TUTORIAL_LOCAL_PREPARE = """\
-sudo apt-get update --quiet
-sudo apt-get install -y pipx --quiet
-sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
-    pipx install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
+sudo snap install astral-uv --classic || true
+export UV_TOOL_BIN_DIR=/usr/local/bin
+if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
+  uv tool install "${SPREAD_PATH}" --quiet
+else
+  uv tool install \
+      "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
+      --quiet
+fi
 """
 
 

@@ -175,6 +175,17 @@ class TestSpreadExpand:
         assert "opcli provision registry" in prepare
         assert '[ -f "$CONCIERGE" ]' in prepare
         assert "opcli provision load" in prepare
+        # Local uses uv (not pipx) with dev-mode detection, same as CI
+        assert "pipx" not in prepare
+        assert "uv tool install" in prepare
+        assert "UV_TOOL_BIN_DIR=/usr/local/bin" in prepare
+        assert "pyproject.toml" in prepare
+        assert "SPREAD_PATH" in prepare
+        # spread installed if not already present
+        assert "command -v spread" in prepare
+        assert "loginctl enable-linger ubuntu" in prepare
+        # artifacts-generated check uses SPREAD_PATH
+        assert "${SPREAD_PATH}/artifacts-generated.yaml" in prepare
 
         # Systems should have username: ubuntu injected
         systems = local["systems"]
@@ -227,6 +238,10 @@ class TestSpreadExpand:
         assert "SUDO_USER" not in ci_env
         assert "useradd" in ci["allocate"]
         assert "pipx install" not in ci["prepare"]
+        # uv installed in CI prepare (idempotent: already on runner but re-ensures)
+        assert "astral-uv" in ci["prepare"]
+        # spread installed if not already present
+        assert "command -v spread" in ci["prepare"]
         assert "discard" not in ci
         # CI injects username: root per-system for SSH access
         systems = ci["systems"]
@@ -353,7 +368,7 @@ suites:
         prepare = parsed["backends"]["local"]["prepare"]
 
         assert '[ -f "$CONCIERGE" ]' in prepare
-        assert "[ -f artifacts-generated.yaml ]" in prepare
+        assert '[ -f "${SPREAD_PATH}/artifacts-generated.yaml" ]' in prepare
 
     def test_ci_prepare_conditional(self, tmp_path: Path) -> None:
         """CI prepare gates concierge on file existence."""
@@ -814,8 +829,11 @@ suites:
         assert backend["type"] == "adhoc"
         assert "lxc launch --vm" in backend["allocate"]
         assert "lxc delete" in backend["discard"]
-        assert "pipx install" in backend["prepare"]
-        assert "astral.sh" not in backend["prepare"]
+        # Tutorial uses uv (not pipx) with dev-mode detection
+        assert "pipx install" not in backend["prepare"]
+        assert "uv tool install" in backend["prepare"]
+        assert "UV_TOOL_BIN_DIR=/usr/local/bin" in backend["prepare"]
+        assert "pyproject.toml" in backend["prepare"]
         assert "operator-ci-poc" in backend["prepare"]
         # No concierge/provision in tutorial prepare
         assert "concierge" not in backend["prepare"]
