@@ -236,6 +236,7 @@ class TestSpreadExpand:
         assert "GITHUB_TOKEN" in ci_env
         assert "GITHUB_RUN_ID" in ci_env
         assert "GITHUB_REPOSITORY" in ci_env
+        assert "GITHUB_WORKSPACE" in ci_env
         # CI backend does NOT override SUDO_USER; ubuntu is created in allocate
         assert "SUDO_USER" not in ci_env
         assert "useradd" in ci["allocate"]

@@ -538,6 +538,7 @@ def _build_concrete_backend(
             "GITHUB_TOKEN": '$(HOST: echo "${GITHUB_TOKEN:-}")',
             "GITHUB_RUN_ID": '$(HOST: echo "${GITHUB_RUN_ID:-}")',
             "GITHUB_REPOSITORY": '$(HOST: echo "${GITHUB_REPOSITORY:-}")',
+            "GITHUB_WORKSPACE": '$(HOST: echo "${GITHUB_WORKSPACE:-}")',
         }
         if isinstance(systems, list):
             backend_def["systems"] = _transform_systems(
