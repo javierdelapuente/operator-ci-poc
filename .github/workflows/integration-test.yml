@@ -131,6 +131,7 @@ jobs:
         run: |
           sudo snap install go --classic
           go install github.com/canonical/spread/cmd/spread@latest
+          sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
 
       # ── Download build artifacts ──────────────────────────────────────────
       - name: Download artifacts-generated.yaml
