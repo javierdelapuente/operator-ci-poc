@@ -196,6 +196,9 @@ class TestSpreadExpand:
         assert "PasswordAuthentication yes" in ci["allocate"]
         assert "password" not in ci
         assert "concierge" in ci["prepare"]
+        # concierge runs as root but loginctl enable-linger ubuntu ensures
+        # ubuntu's systemd session is active so snap cgroups work correctly
+        assert 'runuser -l ubuntu -c "concierge prepare' not in ci["prepare"]
         assert "tox" in ci["prepare"]
         assert "opcli" in ci["prepare"]
         assert "SPREAD_PATH" in ci["prepare"]

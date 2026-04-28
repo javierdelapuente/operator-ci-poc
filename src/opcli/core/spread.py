@@ -129,7 +129,6 @@ _TASK_YAML_CONTENT = (
     "summary: integration tests\n"
     "\n"
     "execute: |\n"
-    '    loginctl enable-linger "${SUDO_USER}"\n'
     '    cd "${SPREAD_PATH}"\n'
     '    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}"'
     ' -- -k "$MODULE") || exit 1\n'
@@ -141,7 +140,6 @@ _TUTORIAL_TASK_YAML_CONTENT = (
     "summary: tutorial test\n"
     "\n"
     "execute: |\n"
-    '    loginctl enable-linger "${SUDO_USER}"\n'
     '    runuser -l "${SUDO_USER}" -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'
 )
 
@@ -275,6 +273,7 @@ fi
 """
 
 _LOCAL_PREPARE = """\
+loginctl enable-linger ubuntu
 sudo snap install concierge --classic
 sudo snap install astral-uv --classic
 sudo apt-get update --quiet
@@ -299,6 +298,7 @@ chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
 _CI_PREPARE = """\
+loginctl enable-linger ubuntu
 export UV_TOOL_BIN_DIR=/usr/local/bin
 if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
   uv tool install "${SPREAD_PATH}" --quiet
@@ -309,7 +309,6 @@ else
 fi
 runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
 if [ -f "$CONCIERGE" ]; then
-  loginctl enable-linger ubuntu
   snap install concierge --classic
   concierge prepare -c "$CONCIERGE"
 fi
