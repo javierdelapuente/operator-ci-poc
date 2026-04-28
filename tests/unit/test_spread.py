@@ -197,6 +197,7 @@ class TestSpreadExpand:
         assert "SPREAD_PATH" in ci["prepare"]
         assert "chown" in ci["prepare"]
         assert "runuser" not in ci["prepare"]
+        assert "UV_TOOL_BIN_DIR=/usr/local/bin" in ci["prepare"]
         # CI backend overrides SUDO_USER so concierge targets the actual host user
         assert ci.get("environment", {}).get("SUDO_USER") == "$(HOST: id -un)"
         assert "pipx install" not in ci["prepare"]
