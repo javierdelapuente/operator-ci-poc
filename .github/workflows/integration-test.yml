@@ -69,7 +69,11 @@ jobs:
 
       - name: Install opcli
         run: |
-          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ steps.workflow-version.outputs.sha }}"
+          if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
+            uv tool install "${GITHUB_WORKSPACE}"
+          else
+            uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ steps.workflow-version.outputs.sha }}"
+          fi
 
       - name: Generate spread task matrix
         id: tasks
@@ -99,7 +103,11 @@ jobs:
 
       - name: Install opcli
         run: |
-          uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.test-plan.outputs.opcli-sha }}"
+          if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
+            uv tool install "${GITHUB_WORKSPACE}"
+          else
+            uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.test-plan.outputs.opcli-sha }}"
+          fi
 
       # ── Install LXD ──────────────────────────────────────────────────────
       - name: Install LXD
