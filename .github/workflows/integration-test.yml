@@ -99,10 +99,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        run: |
-          sudo snap install astral-uv --classic
-          # Symlink into /usr/local/bin so the ubuntu spread user finds uv on PATH.
-          sudo ln -sf /snap/astral-uv/current/bin/uv /usr/local/bin/uv
+        run: sudo snap install astral-uv --classic
 
       - name: Install opcli
         run: |
@@ -113,9 +110,6 @@ jobs:
           fi
           # Symlink into /usr/local/bin so the ubuntu spread user finds opcli on PATH.
           sudo ln -sf "$(command -v opcli)" /usr/local/bin/opcli
-
-      - name: Install tox
-        run: sudo pip install tox tox-uv --break-system-packages
 
       # ── Install LXD ──────────────────────────────────────────────────────
       - name: Install LXD
