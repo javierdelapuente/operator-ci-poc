@@ -299,6 +299,7 @@ chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
 _CI_PREPARE = """\
+export UV_TOOL_BIN_DIR=/usr/local/bin
 if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
   uv tool install "${SPREAD_PATH}" --quiet
 else
