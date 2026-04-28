@@ -105,13 +105,15 @@ opcli pytest expand -- -k test_charm
 |---|---|
 | `opcli artifacts init` | Discover charms/rocks/snaps and generate `artifacts.yaml`. Use `--force` to overwrite. |
 | `opcli artifacts build` | Build all artifacts and produce `artifacts-generated.yaml`. Filter with `--charm <name>`, `--rock <name>`, `--snap <name>`. |
+| `opcli artifacts matrix` | Read `artifacts.yaml` and print a JSON build matrix for GitHub Actions (one entry per artifact). |
+| `opcli artifacts collect <partial>...` | Merge partial `artifacts-generated.yaml` files from parallel build jobs into a single output file. |
 
 ### `opcli provision`
 
 | Command | Description |
 |---|---|
 | `opcli provision run` | Run `concierge prepare` to provision the test environment. |
-| `opcli provision load` | Push locally-built rock images to a container registry. Use `-r` to set registry (default: `localhost:32000`). |
+| `opcli provision load` | Push locally-built rock images to a container registry and update `rock.output.image` in `artifacts-generated.yaml`. Use `-r` to set registry (default: `localhost:32000`). |
 | `opcli provision registry` | Deploy a local OCI registry at `localhost:32000`. Reads `concierge.yaml` to detect whether MicroK8s or canonical k8s is enabled and deploys accordingly. No-op if the registry is already running. Use `-c` to specify a custom concierge file path. |
 
 ### `opcli spread`
@@ -203,7 +205,30 @@ temporary symlink `<pack-dir>/rockcraft.yaml → <rockcraft-yaml>` before runnin
 `rockcraft pack`, then removes it afterwards. If a real (non-symlink) file already
 exists at that path, the build fails with an error.
 
-## Virtual backend system entry fields
+## `artifacts-generated.yaml` schema — local format
+
+`opcli artifacts build` produces `artifacts-generated.yaml`. In local mode,
+rocks and snaps carry a single `output.file` path. Charms use an `output.files`
+list because `charmcraft pack` produces one `.charm` file per declared base in
+a single invocation:
+
+```yaml
+version: 1
+charms:
+  - name: aproxy
+    charmcraft-yaml: charmcraft.yaml
+    output:
+      files:
+        - path: ./aproxy_ubuntu-20.04-amd64.charm
+          base: ubuntu@20.04
+        - path: ./aproxy_ubuntu-22.04-amd64.charm
+          base: ubuntu@22.04
+        - path: ./aproxy_ubuntu-24.04-amd64.charm
+          base: ubuntu@24.04
+```
+
+`opcli pytest expand` emits one `--charm-file=<path>` flag per entry, so all bases
+are passed to the test run.
 
 System entries under the virtual `integration-test` (or `tutorial-test`) backend accept opcli-specific fields alongside standard spread fields:
 
@@ -229,12 +254,110 @@ Resource values are injected as per-system defaults in the allocate script using
 
 ## CI vs local
 
-The `CI` environment variable controls backend expansion:
+Two environment variables govern how opcli behaves in different environments:
 
-| `CI` | Backend | Behaviour |
-|---|---|---|
-| unset/empty | `local:` | LXD VM, concierge inside VM, images pushed to local registry |
-| truthy | `ci:` | Current machine (adhoc), concierge on host, artifacts from GitHub |
+| Env var | Controls | Local | CI |
+|---|---|---|---|
+| `CI` | Spread backend expansion | `local:` (LXD VM) | `ci:` (current machine) |
+| `GITHUB_ACTIONS` | Artifact build output format | Local file paths (`output.file`) | GHCR images + GitHub artifact refs |
+
+When `GITHUB_ACTIONS=true` (set automatically by GitHub Actions runners),
+`opcli artifacts build` switches to CI format:
+
+- **Rocks**: pushed to GHCR via skopeo; `output.image: ghcr.io/<owner>/<repo>/<rock>:<sha7>`
+- **Charms / Snaps**: `output.artifact: built-<type>-<name>` + `output.run-id: <GITHUB_RUN_ID>`
+
+## `artifacts-generated.yaml` — CI vs local format
+
+### Local format
+
+```yaml
+version: 1
+rocks:
+  - name: my-rock
+    rockcraft-yaml: rocks/my-rock/rockcraft.yaml
+    output:
+      file: ./rocks/my-rock/my-rock_1.0_amd64.rock
+charms:
+  - name: my-charm
+    charmcraft-yaml: charmcraft.yaml
+    output:
+      files:
+        - path: ./my-charm_ubuntu-24.04-amd64.charm
+          base: ubuntu@24.04
+    resources:
+      my-rock-image:
+        type: oci-image
+        rock: my-rock
+```
+
+### CI format (after `opcli artifacts collect`)
+
+```yaml
+version: 1
+rocks:
+  - name: my-rock
+    rockcraft-yaml: rocks/my-rock/rockcraft.yaml
+    output:
+      image: ghcr.io/myorg/my-repo/my-rock:abc1234
+charms:
+  - name: my-charm
+    charmcraft-yaml: charmcraft.yaml
+    output:
+      artifact: built-charm-my-charm
+      run-id: "1234567890"
+    resources:
+      my-rock-image:
+        type: oci-image
+        rock: my-rock
+```
+
+Rock images live exclusively under `rocks[].output.image`. Charm resources
+carry only a `rock:` link — the image ref is never duplicated onto the resource.
+`opcli pytest expand` resolves rock flags by iterating `rocks`, not by reading
+resource fields.
+
+## GitHub Actions reusable workflow
+
+The repository ships a reusable workflow that builds all charms, rocks, and
+snaps in parallel and publishes a merged `artifacts-generated.yaml` as a
+GitHub artifact.
+
+### Calling from an operator repository
+
+```yaml
+jobs:
+  build:
+    uses: javierdelapuente/operator-ci-poc/.github/workflows/build-artifacts.yml@main
+    permissions:
+      contents: read
+      packages: write   # required for GHCR rock pushes
+    with:
+      working-directory: .  # directory containing artifacts.yaml (default: .)
+```
+
+Pinning to a SHA or tag (e.g. `@abc1234`, `@v1.2`) automatically installs the
+matching `opcli` version — no separate version input is needed.
+
+### Workflow jobs
+
+| Job | What it does |
+|---|---|
+| **build-matrix** | Runs `opcli artifacts matrix` to generate the GitHub Actions matrix |
+| **build** (parallel) | Builds each artifact; pushes rocks to GHCR; uploads partial `artifacts-generated.yaml` |
+| **collect** | Merges all partials via `opcli artifacts collect`; uploads final `artifacts-generated` artifact |
+
+### `opcli-ref` input
+
+Leave empty (the default) for all normal usage — the workflow auto-derives the
+opcli ref from `github.workflow_ref`. Override only when the auto-derived ref
+is not directly fetchable, such as when testing a pull request from a fork
+(where `github.sha` is a synthetic merge commit):
+
+```yaml
+with:
+  opcli-ref: ${{ github.event.pull_request.head.sha }}
+```
 
 ## Local OCI registry
 

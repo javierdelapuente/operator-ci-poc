@@ -40,7 +40,6 @@ charms:
     myrock-image:
       type: oci-image
       rock: myrock
-      file: ./rock_dir/myrock.rock
 """
 
 _GENERATED_CI = """\
@@ -60,7 +59,6 @@ charms:
     myrock-image:
       type: oci-image
       rock: myrock
-      image: ghcr.io/canonical/myrock:abc123
 """
 
 _GENERATED_NO_RESOURCES = """\
@@ -108,7 +106,7 @@ class TestAssemblePytestArgs:
 
         # CI charm has artifact output, not file — no --charm-file
         assert not any(a.startswith("--charm-file=") for a in args)
-        # Rock image ref is embedded in the charm resources
+        # Rock image ref comes from iterating the rocks list directly
         assert "--myrock-image=ghcr.io/canonical/myrock:abc123" in args
 
     def test_ci_charm_logs_warning(
@@ -178,19 +176,89 @@ class TestAssemblePytestArgs:
         """After provision load, image ref is preferred over local file path."""
         _write(
             tmp_path / "artifacts-generated.yaml",
-            "version: 1\ncharms:\n- name: c\n  charmcraft-yaml: charmcraft.yaml\n"
+            "version: 1\n"
+            "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
+            "  output:\n    file: ./rock_dir/myrock.rock\n"
+            "    image: localhost:32000/myrock:latest\n"
+            "charms:\n- name: c\n  charmcraft-yaml: charmcraft.yaml\n"
             "  output:\n    files:\n    - path: ./c_ubuntu-22.04-amd64.charm\n"
             "      base: ubuntu@22.04\n"
             "  resources:\n    myrock-image:\n      type: oci-image\n"
-            "      rock: myrock\n"
-            "      file: ./rock_dir/myrock.rock\n"
-            "      image: localhost:32000/myrock:latest\n",
+            "      rock: myrock\n",
         )
 
         args = assemble_pytest_args(tmp_path)
 
         assert "--myrock-image=localhost:32000/myrock:latest" in args
         assert not any("myrock.rock" in a for a in args)
+
+    def test_rock_name_used_for_flag_not_resource_name(self, tmp_path: Path) -> None:
+        """Flag uses rock name, not resource name — matches operator-workflows.
+
+        When the resource name (e.g. ``app-image``) differs from the rock name
+        (e.g. ``expressjs-app``), the generated flag must be
+        ``--expressjs-app-image=...``, not ``--app-image=...``.
+        """
+        _write(
+            tmp_path / "artifacts-generated.yaml",
+            "version: 1\n"
+            "rocks:\n- name: expressjs-app\n  rockcraft-yaml: rockcraft.yaml\n"
+            "  output:\n    file: ./expressjs-app_1.0_amd64.rock\n"
+            "charms:\n- name: expressjs-k8s\n"
+            "  charmcraft-yaml: charmcraft.yaml\n"
+            "  output:\n    files:\n"
+            "    - path: ./expressjs-k8s_ubuntu-22.04-amd64.charm\n"
+            "      base: ubuntu@22.04\n"
+            "  resources:\n    app-image:\n      type: oci-image\n"
+            "      rock: expressjs-app\n",
+        )
+
+        args = assemble_pytest_args(tmp_path)
+
+        assert "--expressjs-app-image=./expressjs-app_1.0_amd64.rock" in args
+        assert not any(a.startswith("--app-image=") for a in args)
+
+    def test_rock_without_resource_link_emits_image_flag(self, tmp_path: Path) -> None:
+        """Rock with no charm resource link still generates --{rock-name}-image flag.
+
+        This is the core operator-workflows behaviour: image flags come from
+        iterating rocks directly, no explicit rock: annotation required.
+        """
+        _write(
+            tmp_path / "artifacts-generated.yaml",
+            "version: 1\n"
+            "rocks:\n"
+            "- name: expressjs-app\n  rockcraft-yaml: rockcraft.yaml\n"
+            "  output:\n    file: ./expressjs-app_1.0_amd64.rock\n"
+            "- name: fastapi-app\n  rockcraft-yaml: fastapi/rockcraft.yaml\n"
+            "  output:\n    file: ./fastapi-app_1.0_amd64.rock\n"
+            "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
+            "  output:\n    files:\n"
+            "    - path: ./my-charm_ubuntu-22.04-amd64.charm\n"
+            "      base: ubuntu@22.04\n",
+        )
+
+        args = assemble_pytest_args(tmp_path)
+
+        assert "--expressjs-app-image=./expressjs-app_1.0_amd64.rock" in args
+        assert "--fastapi-app-image=./fastapi-app_1.0_amd64.rock" in args
+
+    def test_resource_without_rock_link_produces_no_flag(self, tmp_path: Path) -> None:
+        """Resources not linked to a rock (no rock: field) produce no image flag."""
+        _write(
+            tmp_path / "artifacts-generated.yaml",
+            "version: 1\ncharms:\n- name: mycharm\n"
+            "  charmcraft-yaml: charmcraft.yaml\n"
+            "  output:\n    files:\n"
+            "    - path: ./mycharm_ubuntu-22.04-amd64.charm\n"
+            "      base: ubuntu@22.04\n"
+            "  resources:\n    standalone-image:\n      type: oci-image\n",
+        )
+
+        args = assemble_pytest_args(tmp_path)
+
+        # Only charm-file; no image flag for a resource with no rock backing
+        assert args == ["--charm-file=./mycharm_ubuntu-22.04-amd64.charm"]
 
 
 class TestAssembleToxArgv:

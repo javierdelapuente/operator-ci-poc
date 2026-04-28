@@ -120,10 +120,6 @@ def provision_load(
         )
 
         rock.output.image = image_ref
-        for charm in generated.charms:
-            for res in (charm.resources or {}).values():
-                if res.rock == rock.name:
-                    res.image = image_ref
 
         pushed.append(image_ref)
         logger.info("Pushed %s", image_ref)
@@ -222,7 +218,10 @@ def provision_registry(
 
     # Use the provider-specific kubectl — MicroK8s and canonical k8s both
     # bundle their own kubectl rather than relying on a separate install.
-    kubectl = ["microk8s", "kubectl"] if microk8s_on else ["k8s", "kubectl"]
+    # Both use snap confinement that requires sudo in non-interactive sessions.
+    kubectl = (
+        ["sudo", "microk8s", "kubectl"] if microk8s_on else ["sudo", "k8s", "kubectl"]
+    )
 
     # Wait for at least one node to be Ready before deploying — freshly
     # bootstrapped clusters (e.g. in nested LXD) can take a while.

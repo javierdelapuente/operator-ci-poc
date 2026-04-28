@@ -81,19 +81,16 @@ class CharmArtifactOutput(BaseModel):
 
 
 class GeneratedResource(BaseModel):
-    """A charm resource with its resolved output path or image reference.
+    """A charm OCI-image resource with a reference to its backing rock.
 
-    The ``file`` and ``image`` fields mirror the linked rock's ``output.file``
-    and ``output.image`` at build time.  Either may be ``None`` if the rock was
-    not built in the same ``opcli artifacts build`` invocation.
+    The actual image location is resolved by looking up the linked rock in
+    ``ArtifactsGenerated.rocks`` — it is not duplicated here.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["oci-image"]
     rock: str | None = None
-    file: str | None = None
-    image: str | None = None
 
 
 class GeneratedRock(BaseModel):

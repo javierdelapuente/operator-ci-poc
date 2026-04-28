@@ -15,6 +15,7 @@ uses ``reroot`` to locate the actual project tree one level up.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import posixpath
@@ -80,11 +81,15 @@ def _generate_spread_yaml(
 
     # Root environment: project-wide vars (CONCIERGE, standard vars)
     root_env: dict[str, str] = {
-        "SUDO_USER": "",
-        "SUDO_UID": "",
+        # Default to "ubuntu" (local LXD VM user); CI backends override this
+        # with $(HOST: id -un) so concierge and runuser target the right user.
+        "SUDO_USER": "ubuntu",
         "LANG": "C.UTF-8",
         "LANGUAGE": "en",
         "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
+        # Defaults to "main"; override on the host with OPCLI_GIT_REF=<branch>
+        # before running spread to install opcli from a specific branch.
+        "OPCLI_GIT_REF": '$(HOST: echo "${OPCLI_GIT_REF:-main}")',
     }
 
     # Suite environment: MODULE variants + TOX_ENV (scoped to this suite)
@@ -124,19 +129,20 @@ _TASK_YAML_CONTENT = (
     "summary: integration tests\n"
     "\n"
     "execute: |\n"
-    "    loginctl enable-linger ubuntu\n"
+    '    loginctl enable-linger "${SUDO_USER}"\n'
     '    cd "${SPREAD_PATH}"\n'
     '    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}"'
     ' -- -k "$MODULE") || exit 1\n'
-    '    runuser -l ubuntu -c "cd \\"${SPREAD_PATH}\\" && $PYTEST_CMD"\n'
+    '    runuser -l "${SUDO_USER}" -c'
+    ' "cd \\"${SPREAD_PATH}\\" && $PYTEST_CMD"\n'
 )
 
 _TUTORIAL_TASK_YAML_CONTENT = (
     "summary: tutorial test\n"
     "\n"
     "execute: |\n"
-    "    loginctl enable-linger ubuntu\n"
-    '    runuser -l ubuntu -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'  # noqa: E501
+    '    loginctl enable-linger "${SUDO_USER}"\n'
+    '    runuser -l "${SUDO_USER}" -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'
 )
 
 
@@ -272,26 +278,56 @@ _LOCAL_PREPARE = """\
 sudo snap install concierge --classic
 sudo snap install astral-uv --classic
 sudo apt-get update --quiet
-sudo apt-get install -y pipx --quiet
+sudo apt-get install -y pipx golang-go --quiet
 sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
-    pipx install git+https://github.com/javierdelapuente/operator-ci-poc@main --quiet
+    pipx install \
+    "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF}" \
+    --quiet
+go install github.com/canonical/spread/cmd/spread@latest
+sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
 runuser -l ubuntu -c "uv tool install tox --with tox-uv"
 if [ -f "$CONCIERGE" ]; then
-  runuser -l ubuntu -c \
-    "cd \\"${SPREAD_PATH}\\" && sudo concierge prepare -c \\"$CONCIERGE\\""
+  concierge prepare -c "$CONCIERGE"
   runuser -l ubuntu -c \
     "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
 fi
-if [ -f artifacts-generated.yaml ]; then
+if [ -f artifacts-generated.yaml ] && \
+    curl -sf --max-time 5 http://localhost:32000/v2/ > /dev/null 2>&1; then
   opcli provision load
 fi
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
 _CI_PREPARE = """\
-if [ -f "$CONCIERGE" ]; then
-  sudo concierge prepare -c "$CONCIERGE"
+export UV_TOOL_BIN_DIR=/usr/local/bin
+if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
+  uv tool install "${SPREAD_PATH}" --quiet
+else
+  uv tool install \
+      "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
+      --quiet
 fi
+runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
+if [ -f "$CONCIERGE" ]; then
+  loginctl enable-linger ubuntu
+  snap install concierge --classic
+  concierge prepare -c "$CONCIERGE"
+fi
+chown -R ubuntu:ubuntu "${SPREAD_PATH}"
+"""
+
+_CI_ALLOCATE = """\
+id ubuntu &>/dev/null || sudo useradd -m -s /bin/bash ubuntu
+sudo sed -i 's/^[[:space:]]*#\\?[[:space:]]*\\(PermitRootLogin\\|PasswordAuthentication\\).*/\\1 yes/' \
+    /etc/ssh/sshd_config
+if [ -d /etc/ssh/sshd_config.d ]; then
+  printf 'PermitRootLogin yes\\nPasswordAuthentication yes\\n' | \
+      sudo tee /etc/ssh/sshd_config.d/00-spread.conf > /dev/null
+fi
+sudo systemctl restart ssh
+echo "root:${SPREAD_PASSWORD}" | sudo chpasswd
+
+ADDRESS localhost
 """
 
 # Tutorial backend: install pip then opcli from the GitHub repo main branch so
@@ -318,7 +354,7 @@ _BACKEND_CONFIGS: dict[str, tuple[str, str, str, str]] = {
 # meaningful to the CI backend; resource fields are used by the local allocate
 # script and have no meaning in spread's own backend model.
 _LOCAL_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk", "runner"})
-_CI_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk"})
+_CI_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk", "runner"})
 
 # Names of resource fields and their corresponding shell variable names.
 _RESOURCE_FIELDS: dict[str, str] = {"cpu": "CPU", "memory": "MEM", "disk": "DISK"}
@@ -464,12 +500,12 @@ def _build_concrete_backend(
     systems = backend_def.get("systems")
 
     if use_ci:
-        backend_def["allocate"] = "ADDRESS localhost"
+        backend_def["allocate"] = _CI_ALLOCATE
         if ci_prepare:
             backend_def["prepare"] = ci_prepare
         if isinstance(systems, list):
             backend_def["systems"] = _transform_systems(
-                systems, strip_keys=_CI_STRIP_KEYS
+                systems, strip_keys=_CI_STRIP_KEYS, inject_username="root"
             )
     else:
         # Extract per-system resource overrides before stripping the fields.
@@ -670,10 +706,10 @@ def spread_run(
 ) -> None:
     """Expand ``spread.yaml`` and run ``spread``.
 
-    A temporary directory is created **inside** *root* containing the
-    expanded ``spread.yaml`` with ``reroot: ..`` so that ``spread``
-    discovers the config in the temp dir and resolves the project tree
-    from the parent.  The original ``spread.yaml`` is never modified.
+    The expanded YAML is written to a temporary subdirectory inside *root*
+    with a ``reroot: ..`` field so spread resolves the project tree from the
+    parent directory.  Spread is invoked from that subdirectory; the original
+    ``spread.yaml`` is never modified.
 
     Raises:
         ConfigurationError: If ``spread.yaml`` is missing or malformed.
@@ -682,16 +718,166 @@ def spread_run(
     expanded = _expand(root, ci=ci)
     expanded["reroot"] = _compose_reroot(expanded.get("reroot"))
 
-    with tempfile.TemporaryDirectory(
-        prefix=".opcli-spread-",
-        dir=root,
-    ) as temp_dir:
-        temp_dir_path = Path(temp_dir)
-        spread_file = temp_dir_path / _SPREAD_YAML
-        with spread_file.open("w") as fh:
+    with tempfile.TemporaryDirectory(prefix=".spread-run-", dir=root) as tmp_dir:
+        tmp_yaml = Path(tmp_dir) / _SPREAD_YAML
+        with tmp_yaml.open("w") as fh:
             _yaml.dump(_literalize(expanded), fh)
 
         cmd = ["spread"]
         if extra_args:
             cmd.extend(extra_args)
-        run_command(cmd, cwd=str(temp_dir_path), interactive=True)
+        run_command(cmd, cwd=tmp_dir, interactive=True)
+
+
+# ---------------------------------------------------------------------------
+#  spread tasks — enumerate CI test selectors for GitHub Actions matrix
+# ---------------------------------------------------------------------------
+
+_DEFAULT_RUNNER = "ubuntu-latest"
+
+
+def _runner_by_system(raw: dict[str, object]) -> dict[str, str]:
+    """Extract {system_name: runner_label_json} from the raw spread.yaml.
+
+    The runner value is always JSON-encoded so that the workflow can use
+    ``fromJSON(matrix.runs-on)`` for both plain strings and runner arrays.
+    """
+    result: dict[str, str] = {}
+    raw_backends = raw.get("backends") or {}
+    if not isinstance(raw_backends, dict):
+        return result
+    for backend_cfg in raw_backends.values():
+        if not isinstance(backend_cfg, dict):
+            continue
+        for system_entry in backend_cfg.get("systems") or []:
+            if isinstance(system_entry, str):
+                result.setdefault(system_entry, json.dumps(_DEFAULT_RUNNER))
+            elif isinstance(system_entry, dict):
+                for sys_name, sys_props in system_entry.items():
+                    raw_runner: object = _DEFAULT_RUNNER
+                    if isinstance(sys_props, dict):
+                        raw_runner = sys_props.get("runner", _DEFAULT_RUNNER)
+                    result.setdefault(sys_name, json.dumps(raw_runner))
+    return result
+
+
+def _task_dirs(root: Path, suite_dir: str) -> list[str]:
+    """Return sorted task directory names (dirs with task.yaml) inside *suite_dir*."""
+    suite_abs = root / suite_dir
+    if not suite_abs.is_dir():
+        return []
+    return sorted(
+        d.name for d in suite_abs.iterdir() if d.is_dir() and (d / "task.yaml").exists()
+    )
+
+
+def _system_entry_name(entry: object) -> str | None:
+    """Extract the system name from a spread systems-list entry."""
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        key = next(iter(entry))
+        return str(key)
+    return None
+
+
+def spread_tasks(root: Path) -> list[dict[str, str]]:
+    """Return all CI spread task selectors as a list of GitHub Actions matrix entries.
+
+    Reads the raw ``spread.yaml`` to extract per-system ``runner`` labels
+    (GitHub Actions runner selectors), then expands with CI mode to derive
+    the concrete backend name and system names.
+
+    Each entry has:
+    - ``name``: display name (variant name, or task directory if no variant)
+    - ``selector``: full spread selector (``backend:system:task/path:variant``)
+    - ``runs-on``: GitHub Actions runner label (from ``runner:`` system field,
+      or ``ubuntu-latest`` if absent)
+
+    Only enumerates ``MODULE/*`` variants.  For non-standard suite structures
+    use ``spread -list`` directly.
+
+    Raises:
+        ConfigurationError: If ``spread.yaml`` is missing or malformed.
+    """
+    raw = _load_spread_yaml(root)
+    expanded = _expand_backend(raw, ci=True)
+
+    runner_map = _runner_by_system(raw)
+    raw_suites = expanded.get("suites") or {}
+    raw_all_backends = expanded.get("backends") or {}
+    suites: dict[str, object] = raw_suites if isinstance(raw_suites, dict) else {}
+    all_backends: dict[str, object] = (
+        raw_all_backends if isinstance(raw_all_backends, dict) else {}
+    )
+
+    entries: list[dict[str, str]] = []
+    for suite_path, suite_cfg in suites.items():
+        if not isinstance(suite_cfg, dict):
+            continue
+        suite_dir = suite_path.rstrip("/")
+
+        suite_backend_names: list[str] = []
+        raw_suite_backends = suite_cfg.get("backends")
+        if isinstance(raw_suite_backends, list):
+            suite_backend_names = [str(b) for b in raw_suite_backends]
+        else:
+            suite_backend_names = list(all_backends.keys())
+
+        env = suite_cfg.get("environment") or {}
+        variants: list[str | None] = [
+            str(v) for k, v in env.items() if str(k).startswith("MODULE/")
+        ]
+        if not variants:
+            variants = [None]
+
+        dirs = _task_dirs(root, suite_dir)
+        if not dirs:
+            continue
+
+        entries.extend(
+            _collect_suite_entries(
+                suite_dir,
+                dirs,
+                variants,
+                suite_backend_names,
+                all_backends,
+                runner_map,
+            )
+        )
+
+    return entries
+
+
+def _collect_suite_entries(  # noqa: PLR0913
+    suite_dir: str,
+    dirs: list[str],
+    variants: list[str | None],
+    backend_names: list[str],
+    all_backends: dict[str, object],
+    runner_map: dict[str, str],
+) -> list[dict[str, str]]:
+    """Return matrix entries for one suite."""
+    entries: list[dict[str, str]] = []
+    for backend_name in backend_names:
+        backend_cfg = all_backends.get(backend_name)
+        if not isinstance(backend_cfg, dict):
+            continue
+        for system_entry in backend_cfg.get("systems") or []:
+            system_name = _system_entry_name(system_entry)
+            if system_name is None:
+                continue
+            runner = runner_map.get(system_name, json.dumps(_DEFAULT_RUNNER))
+            for task_dir in dirs:
+                task_path = f"{suite_dir}/{task_dir}"
+                for variant in variants:
+                    if variant:
+                        selector = f"{backend_name}:{system_name}:{task_path}:{variant}"
+                        name = variant
+                    else:
+                        selector = f"{backend_name}:{system_name}:{task_path}"
+                        name = task_dir
+                    entries.append(
+                        {"name": name, "selector": selector, "runs-on": runner}
+                    )
+    return entries
