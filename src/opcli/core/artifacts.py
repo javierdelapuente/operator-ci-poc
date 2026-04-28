@@ -1,8 +1,9 @@
-"""Core logic for ``opcli artifacts init`` and ``opcli artifacts build``.
+"""Core logic for ``opcli artifacts`` commands.
 
 ``init`` discovers artifacts and writes ``artifacts.yaml``.
 ``build`` reads the plan, invokes pack tools, and writes
 ``artifacts-generated.yaml``.
+``fetch`` downloads a completed CI run's artifacts so tests can run locally.
 """
 
 from __future__ import annotations
@@ -701,3 +702,125 @@ def artifacts_localize(root: Path) -> int:
         logger.info("Updated %s with %d localised charm(s).", gen_path, updated)
 
     return updated
+
+
+# ---------------------------------------------------------------------------
+# artifacts fetch
+# ---------------------------------------------------------------------------
+
+_GITHUB_URL_RE = re.compile(r"github\.com[:/](.+?)(?:\.git)?$")
+
+
+def _infer_repo_from_git(root: Path) -> str:
+    """Return ``owner/repo`` inferred from the git remote of *root*.
+
+    Raises:
+        ConfigurationError: If the git remote URL cannot be parsed.
+    """
+    try:
+        result = run_command(["git", "remote", "get-url", "origin"], cwd=str(root))
+    except Exception as exc:
+        msg = (
+            "Could not read git remote 'origin'. Use --repo to specify the repository."
+        )
+        raise ConfigurationError(msg) from exc
+
+    url = result.stdout.strip()
+    m = _GITHUB_URL_RE.search(url)
+    if not m:
+        msg = (
+            f"Could not parse a GitHub 'owner/repo' from remote URL {url!r}. "
+            "Use --repo to specify the repository."
+        )
+        raise ConfigurationError(msg)
+    return m.group(1)
+
+
+def artifacts_fetch(root: Path, run_id: str, repo: str | None = None) -> Path:
+    """Download a CI run's artifacts and prepare for local testing.
+
+    Steps:
+    1. Infer ``owner/repo`` from the local git remote if *repo* is not given.
+    2. Download ``artifacts-generated.yaml`` from the named GitHub Actions artifact.
+    3. For every charm/snap that carries a CI artifact reference, download the
+       corresponding artifact archive.
+    4. Call :func:`artifacts_localize` to rewrite ``artifacts-generated.yaml``
+       with the local ``.charm`` / ``.snap`` file paths.
+
+    Rock artifacts are OCI images on GHCR and need no download — their
+    ``output.image`` reference is already usable locally.
+
+    Args:
+        root: Working directory; all artifacts are downloaded here.
+        run_id: GitHub Actions workflow run ID.
+        repo: GitHub repository in ``owner/name`` format.  Inferred from the
+            local git remote when ``None``.
+
+    Returns:
+        Path to the updated ``artifacts-generated.yaml``.
+
+    Raises:
+        ConfigurationError: If the repo cannot be inferred or the yaml is missing
+            after download.
+        SubprocessError: If ``gh run download`` fails.
+    """
+    if repo is None:
+        repo = _infer_repo_from_git(root)
+
+    # Download the merged artifacts-generated.yaml
+    run_command(
+        [
+            "gh",
+            "run",
+            "download",
+            run_id,
+            "--repo",
+            repo,
+            "--name",
+            "artifacts-generated",
+            "--dir",
+            str(root),
+        ],
+        cwd=str(root),
+    )
+
+    gen_path = root / _ARTIFACTS_GENERATED_YAML
+    if not gen_path.exists():
+        msg = (
+            f"{_ARTIFACTS_GENERATED_YAML} not found after download. "
+            "Ensure the CI run completed its build phase."
+        )
+        raise ConfigurationError(msg)
+
+    generated = load_artifacts_generated(gen_path)
+
+    # Download each charm / snap artifact archive
+    artifact_names: list[str] = []
+    for charm in generated.charms:
+        if charm.output.artifact:
+            artifact_names.append(charm.output.artifact)
+    for snap in generated.snaps:
+        if snap.output.artifact:
+            artifact_names.append(snap.output.artifact)
+
+    for name in artifact_names:
+        run_command(
+            [
+                "gh",
+                "run",
+                "download",
+                run_id,
+                "--repo",
+                repo,
+                "--name",
+                name,
+                "--dir",
+                str(root),
+            ],
+            cwd=str(root),
+        )
+        logger.info("Downloaded artifact '%s'.", name)
+
+    # Rewrite artifact refs to local file paths
+    artifacts_localize(root)
+    return gen_path

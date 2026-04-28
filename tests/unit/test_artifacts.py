@@ -1,4 +1,4 @@
-"""Tests for ``opcli artifacts init``, ``build``, ``matrix``, and ``collect``."""
+"""Tests for opcli artifacts commands: init, build, matrix, collect, fetch."""
 
 from __future__ import annotations
 
@@ -6,18 +6,20 @@ import json
 import os
 from pathlib import Path
 from typing import ClassVar
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 
 from opcli.core.artifacts import (
     artifacts_build,
     artifacts_collect,
+    artifacts_fetch,
     artifacts_init,
     artifacts_localize,
     artifacts_matrix,
 )
 from opcli.core.exceptions import ConfigurationError, OpcliError
+from opcli.core.subprocess import SubprocessResult
 from opcli.core.yaml_io import load_artifacts_generated, load_artifacts_plan
 
 
@@ -244,8 +246,8 @@ class TestArtifactsBuild:
             artifacts_build(tmp_path, charm_names=["mycharm"])
 
         # Only charmcraft should have been called — rockcraft must not be invoked.
-        for call in mock_run.call_args_list:
-            cmd = call[0][0]
+        for c in mock_run.call_args_list:
+            cmd = c[0][0]
             assert "rockcraft" not in cmd[0], f"rockcraft unexpectedly invoked: {cmd}"
 
     def test_unknown_charm_name_raises(self, tmp_path: Path) -> None:
@@ -1075,3 +1077,140 @@ class TestArtifactsLocalize:
 
         with pytest.raises(ConfigurationError, match="my-charm"):
             artifacts_localize(tmp_path)
+
+
+class TestArtifactsFetch:
+    """Tests for artifacts_fetch()."""
+
+    _GENERATED_CI = (
+        "version: 1\n"
+        "rocks:\n"
+        "- name: my-rock\n"
+        "  rockcraft-yaml: rock/rockcraft.yaml\n"
+        "  output:\n"
+        "    image: ghcr.io/owner/repo/my-rock:abc1234\n"
+        "charms:\n"
+        "- name: my-charm\n"
+        "  charmcraft-yaml: charmcraft.yaml\n"
+        "  output:\n"
+        "    artifact: built-charm-my-charm\n"
+        "    run-id: '99887766'\n"
+        "- name: other-charm\n"
+        "  charmcraft-yaml: other/charmcraft.yaml\n"
+        "  output:\n"
+        "    artifact: built-charm-other-charm\n"
+        "    run-id: '99887766'\n"
+    )
+
+    _GH_RESULT = SubprocessResult(stdout="", stderr="", returncode=0)
+    _GIT_RESULT = SubprocessResult(
+        stdout="https://github.com/owner/my-repo.git\n",
+        stderr="",
+        returncode=0,
+    )
+
+    def _make_charm_files(self, tmp_path: Path) -> None:
+        """Create dummy .charm files so localize succeeds."""
+        d1 = tmp_path / "built-charm-my-charm"
+        d1.mkdir()
+        (d1 / "my-charm_ubuntu-24.04-amd64.charm").write_bytes(b"")
+        d2 = tmp_path / "built-charm-other-charm"
+        d2.mkdir()
+        (d2 / "other-charm_ubuntu-24.04-amd64.charm").write_bytes(b"")
+
+    def test_downloads_generated_and_charm_artifacts(self, tmp_path: Path) -> None:
+        """Downloads artifacts-generated + each charm artifact, then localises."""
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        self._make_charm_files(tmp_path)
+
+        patch_target = "opcli.core.artifacts.run_command"
+        with patch(patch_target, return_value=self._GH_RESULT) as mock_run:
+            result = artifacts_fetch(tmp_path, run_id="99887766", repo="owner/my-repo")
+
+        assert result == tmp_path / "artifacts-generated.yaml"
+        calls = mock_run.call_args_list
+        # First call: download artifacts-generated
+        assert calls[0] == call(
+            [
+                "gh",
+                "run",
+                "download",
+                "99887766",
+                "--repo",
+                "owner/my-repo",
+                "--name",
+                "artifacts-generated",
+                "--dir",
+                str(tmp_path),
+            ],
+            cwd=str(tmp_path),
+        )
+        # Subsequent calls: one per charm artifact
+        artifact_names = {c.args[0][7] for c in calls[1:]}
+        assert artifact_names == {"built-charm-my-charm", "built-charm-other-charm"}
+
+    def test_skips_rocks_no_download(self, tmp_path: Path) -> None:
+        """Rock OCI images are not downloaded — only the initial yaml + charms."""
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        self._make_charm_files(tmp_path)
+
+        _EXPECTED_CALLS = 3  # 1 artifacts-generated + 2 charm artifacts
+        patch_target = "opcli.core.artifacts.run_command"
+        with patch(patch_target, return_value=self._GH_RESULT) as mock_run:
+            artifacts_fetch(tmp_path, run_id="99887766", repo="owner/my-repo")
+
+        assert mock_run.call_count == _EXPECTED_CALLS
+
+    def test_infers_repo_from_git_remote(self, tmp_path: Path) -> None:
+        """Infers owner/repo from git remote when --repo is not given."""
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        self._make_charm_files(tmp_path)
+
+        results = [self._GIT_RESULT, self._GH_RESULT, self._GH_RESULT, self._GH_RESULT]
+        patch_target = "opcli.core.artifacts.run_command"
+        with patch(patch_target, side_effect=results) as mock_run:
+            artifacts_fetch(tmp_path, run_id="99887766")
+
+        # First call is git remote get-url
+        git_call = mock_run.call_args_list[0]
+        assert git_call.args[0] == ["git", "remote", "get-url", "origin"]
+        # Subsequent gh calls use the inferred repo
+        for c in mock_run.call_args_list[1:]:
+            assert "--repo" in c.args[0]
+            assert "owner/my-repo" in c.args[0]
+
+    def test_infers_repo_from_ssh_remote(self, tmp_path: Path) -> None:
+        """Parses SSH-format git remote URLs (git@github.com:owner/repo.git)."""
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        self._make_charm_files(tmp_path)
+
+        ssh_result = SubprocessResult(
+            stdout="git@github.com:owner/my-repo.git\n", stderr="", returncode=0
+        )
+        results = [ssh_result, self._GH_RESULT, self._GH_RESULT, self._GH_RESULT]
+        with patch("opcli.core.artifacts.run_command", side_effect=results):
+            artifacts_fetch(tmp_path, run_id="99887766")
+
+    def test_raises_when_git_remote_not_github(self, tmp_path: Path) -> None:
+        """Raises ConfigurationError when remote is not a GitHub URL."""
+        non_github = SubprocessResult(
+            stdout="https://gitlab.com/owner/repo.git\n", stderr="", returncode=0
+        )
+        with (
+            patch("opcli.core.artifacts.run_command", return_value=non_github),
+            pytest.raises(ConfigurationError, match="--repo"),
+        ):
+            artifacts_fetch(tmp_path, run_id="99887766")
+
+    def test_localises_after_download(self, tmp_path: Path) -> None:
+        """artifacts-generated.yaml is updated with local file paths after fetch."""
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        self._make_charm_files(tmp_path)
+
+        with patch("opcli.core.artifacts.run_command", return_value=self._GH_RESULT):
+            artifacts_fetch(tmp_path, run_id="99887766", repo="owner/my-repo")
+
+        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        for charm in gen.charms:
+            assert charm.output.files, f"Charm '{charm.name}' was not localised"
+            assert charm.output.files[0].path.endswith(".charm")
