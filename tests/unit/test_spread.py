@@ -195,6 +195,8 @@ class TestSpreadExpand:
         assert "concierge" in ci["prepare"]
         assert "tox" in ci["prepare"]
         assert "chown" in ci["prepare"]
+        assert "opcli" in ci["prepare"]
+        assert "SPREAD_PATH" in ci["prepare"]
         assert "pipx install" not in ci["prepare"]
         assert "discard" not in ci
         # CI injects username: ubuntu per-system for SSH access
@@ -335,6 +337,7 @@ suites:
         assert '[ -f "$CONCIERGE" ]' in prepare
         assert "tox" in prepare
         assert "chown" in prepare
+        assert "SPREAD_PATH" in prepare
         assert "pipx install" not in prepare
 
     def test_local_username_injection_mapping_systems(self, tmp_path: Path) -> None:

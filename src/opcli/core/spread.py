@@ -299,6 +299,13 @@ chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
 _CI_PREPARE = """\
+if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
+  uv tool install "${SPREAD_PATH}" --quiet
+else
+  uv tool install \
+      "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
+      --quiet
+fi
 uv tool install tox --with tox-uv --quiet
 sudo chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 if [ -f "$CONCIERGE" ]; then

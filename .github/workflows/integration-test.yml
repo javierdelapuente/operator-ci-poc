@@ -108,8 +108,6 @@ jobs:
           else
             uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.test-plan.outputs.opcli-sha }}"
           fi
-          # Symlink into /usr/local/bin so the ubuntu spread user finds opcli on PATH.
-          sudo ln -sf "$(command -v opcli)" /usr/local/bin/opcli
 
       # ── Install LXD ──────────────────────────────────────────────────────
       - name: Install LXD
