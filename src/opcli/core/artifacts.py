@@ -12,11 +12,12 @@ import glob as globmod
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from opcli.core.discovery import discover_artifacts
-from opcli.core.exceptions import ConfigurationError, OpcliError
+from opcli.core.exceptions import ConfigurationError, OpcliError, SubprocessError
 from opcli.core.subprocess import run_command
 from opcli.core.yaml_io import (
     dump_artifacts_generated,
@@ -638,8 +639,7 @@ def _find_local_file(root: Path, name: str, extension: str) -> str | None:
     """Find a single ``name_*.{extension}`` file under *root*.
 
     Returns the relative path (``./...``) on success, or ``None`` if no file
-    is found (caller should report the error).  Logs a warning when multiple
-    matches exist and picks the first.
+    is found.  Logs a warning when multiple matches exist and picks the first.
     """
     pattern = str(root / "**" / f"{name}_*.{extension}")
     matches = sorted(globmod.glob(pattern, recursive=True))
@@ -653,6 +653,24 @@ def _find_local_file(root: Path, name: str, extension: str) -> str | None:
             matches[0],
         )
     return "./" + str(Path(matches[0]).relative_to(root))
+
+
+def _find_local_charm_files(root: Path, name: str) -> list[CharmFile]:
+    """Find all ``name_*.charm`` files under *root* and return CharmFile list.
+
+    Returns an empty list when no files are found.  Multiple matches are
+    expected for multi-base charms — each file gets its base parsed from
+    the filename via :func:`_parse_base_from_charm_path`.
+    """
+    pattern = str(root / "**" / f"{name}_*.charm")
+    matches = sorted(globmod.glob(pattern, recursive=True))
+    return [
+        CharmFile(
+            path="./" + str(Path(m).relative_to(root)),
+            base=_parse_base_from_charm_path(m),
+        )
+        for m in matches
+    ]
 
 
 def artifacts_localize(root: Path) -> int:
@@ -685,13 +703,13 @@ def artifacts_localize(root: Path) -> int:
     for charm in generated.charms:
         if charm.output.files or not charm.output.artifact:
             continue
-        rel = _find_local_file(root, charm.name, "charm")
-        if rel is None:
+        charm_files = _find_local_charm_files(root, charm.name)
+        if not charm_files:
             missing.append(charm.name)
             logger.error("No .charm file found for charm '%s'.", charm.name)
             continue
-        charm.output.files = [CharmFile(path=rel)]
-        logger.info("Localised charm '%s' → %s", charm.name, rel)
+        charm.output.files = charm_files
+        logger.info("Localised charm '%s' → %d file(s).", charm.name, len(charm_files))
         updated += 1
 
     for snap in generated.snaps:
@@ -752,12 +770,89 @@ def _infer_repo_from_git(root: Path) -> str:
     return m.group(1)
 
 
-def artifacts_fetch(root: Path, run_id: str, repo: str | None = None) -> Path:
+_WAIT_MAX_ATTEMPTS = 60
+_WAIT_SLEEP_SECONDS = 30
+# Keywords in gh CLI stderr that indicate a hard auth/permission failure
+# rather than "artifact not yet available" — retrying is pointless for these.
+_AUTH_ERROR_KEYWORDS = (
+    "authentication",
+    "credentials",
+    "unauthorized",
+    "token",
+    "403",
+    "401",
+)
+
+
+def _gh_download(cmd: list[str], cwd: str) -> None:
+    """Run ``gh run download``, raising :class:`SubprocessError` on failure."""
+    run_command(cmd, cwd=cwd)
+
+
+def _gh_download_with_wait(cmd: list[str], cwd: str, run_id: str) -> None:
+    """Run ``gh run download``, retrying until the artifact appears.
+
+    Retries up to :data:`_WAIT_MAX_ATTEMPTS` times with
+    :data:`_WAIT_SLEEP_SECONDS` between each attempt.  Fails immediately if
+    the error looks like an authentication/permission problem.
+
+    Args:
+        cmd: Full ``gh run download ...`` command list.
+        cwd: Working directory for the subprocess.
+        run_id: Run ID used only for log messages.
+
+    Raises:
+        ConfigurationError: On auth/permission errors or when the timeout
+            is exceeded (includes the last error message).
+        SubprocessError: Propagated for unexpected non-retryable failures.
+    """
+    last_exc: SubprocessError | None = None
+    for attempt in range(1, _WAIT_MAX_ATTEMPTS + 1):
+        try:
+            run_command(cmd, cwd=cwd)
+            return
+        except SubprocessError as exc:
+            stderr_lower = exc.stderr.lower()
+            if any(kw in stderr_lower for kw in _AUTH_ERROR_KEYWORDS):
+                msg = (
+                    f"Authentication/permission error downloading artifact "
+                    f"from run {run_id!r}. Check GH_TOKEN and repository "
+                    f"permissions.\n{exc.stderr.strip()}"
+                )
+                raise ConfigurationError(msg) from exc
+            last_exc = exc
+            logger.info(
+                "Artifact not yet available (attempt %d/%d), retrying in %ds...",
+                attempt,
+                _WAIT_MAX_ATTEMPTS,
+                _WAIT_SLEEP_SECONDS,
+            )
+            time.sleep(_WAIT_SLEEP_SECONDS)
+
+    last_msg = last_exc.stderr.strip() if last_exc else ""
+    msg = (
+        f"Timed out waiting for artifacts-generated artifact from run "
+        f"{run_id!r} after {_WAIT_MAX_ATTEMPTS * _WAIT_SLEEP_SECONDS}s. "
+        f"Last error: {last_msg}"
+    )
+    raise ConfigurationError(msg)
+
+
+def artifacts_fetch(
+    root: Path,
+    run_id: str,
+    repo: str | None = None,
+    *,
+    wait: bool = False,
+) -> Path:
     """Download a CI run's artifacts and prepare for local testing.
 
     Steps:
     1. Infer ``owner/repo`` from the local git remote if *repo* is not given.
-    2. Download ``artifacts-generated.yaml`` from the named GitHub Actions artifact.
+    2. Download ``artifacts-generated.yaml`` from the named GitHub Actions
+       artifact.  When *wait* is ``True``, retries up to
+       :data:`_WAIT_MAX_ATTEMPTS` times until the artifact appears (useful
+       when the test job starts before the build completes).
     3. For every charm/snap that carries a CI artifact reference, download the
        corresponding artifact archive.
     4. Call :func:`artifacts_localize` to rewrite ``artifacts-generated.yaml``
@@ -771,34 +866,37 @@ def artifacts_fetch(root: Path, run_id: str, repo: str | None = None) -> Path:
         run_id: GitHub Actions workflow run ID.
         repo: GitHub repository in ``owner/name`` format.  Inferred from the
             local git remote when ``None``.
+        wait: When ``True``, retry the initial ``artifacts-generated``
+            download until it succeeds.  Fails immediately on
+            authentication/permission errors.
 
     Returns:
         Path to the updated ``artifacts-generated.yaml``.
 
     Raises:
-        ConfigurationError: If the repo cannot be inferred or the yaml is missing
-            after download.
-        SubprocessError: If ``gh run download`` fails.
+        ConfigurationError: If the repo cannot be inferred, the yaml is
+            missing after download, or the wait timeout is exceeded.
+        SubprocessError: If ``gh run download`` fails non-transiently.
     """
     if repo is None:
         repo = _infer_repo_from_git(root)
 
-    # Download the merged artifacts-generated.yaml
-    run_command(
-        [
-            "gh",
-            "run",
-            "download",
-            run_id,
-            "--repo",
-            repo,
-            "--name",
-            "artifacts-generated",
-            "--dir",
-            str(root),
-        ],
-        cwd=str(root),
-    )
+    generated_cmd = [
+        "gh",
+        "run",
+        "download",
+        run_id,
+        "--repo",
+        repo,
+        "--name",
+        "artifacts-generated",
+        "--dir",
+        str(root),
+    ]
+    if wait:
+        _gh_download_with_wait(generated_cmd, str(root), run_id)
+    else:
+        _gh_download(generated_cmd, str(root))
 
     gen_path = root / _ARTIFACTS_GENERATED_YAML
     if not gen_path.exists():

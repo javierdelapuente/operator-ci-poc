@@ -220,14 +220,15 @@ class TestSpreadExpand:
         assert "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox" in ci["prepare"]
         assert "loginctl enable-linger ubuntu" in ci["prepare"]
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in ci["prepare"]
-        # CI prepare waits for and downloads build artifacts via gh CLI
-        assert "gh run download" in ci["prepare"]
-        assert "artifacts-generated" in ci["prepare"]
-        assert "built-charm-*" in ci["prepare"]
+        # CI prepare downloads build artifacts via opcli artifacts fetch
+        assert "opcli artifacts fetch" in ci["prepare"]
+        assert "artifacts-generated" not in ci["prepare"]  # no manual gh download
+        assert "built-charm-*" not in ci["prepare"]  # handled by fetch
         assert "GH_TOKEN" in ci["prepare"]
         assert "GITHUB_RUN_ID" in ci["prepare"]
-        assert "opcli artifacts localize" in ci["prepare"]
+        assert "opcli artifacts localize" not in ci["prepare"]  # fetch does it
         assert "command -v gh" in ci["prepare"]
+        assert "--wait" in ci["prepare"]
         # CI backend has GitHub Actions vars scoped to it for artifact download
         assert "environment" in ci
         ci_env = ci["environment"]

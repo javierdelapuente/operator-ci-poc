@@ -10,6 +10,7 @@ from unittest.mock import call, patch
 
 import pytest
 
+import opcli.core.artifacts as _artifacts_mod
 from opcli.core.artifacts import (
     artifacts_build,
     artifacts_collect,
@@ -18,7 +19,7 @@ from opcli.core.artifacts import (
     artifacts_localize,
     artifacts_matrix,
 )
-from opcli.core.exceptions import ConfigurationError, OpcliError
+from opcli.core.exceptions import ConfigurationError, OpcliError, SubprocessError
 from opcli.core.subprocess import SubprocessResult
 from opcli.core.yaml_io import load_artifacts_generated, load_artifacts_plan
 
@@ -1078,6 +1079,24 @@ class TestArtifactsLocalize:
         with pytest.raises(ConfigurationError, match="my-charm"):
             artifacts_localize(tmp_path)
 
+    def test_localises_all_files_for_multi_base_charm(self, tmp_path: Path) -> None:
+        """Populates output.files with all per-base .charm files."""
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        (tmp_path / "my-charm_ubuntu-22.04-amd64.charm").write_bytes(b"")
+        (tmp_path / "my-charm_ubuntu-24.04-amd64.charm").write_bytes(b"")
+
+        artifacts_localize(tmp_path)
+
+        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        charm = gen.charms[0]
+        assert len(charm.output.files) == 2  # noqa: PLR2004
+        paths = {f.path for f in charm.output.files}
+        assert any("22.04" in p for p in paths)
+        assert any("24.04" in p for p in paths)
+        bases = {f.base for f in charm.output.files}
+        assert "ubuntu@22.04" in bases
+        assert "ubuntu@24.04" in bases
+
 
 class TestArtifactsFetch:
     """Tests for artifacts_fetch()."""
@@ -1261,3 +1280,65 @@ class TestArtifactsFetch:
         for snap in gen.snaps:
             assert snap.output.file, f"Snap '{snap.name}' was not localised"
             assert snap.output.file.endswith(".snap")
+
+    def test_wait_retries_until_artifact_appears(self, tmp_path: Path) -> None:
+        """With wait=True, retries the initial download and succeeds on 2nd attempt."""
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        self._make_charm_files(tmp_path)
+        self._make_snap_files(tmp_path)
+
+        not_ready = SubprocessError(["gh"], 1, "artifact not found")
+        # First call fails (not ready), second succeeds, rest succeed
+        gh = self._GH_RESULT
+        results = [not_ready, gh, gh, gh, gh]
+        with (
+            patch("opcli.core.artifacts.run_command", side_effect=results),
+            patch("opcli.core.artifacts.time.sleep"),
+        ):
+            artifacts_fetch(
+                tmp_path, run_id="99887766", repo="owner/my-repo", wait=True
+            )
+
+    def test_wait_false_does_not_retry(self, tmp_path: Path) -> None:
+        """Without wait=True, a failed download raises immediately (no retry)."""
+        not_ready = SubprocessError(["gh"], 1, "artifact not found")
+        with (
+            patch("opcli.core.artifacts.run_command", side_effect=not_ready),
+            pytest.raises(SubprocessError),
+        ):
+            artifacts_fetch(
+                tmp_path, run_id="99887766", repo="owner/my-repo", wait=False
+            )
+
+    def test_wait_fails_fast_on_auth_error(self, tmp_path: Path) -> None:
+        """With wait=True, fails immediately on authentication errors (no sleep)."""
+        auth_error = SubprocessError(
+            ["gh"], 1, "HTTP 401 Unauthorized: bad credentials"
+        )
+        with (
+            patch("opcli.core.artifacts.run_command", side_effect=auth_error),
+            patch("opcli.core.artifacts.time.sleep") as mock_sleep,
+            pytest.raises(ConfigurationError, match="Authentication"),
+        ):
+            artifacts_fetch(
+                tmp_path, run_id="99887766", repo="owner/my-repo", wait=True
+            )
+
+        mock_sleep.assert_not_called()
+
+    def test_wait_times_out_with_last_error(self, tmp_path: Path) -> None:
+        """With wait=True, raises ConfigurationError after exhausting all attempts."""
+        not_ready = SubprocessError(["gh"], 1, "no artifact named X in run")
+        _orig = _artifacts_mod._WAIT_MAX_ATTEMPTS
+        try:
+            _artifacts_mod._WAIT_MAX_ATTEMPTS = 2  # speed up the test
+            with (
+                patch("opcli.core.artifacts.run_command", side_effect=not_ready),
+                patch("opcli.core.artifacts.time.sleep"),
+                pytest.raises(ConfigurationError, match="Timed out"),
+            ):
+                artifacts_fetch(
+                    tmp_path, run_id="99887766", repo="owner/my-repo", wait=True
+                )
+        finally:
+            _artifacts_mod._WAIT_MAX_ATTEMPTS = _orig

@@ -329,26 +329,10 @@ if [ -n "${GITHUB_RUN_ID:-}" ]; then
     exit 1
   fi
   export GH_TOKEN="${GITHUB_TOKEN}"
-  echo "Waiting for artifacts-generated artifact (run ${GITHUB_RUN_ID})..."
-  _MAX_WAIT=60
-  _n=0
-  until gh run download "${GITHUB_RUN_ID}" \
-      --repo "${GITHUB_REPOSITORY}" \
-      --name artifacts-generated \
-      --dir "${SPREAD_PATH}" 2>/dev/null; do
-    _n=$((_n + 1))
-    if [ "$_n" -ge "$_MAX_WAIT" ]; then
-      echo "Timed out waiting for artifacts-generated after $((_n * 30))s" >&2
-      exit 1
-    fi
-    echo "  ...attempt ${_n}/${_MAX_WAIT}, retrying in 30s"
-    sleep 30
-  done
-  gh run download "${GITHUB_RUN_ID}" \
-      --repo "${GITHUB_REPOSITORY}" \
-      --pattern "built-charm-*" \
-      --dir "${SPREAD_PATH}" || true
-  cd "${SPREAD_PATH}" && opcli artifacts localize
+  cd "${SPREAD_PATH}" && opcli artifacts fetch \
+    --run-id "${GITHUB_RUN_ID}" \
+    --repo "${GITHUB_REPOSITORY}" \
+    --wait
 fi
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
