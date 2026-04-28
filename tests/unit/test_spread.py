@@ -179,6 +179,7 @@ class TestSpreadExpand:
         assert "pipx" not in prepare
         assert "uv tool install" in prepare
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in prepare
+        assert "UV_TOOL_DIR=/usr/local/share/uv-tools" in prepare
         assert "pyproject.toml" in prepare
         assert "SPREAD_PATH" in prepare
         # spread installed if not already present
