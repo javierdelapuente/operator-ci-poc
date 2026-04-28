@@ -90,6 +90,10 @@ class TestSpreadInit:
         assert env["LANG"] == "C.UTF-8"
         assert env["LANGUAGE"] == "en"
         assert "CONCIERGE" in env
+        # GitHub Actions vars forwarded for CI artifact download
+        assert "GITHUB_TOKEN" in env
+        assert "GITHUB_RUN_ID" in env
+        assert "GITHUB_REPOSITORY" in env
         # MODULE variants belong in the suite, not the root environment
         assert not any(k.startswith("MODULE") for k in env)
         assert "TOX_ENV" not in env
@@ -202,6 +206,14 @@ class TestSpreadExpand:
         assert "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox" in ci["prepare"]
         assert "loginctl enable-linger ubuntu" in ci["prepare"]
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in ci["prepare"]
+        # CI prepare waits for and downloads build artifacts via gh CLI
+        assert "gh run download" in ci["prepare"]
+        assert "artifacts-generated" in ci["prepare"]
+        assert "built-charm-*" in ci["prepare"]
+        assert "GH_TOKEN" in ci["prepare"]
+        assert "GITHUB_RUN_ID" in ci["prepare"]
+        assert "opcli artifacts localize" in ci["prepare"]
+        assert "command -v gh" in ci["prepare"]
         # CI backend does NOT override SUDO_USER; ubuntu is created in allocate
         assert "environment" not in ci
         assert "useradd" in ci["allocate"]

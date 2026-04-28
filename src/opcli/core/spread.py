@@ -90,6 +90,11 @@ def _generate_spread_yaml(
         # Defaults to "main"; override on the host with OPCLI_GIT_REF=<branch>
         # before running spread to install opcli from a specific branch.
         "OPCLI_GIT_REF": '$(HOST: echo "${OPCLI_GIT_REF:-main}")',
+        # GitHub Actions vars forwarded so _CI_PREPARE can download artifacts.
+        # Empty locally — the download block checks GITHUB_RUN_ID before acting.
+        "GITHUB_TOKEN": '$(HOST: echo "${GITHUB_TOKEN:-}")',
+        "GITHUB_RUN_ID": '$(HOST: echo "${GITHUB_RUN_ID:-}")',
+        "GITHUB_REPOSITORY": '$(HOST: echo "${GITHUB_REPOSITORY:-}")',
     }
 
     # Suite environment: MODULE variants + TOX_ENV (scoped to this suite)
@@ -312,6 +317,33 @@ if [ -f "$CONCIERGE" ]; then
   loginctl enable-linger ubuntu
   snap install concierge --classic
   concierge prepare -c "$CONCIERGE"
+fi
+if [ -n "${GITHUB_RUN_ID:-}" ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "Error: gh CLI is required for CI artifact download but was not found" >&2
+    exit 1
+  fi
+  export GH_TOKEN="${GITHUB_TOKEN}"
+  echo "Waiting for artifacts-generated artifact (run ${GITHUB_RUN_ID})..."
+  _MAX_WAIT=60
+  _n=0
+  until gh run download "${GITHUB_RUN_ID}" \
+      --repo "${GITHUB_REPOSITORY}" \
+      --name artifacts-generated \
+      --dir "${SPREAD_PATH}" 2>/dev/null; do
+    _n=$((_n + 1))
+    if [ "$_n" -ge "$_MAX_WAIT" ]; then
+      echo "Timed out waiting for artifacts-generated after $((_n * 30))s" >&2
+      exit 1
+    fi
+    echo "  ...attempt ${_n}/${_MAX_WAIT}, retrying in 30s"
+    sleep 30
+  done
+  gh run download "${GITHUB_RUN_ID}" \
+      --repo "${GITHUB_REPOSITORY}" \
+      --pattern "built-charm-*" \
+      --dir "${SPREAD_PATH}" || true
+  cd "${SPREAD_PATH}" && opcli artifacts localize
 fi
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
