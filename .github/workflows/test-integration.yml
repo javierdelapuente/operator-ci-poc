@@ -31,3 +31,76 @@ jobs:
       packages: write
       contents: read
       actions: read
+
+  # Run spread with the local (LXD) backend after the full build+CI-test cycle.
+  # Downloads CI-built artifacts via 'opcli artifacts fetch', then runs spread
+  # without CI=true so the local: backend (LXD VM) is used.  This exercises the
+  # same path a developer would take on their workstation.
+  test-local:
+    name: "Spread (local/LXD)"
+    needs: [integration-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        working-directory: examples
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup tmate session
+        if: runner.debug == 1
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+          timeout-minutes: 60
+
+      - name: Install uv
+        run: sudo snap install astral-uv --classic
+
+      - name: Install opcli
+        run: |
+          if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
+            uv tool install "${GITHUB_WORKSPACE}"
+          else
+            uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@main"
+          fi
+
+      - name: Install spread
+        run: |
+          sudo snap install go --classic
+          go install github.com/canonical/spread/cmd/spread@latest
+          sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
+
+      - name: Install LXD
+        run: |
+          sudo snap install lxd
+          sudo lxd waitready
+          sudo lxd init --auto
+          sudo usermod -aG lxd $USER
+          sudo chmod 0666 /var/snap/lxd/common/lxd/unix.socket
+          if sudo iptables -nL DOCKER-USER 2>/dev/null; then
+            sudo iptables -I DOCKER-USER -i lxdbr0 -j ACCEPT
+            sudo iptables -I DOCKER-USER -o lxdbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+          fi
+          if sudo ip6tables -nL DOCKER-USER 2>/dev/null; then
+            sudo ip6tables -I DOCKER-USER -i lxdbr0 -j ACCEPT
+            sudo ip6tables -I DOCKER-USER -o lxdbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+          fi
+
+      # The build is guaranteed complete (integration-test finished).
+      # No --wait needed — artifacts-generated artifact exists already.
+      - name: Fetch CI artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          opcli artifacts fetch \
+            --run-id "${{ github.run_id }}" \
+            --repo "${{ github.repository }}"
+
+      # No CI=true → spread uses the local: backend (LXD VM).
+      # _LOCAL_PREPARE inside the VM runs concierge and opcli provision load.
+      - name: Run spread (local/LXD)
+        run: opcli spread run -- -vv
+
