@@ -309,6 +309,7 @@ fi
 uv tool install tox --with tox-uv --quiet
 sudo chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 if [ -f "$CONCIERGE" ]; then
+  sudo snap install concierge --classic
   sudo concierge prepare -c "$CONCIERGE"
 fi
 """

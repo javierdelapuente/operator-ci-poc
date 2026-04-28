@@ -126,19 +126,11 @@ jobs:
             sudo ip6tables -I DOCKER-USER -o lxdbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
           fi
 
-      # ── Install spread (direct binary, not snap) ──────────────────────────
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "stable"
-          cache: false
-
+      # ── Install spread ────────────────────────────────────────────────────
       - name: Install spread
-        run: go install github.com/canonical/spread/cmd/spread@latest
-
-      # ── Install concierge ─────────────────────────────────────────────────
-      - name: Install concierge
-        run: sudo snap install concierge --classic
+        run: |
+          sudo snap install go --classic
+          go install github.com/canonical/spread/cmd/spread@latest
 
       # ── Download build artifacts ──────────────────────────────────────────
       - name: Download artifacts-generated.yaml
