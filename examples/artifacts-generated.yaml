@@ -1,0 +1,22 @@
+version: 1
+rocks:
+- name: k8s-rock
+  rockcraft-yaml: k8s-rock/rockcraft.yaml
+  output:
+    file: ./k8s-rock/k8s-rock_1.0_amd64.rock
+charms:
+- name: machine-charm
+  charmcraft-yaml: machine-charm/charmcraft.yaml
+  output:
+    files:
+    - path: ./machine-charm/machine-charm_amd64.charm
+- name: k8s-charm
+  charmcraft-yaml: k8s-charm/charmcraft.yaml
+  output:
+    files:
+    - path: ./k8s-charm/k8s-charm_amd64.charm
+  resources:
+    k8s-rock-image:
+      type: oci-image
+      rock: k8s-rock
+snaps: []

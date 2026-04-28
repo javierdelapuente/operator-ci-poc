@@ -142,7 +142,7 @@ _TUTORIAL_TASK_YAML_CONTENT = (
     "\n"
     "execute: |\n"
     "    loginctl enable-linger ubuntu\n"
-    '    runuser -l ubuntu -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'  # noqa: E501
+    '    runuser -l ubuntu -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'
 )
 
 
@@ -307,38 +307,22 @@ else
       --quiet
 fi
 uv tool install tox --with tox-uv --quiet
-sudo chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 if [ -f "$CONCIERGE" ]; then
-  sudo snap install concierge --classic
-  sudo concierge prepare -c "$CONCIERGE"
+  snap install concierge --classic
+  concierge prepare -c "$CONCIERGE"
 fi
 """
 
 _CI_ALLOCATE = """\
-# Create ubuntu user so spread can SSH in as ubuntu@localhost.
-if ! id ubuntu &>/dev/null; then
-  sudo useradd -m -s /bin/bash ubuntu
-  echo "ubuntu ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/ubuntu > /dev/null
-  sudo chmod 0440 /etc/sudoers.d/ubuntu
+sudo sed -i 's/^[[:space:]]*#\\?[[:space:]]*\\(PermitRootLogin\\|PasswordAuthentication\\).*/\\1 yes/' \
+    /etc/ssh/sshd_config
+if [ -d /etc/ssh/sshd_config.d ]; then
+  printf 'PermitRootLogin yes\\nPasswordAuthentication yes\\n' | \
+      sudo tee /etc/ssh/sshd_config.d/00-spread.conf > /dev/null
 fi
-
-# Set the ubuntu user password directly via shadow hash so that PAM quality
-# checks in chpasswd cannot reject the spread-generated password.
-sudo usermod -p "$(openssl passwd -6 "${SPREAD_PASSWORD}")" ubuntu
-
-# Ensure sshd is installed.
-sudo apt-get install -y --quiet openssh-server
-
-# Replace sshd_config with a minimal one that enables password auth.
-# UsePAM no lets sshd check /etc/shadow directly, bypassing all PAM modules.
-sudo tee /etc/ssh/sshd_config > /dev/null << 'SSHDCONF'
-PermitRootLogin no
-PasswordAuthentication yes
-UsePAM no
-Subsystem sftp /usr/lib/openssh/sftp-server
-SSHDCONF
-
+sudo systemctl daemon-reload
 sudo systemctl restart ssh
+echo "root:${SPREAD_PASSWORD}" | sudo chpasswd
 
 ADDRESS localhost
 """
@@ -518,7 +502,7 @@ def _build_concrete_backend(
             backend_def["prepare"] = ci_prepare
         if isinstance(systems, list):
             backend_def["systems"] = _transform_systems(
-                systems, strip_keys=_CI_STRIP_KEYS, inject_username="ubuntu"
+                systems, strip_keys=_CI_STRIP_KEYS, inject_username="root"
             )
     else:
         # Extract per-system resource overrides before stripping the fields.

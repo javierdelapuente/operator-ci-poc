@@ -188,22 +188,21 @@ class TestSpreadExpand:
         ci = parsed["backends"]["ci"]
         assert ci["type"] == "adhoc"
         assert "ADDRESS localhost" in ci["allocate"]
-        assert "useradd" in ci["allocate"]
-        assert "usermod" in ci["allocate"]
+        assert "chpasswd" in ci["allocate"]
         assert "PasswordAuthentication yes" in ci["allocate"]
         assert "password" not in ci
         assert "concierge" in ci["prepare"]
         assert "tox" in ci["prepare"]
-        assert "chown" in ci["prepare"]
         assert "opcli" in ci["prepare"]
         assert "SPREAD_PATH" in ci["prepare"]
+        assert "chown" not in ci["prepare"]
         assert "pipx install" not in ci["prepare"]
         assert "discard" not in ci
-        # CI injects username: ubuntu per-system for SSH access
+        # CI injects username: root per-system for SSH access
         systems = ci["systems"]
         assert len(systems) == 1
         assert isinstance(systems[0], dict)
-        assert systems[0]["ubuntu-24.04"]["username"] == "ubuntu"
+        assert systems[0]["ubuntu-24.04"]["username"] == "root"
 
     def test_preserves_other_sections(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
@@ -336,7 +335,6 @@ suites:
 
         assert '[ -f "$CONCIERGE" ]' in prepare
         assert "tox" in prepare
-        assert "chown" in prepare
         assert "SPREAD_PATH" in prepare
         assert "pipx install" not in prepare
 
@@ -459,7 +457,7 @@ suites:
         assert "cpu" not in sys_props
         assert "memory" not in sys_props
         assert "disk" not in sys_props
-        assert sys_props.get("username") == "ubuntu"
+        assert sys_props.get("username") == "root"
 
     def test_runner_stripped_from_local_systems(self, tmp_path: Path) -> None:
         """runner label is stripped from local system entries (CI-only field)."""
@@ -511,7 +509,7 @@ suites:
         assert len(systems) == 1
         sys_def = systems[0]["ubuntu-24.04"]
         assert "runner" not in sys_def
-        assert sys_def.get("username") == "ubuntu"
+        assert sys_def.get("username") == "root"
 
     def test_multiple_systems_with_different_resources(self, tmp_path: Path) -> None:
         """Each system gets its own case arm in the allocate preamble."""
@@ -812,8 +810,7 @@ suites:
         backend = parsed["backends"]["ci-tutorial"]
         assert backend["type"] == "adhoc"
         assert "ADDRESS localhost" in backend["allocate"]
-        assert "useradd" in backend["allocate"]
-        assert "usermod" in backend["allocate"]
+        assert "chpasswd" in backend["allocate"]
         assert "prepare" not in backend
 
     def test_tutorial_username_injected_local(self, tmp_path: Path) -> None:
@@ -1039,8 +1036,8 @@ suites:
         with pytest.raises(ConfigurationError):
             spread_tasks(tmp_path)
 
-    def test_ci_backend_has_username_ubuntu(self, tmp_path: Path) -> None:
-        """Expanded CI backend sets username: ubuntu per system for SSH."""
+    def test_ci_backend_has_username_root(self, tmp_path: Path) -> None:
+        """Expanded CI backend sets username: root per system for SSH."""
         _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
 
         result = spread_expand(tmp_path, ci=True)
@@ -1055,7 +1052,7 @@ suites:
             if isinstance(system_entry, dict):
                 for _sys_name, sys_props in system_entry.items():
                     assert isinstance(sys_props, dict)
-                    assert sys_props.get("username") == "ubuntu"
+                    assert sys_props.get("username") == "root"
 
     def test_ci_backend_strips_runner_field(self, tmp_path: Path) -> None:
         """Expanded CI backend does not contain runner: key in systems."""
