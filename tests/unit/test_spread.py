@@ -198,7 +198,7 @@ class TestSpreadExpand:
         assert "chown" in ci["prepare"]
         # tox is installed for the ubuntu user via runuser
         assert "runuser" in ci["prepare"]
-        assert 'runuser -l ubuntu' in ci["prepare"]
+        assert "runuser -l ubuntu" in ci["prepare"]
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in ci["prepare"]
         # CI backend does NOT override SUDO_USER; ubuntu is created in allocate
         assert "environment" not in ci
