@@ -1,7 +1,0 @@
-backends:
-  local:
-    systems:
-    - ubuntu-24.04:
-        username: ubuntu
-        password: 8c1e84195a5b942c
-        address: 10.29.247.155

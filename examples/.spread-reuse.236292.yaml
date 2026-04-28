@@ -1,7 +1,0 @@
-backends:
-  ci:
-    systems:
-    - ubuntu-24.04:
-        username: ubuntu
-        password: 7e9184f3d12f68d6
-        address: localhost
