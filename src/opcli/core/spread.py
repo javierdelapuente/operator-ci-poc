@@ -304,6 +304,8 @@ if [ -f "$CONCIERGE" ]; then
 fi
 """
 
+_CI_SPREAD_PASSWORD = "ubuntu"
+
 _CI_ALLOCATE = """\
 # Create ubuntu user so spread can SSH in as ubuntu@localhost.
 if ! id ubuntu &>/dev/null; then
@@ -312,24 +314,15 @@ if ! id ubuntu &>/dev/null; then
   sudo chmod 0440 /etc/sudoers.d/ubuntu
 fi
 
-# Ensure sshd is running.
+# Set the ubuntu user password so spread can authenticate via SSH password auth.
+echo "ubuntu:ubuntu" | sudo chpasswd
+
+# Ensure sshd is installed and accepting password auth.
 sudo apt-get install -y --quiet openssh-server
+sudo sh -c 'printf "PasswordAuthentication yes\nPermitRootLogin no\n" \
+  > /etc/ssh/sshd_config.d/00-spread.conf'
 sudo systemctl enable --now ssh
-
-# Generate a key pair for the current user (spread runner) and authorise it
-# in ubuntu's account so spread can SSH to ubuntu@localhost without a password.
-mkdir -p ~/.ssh
-if [ ! -f ~/.ssh/id_ed25519 ]; then
-  ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
-fi
-sudo mkdir -p /home/ubuntu/.ssh
-cat ~/.ssh/id_ed25519.pub | sudo tee -a /home/ubuntu/.ssh/authorized_keys > /dev/null
-sudo chmod 700 /home/ubuntu/.ssh
-sudo chmod 600 /home/ubuntu/.ssh/authorized_keys
-sudo chown -R ubuntu:ubuntu /home/ubuntu/.ssh
-
-# Accept localhost host key.
-ssh-keyscan -H localhost >> ~/.ssh/known_hosts
+sudo systemctl restart ssh
 
 ADDRESS localhost
 """
@@ -505,6 +498,7 @@ def _build_concrete_backend(
 
     if use_ci:
         backend_def["allocate"] = _CI_ALLOCATE
+        backend_def["password"] = _CI_SPREAD_PASSWORD
         if ci_prepare:
             backend_def["prepare"] = ci_prepare
         if isinstance(systems, list):
