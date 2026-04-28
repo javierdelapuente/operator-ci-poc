@@ -151,6 +151,10 @@ jobs:
       - name: Localize artifacts
         run: opcli artifacts localize
 
+      # ── Make workspace readable by the ubuntu user spread runs tests as ───
+      - name: Make workspace world-readable
+        run: chmod -R o+rX $GITHUB_WORKSPACE
+
       # ── Run the spread task ───────────────────────────────────────────────
       - name: Run spread task
         env:
