@@ -724,7 +724,7 @@ def artifacts_localize(root: Path) -> int:
 # artifacts fetch
 # ---------------------------------------------------------------------------
 
-_GITHUB_URL_RE = re.compile(r"github\.com[:/](.+?)(?:\.git)?$")
+_GITHUB_URL_RE = re.compile(r"github\.com[:/](.+?)(?:\.git)?/?$")
 
 
 def _infer_repo_from_git(root: Path) -> str:
@@ -810,16 +810,16 @@ def artifacts_fetch(root: Path, run_id: str, repo: str | None = None) -> Path:
 
     generated = load_artifacts_generated(gen_path)
 
-    # Download each charm / snap artifact archive
-    artifact_names: list[str] = []
+    # Download each charm / snap artifact archive (deduplicated)
+    seen_artifacts: set[str] = set()
     for charm in generated.charms:
         if charm.output.artifact:
-            artifact_names.append(charm.output.artifact)
+            seen_artifacts.add(charm.output.artifact)
     for snap in generated.snaps:
         if snap.output.artifact:
-            artifact_names.append(snap.output.artifact)
+            seen_artifacts.add(snap.output.artifact)
 
-    for name in artifact_names:
+    for name in sorted(seen_artifacts):
         run_command(
             [
                 "gh",

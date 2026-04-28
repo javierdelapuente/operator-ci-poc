@@ -1215,6 +1215,25 @@ class TestArtifactsFetch:
         with patch("opcli.core.artifacts.run_command", side_effect=results):
             artifacts_fetch(tmp_path, run_id="99887766")
 
+    def test_infers_repo_strips_trailing_slash(self, tmp_path: Path) -> None:
+        """Strips trailing slash from git remote URLs like https://github.com/o/r/."""
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        self._make_charm_files(tmp_path)
+        self._make_snap_files(tmp_path)
+
+        trailing_slash = SubprocessResult(
+            stdout="https://github.com/owner/my-repo/\n", stderr="", returncode=0
+        )
+        gh = self._GH_RESULT
+        results = [trailing_slash, gh, gh, gh, gh]
+        with patch("opcli.core.artifacts.run_command", side_effect=results) as mock_run:
+            artifacts_fetch(tmp_path, run_id="99887766")
+
+        for c in mock_run.call_args_list[1:]:
+            repo_val = c.args[0][c.args[0].index("--repo") + 1]
+            assert not repo_val.endswith("/"), f"repo has trailing slash: {repo_val!r}"
+            assert repo_val == "owner/my-repo"
+
     def test_raises_when_git_remote_not_github(self, tmp_path: Path) -> None:
         """Raises ConfigurationError when remote is not a GitHub URL."""
         non_github = SubprocessResult(
