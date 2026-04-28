@@ -311,7 +311,7 @@ runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with 
 if [ -f "$CONCIERGE" ]; then
   loginctl enable-linger ubuntu
   snap install concierge --classic
-  concierge prepare -c "$CONCIERGE"
+  runuser -l ubuntu -c "concierge prepare -c \\"$CONCIERGE\\""
 fi
 if [ -n "${GITHUB_RUN_ID:-}" ]; then
   if ! command -v gh >/dev/null 2>&1; then
