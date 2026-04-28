@@ -288,7 +288,7 @@ if ! command -v spread >/dev/null 2>&1; then
   go install github.com/canonical/spread/cmd/spread@latest
   sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
 fi
-runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
+runuser -l ubuntu -c "uv tool install tox --with tox-uv --quiet"
 if [ -f "$CONCIERGE" ]; then
   sudo snap install concierge --classic || true
   concierge prepare -c "$CONCIERGE"
@@ -318,7 +318,7 @@ if ! command -v spread >/dev/null 2>&1; then
   go install github.com/canonical/spread/cmd/spread@latest
   ln -sf ~/go/bin/spread /usr/local/bin/spread
 fi
-runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
+runuser -l ubuntu -c "uv tool install tox --with tox-uv --quiet"
 if [ -f "$CONCIERGE" ]; then
   snap install concierge --classic || true
   concierge prepare -c "$CONCIERGE"
