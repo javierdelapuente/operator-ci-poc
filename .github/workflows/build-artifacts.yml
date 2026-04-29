@@ -31,7 +31,6 @@ jobs:
   build-matrix:
     name: Build matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     permissions:
       actions: read  # required by get-workflow-version-action
       contents: read
@@ -74,7 +73,6 @@ jobs:
     name: "Build ${{ matrix.type }} ${{ matrix.name }}"
     needs: build-matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -155,7 +153,6 @@ jobs:
     name: Collect artifacts
     needs: [build-matrix, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}

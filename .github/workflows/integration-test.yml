@@ -44,7 +44,6 @@ jobs:
   test-plan:
     name: Generate test matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     permissions:
       contents: read
       actions: read
@@ -90,7 +89,6 @@ jobs:
     name: "${{ matrix.name }}"
     needs: [test-plan]
     runs-on: ${{ fromJSON(matrix.runs-on) }}
-    timeout-minutes: 20
     permissions:
       contents: read
       actions: read
