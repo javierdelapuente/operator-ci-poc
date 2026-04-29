@@ -1174,7 +1174,6 @@ class TestArtifactsFetch:
                 "artifacts-generated",
                 "--dir",
                 str(tmp_path),
-                "--clobber",
             ],
             cwd=str(tmp_path),
         )
@@ -1327,23 +1326,80 @@ class TestArtifactsFetch:
 
         mock_sleep.assert_not_called()
 
-    def test_wait_fails_fast_on_file_exists(self, tmp_path: Path) -> None:
-        """With wait=True, fails immediately on 'file exists' (no retry)."""
+    def test_file_exists_deletes_and_retries(self, tmp_path: Path) -> None:
+        """When gh reports 'file exists', the file is deleted and download retried."""
+        # Use a rocks-only yaml: no charm/snap downloads follow, so run_command
+        # is called exactly twice (fail + retry).
+        rocks_only = (
+            "version: 1\n"
+            "rocks:\n"
+            "- name: my-rock\n"
+            "  rockcraft-yaml: rock/rockcraft.yaml\n"
+            "  output:\n"
+            "    image: ghcr.io/owner/repo/my-rock:abc1234\n"
+        )
+        _write(tmp_path / "artifacts-generated.yaml", rocks_only)
         file_exists_error = SubprocessError(
             ["gh"],
             1,
             'error extracting "artifacts-generated.yaml": open ...: file exists',
         )
+        gh = self._GH_RESULT
+        call_count = 0
+
+        def side_effect(cmd: list[str], cwd: str | None = None) -> object:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise file_exists_error
+            _write(tmp_path / "artifacts-generated.yaml", rocks_only)
+            return gh
+
+        with patch("opcli.core.artifacts.run_command", side_effect=side_effect):
+            result = artifacts_fetch(tmp_path, run_id="99887766", repo="owner/my-repo")
+
+        assert result == tmp_path / "artifacts-generated.yaml"
+        _EXPECTED_CALLS = 2
+        assert call_count == _EXPECTED_CALLS
+
+    def test_wait_file_exists_deletes_and_retries(self, tmp_path: Path) -> None:
+        """With wait=True, 'file exists' triggers delete-and-retry (no sleep)."""
+        rocks_only = (
+            "version: 1\n"
+            "rocks:\n"
+            "- name: my-rock\n"
+            "  rockcraft-yaml: rock/rockcraft.yaml\n"
+            "  output:\n"
+            "    image: ghcr.io/owner/repo/my-rock:abc1234\n"
+        )
+        _write(tmp_path / "artifacts-generated.yaml", rocks_only)
+        file_exists_error = SubprocessError(
+            ["gh"],
+            1,
+            'error extracting "artifacts-generated.yaml": open ...: file exists',
+        )
+        gh = self._GH_RESULT
+        call_count = 0
+
+        def side_effect(cmd: list[str], cwd: str | None = None) -> object:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise file_exists_error
+            _write(tmp_path / "artifacts-generated.yaml", rocks_only)
+            return gh
+
         with (
-            patch("opcli.core.artifacts.run_command", side_effect=file_exists_error),
+            patch("opcli.core.artifacts.run_command", side_effect=side_effect),
             patch("opcli.core.artifacts.time.sleep") as mock_sleep,
-            pytest.raises(SubprocessError),
         ):
             artifacts_fetch(
                 tmp_path, run_id="99887766", repo="owner/my-repo", wait=True
             )
 
         mock_sleep.assert_not_called()
+        _EXPECTED_CALLS = 2
+        assert call_count == _EXPECTED_CALLS
 
     def test_wait_times_out_with_last_error(self, tmp_path: Path) -> None:
         """With wait=True, raises ConfigurationError after exhausting all attempts."""

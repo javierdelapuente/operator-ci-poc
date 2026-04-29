@@ -783,28 +783,46 @@ _AUTH_ERROR_KEYWORDS = (
     "401",
 )
 
-# Keywords that indicate a deterministic (non-transient) failure.
-# With --clobber these should never occur, but guard against unexpected cases.
-_DETERMINISTIC_ERROR_KEYWORDS = ("file exists",)
+# Keywords that indicate the destination file already exists; we delete it and retry.
+_FILE_EXISTS_KEYWORDS = ("file exists",)
 
 
-def _gh_download(cmd: list[str], cwd: str) -> None:
-    """Run ``gh run download``, raising :class:`SubprocessError` on failure."""
-    run_command(cmd, cwd=cwd)
+def _gh_download(cmd: list[str], cwd: str, dest: Path | None = None) -> None:
+    """Run ``gh run download``, raising :class:`SubprocessError` on failure.
+
+    If ``gh`` reports that the destination file already exists (older ``gh``
+    versions lack ``--clobber``), the file is deleted and the download is
+    retried once.
+    """
+    try:
+        run_command(cmd, cwd=cwd)
+    except SubprocessError as exc:
+        if dest is not None and any(
+            kw in exc.stderr.lower() for kw in _FILE_EXISTS_KEYWORDS
+        ):
+            dest.unlink(missing_ok=True)
+            run_command(cmd, cwd=cwd)
+        else:
+            raise
 
 
-def _gh_download_with_wait(cmd: list[str], cwd: str, run_id: str) -> None:
+def _gh_download_with_wait(
+    cmd: list[str], cwd: str, run_id: str, dest: Path | None = None
+) -> None:
     """Run ``gh run download``, retrying until the artifact appears.
 
     Retries up to :data:`_WAIT_MAX_ATTEMPTS` times with
     :data:`_WAIT_SLEEP_SECONDS` between each attempt.  Fails immediately if
     the error looks like an authentication/permission problem or a
-    deterministic failure (e.g. "file exists").
+    deterministic failure (e.g. "file exists", handled via delete-and-retry).
 
     Args:
         cmd: Full ``gh run download ...`` command list.
         cwd: Working directory for the subprocess.
         run_id: Run ID used only for log messages.
+        dest: Path of the expected output file.  When provided and ``gh``
+            reports "file exists", the file is deleted and the download is
+            retried once before giving up.
 
     Raises:
         ConfigurationError: On auth/permission errors or when the timeout
@@ -825,8 +843,12 @@ def _gh_download_with_wait(cmd: list[str], cwd: str, run_id: str) -> None:
                     f"permissions.\n{exc.stderr.strip()}"
                 )
                 raise ConfigurationError(msg) from exc
-            if any(kw in stderr_lower for kw in _DETERMINISTIC_ERROR_KEYWORDS):
-                raise
+            if dest is not None and any(
+                kw in stderr_lower for kw in _FILE_EXISTS_KEYWORDS
+            ):
+                dest.unlink(missing_ok=True)
+                run_command(cmd, cwd=cwd)
+                return
             last_exc = exc
             logger.info(
                 "Artifact not yet available (attempt %d/%d), retrying in %ds...",
@@ -899,14 +921,13 @@ def artifacts_fetch(
         "artifacts-generated",
         "--dir",
         str(root),
-        "--clobber",
     ]
-    if wait:
-        _gh_download_with_wait(generated_cmd, str(root), run_id)
-    else:
-        _gh_download(generated_cmd, str(root))
-
     gen_path = root / _ARTIFACTS_GENERATED_YAML
+    if wait:
+        _gh_download_with_wait(generated_cmd, str(root), run_id, dest=gen_path)
+    else:
+        _gh_download(generated_cmd, str(root), dest=gen_path)
+
     if not gen_path.exists():
         msg = (
             f"{_ARTIFACTS_GENERATED_YAML} not found after download. "
@@ -938,7 +959,6 @@ def artifacts_fetch(
                 name,
                 "--dir",
                 str(root),
-                "--clobber",
             ],
             cwd=str(root),
         )
