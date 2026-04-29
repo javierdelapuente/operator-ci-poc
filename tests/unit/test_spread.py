@@ -32,6 +32,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04
 environment:
@@ -274,6 +275,7 @@ class TestSpreadExpand:
 project: test-project
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04
     environment:
@@ -395,6 +397,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           runner: [self-hosted, noble]
@@ -427,6 +430,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           username: custom-user
@@ -453,6 +457,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           cpu: 2
@@ -517,6 +522,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           runner: [self-hosted, noble]
@@ -543,6 +549,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           runner: [self-hosted, noble]
@@ -570,6 +577,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-22.04:
           cpu: 2
@@ -616,6 +624,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           cpu: -1
@@ -649,6 +658,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           cpu: true
@@ -792,9 +802,11 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04
   tutorial-test:
+    type: tutorial
     systems:
       - ubuntu-24.04
 suites:
@@ -823,6 +835,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   tutorial-test:
+    type: tutorial
     systems:
       - ubuntu-24.04
 suites:
@@ -854,6 +867,7 @@ suites:
 project: test-project
 backends:
   tutorial-test:
+    type: tutorial
     systems:
       - ubuntu-24.04
 suites:
@@ -876,6 +890,7 @@ suites:
 project: test-project
 backends:
   tutorial-test:
+    type: tutorial
     systems:
       - ubuntu-24.04
 suites:
@@ -913,7 +928,7 @@ suites:
         assert "tutorial-test-local" in parsed["backends"]
 
     def test_no_known_virtual_backend_raises(self, tmp_path: Path) -> None:
-        """Raises ConfigurationError when no known virtual backend is found."""
+        """Raises ConfigurationError when no backend with a virtual type is found."""
         spread = """\
 project: test-project
 backends:
@@ -924,7 +939,9 @@ suites:
 """
         _write(tmp_path / "spread.yaml", spread)
 
-        with pytest.raises(ConfigurationError, match="no known virtual backend"):
+        with pytest.raises(
+            ConfigurationError, match="no backend with a recognised virtual type"
+        ):
             spread_expand(tmp_path)
 
     def test_generated_suite_has_backends_key(self, tmp_path: Path) -> None:
@@ -950,16 +967,87 @@ suites:
         assert "integration-test" not in suite.get("backends", [])
         assert "integration-test-local" in suite["backends"]
 
+    def test_generated_spread_yaml_has_type_field(self, tmp_path: Path) -> None:
+        """spread_init generates a backend with type: integration-test."""
+        _write(tmp_path / "tests" / "integration" / "test_charm.py", "")
+        spread_path, _ = spread_init(tmp_path)
 
-# ---------------------------------------------------------------------------
-#  Tests for _runner_by_system and spread_tasks
-# ---------------------------------------------------------------------------
+        parsed = _yaml.load(StringIO(spread_path.read_text()))
+        assert parsed["backends"]["integration-test"]["type"] == "integration-test"
+
+    def test_custom_backend_name_with_integration_test_type(
+        self, tmp_path: Path
+    ) -> None:
+        """A user-defined backend name with type: integration-test is expanded."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  my-k8s-backend:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - my-k8s-backend
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "my-k8s-backend:" not in result
+        assert "my-k8s-backend-local" in parsed["backends"]
+        assert parsed["backends"]["my-k8s-backend-local"]["type"] == "adhoc"
+        suite_backends = parsed["suites"]["tests/integration/"]["backends"]
+        assert suite_backends == ["my-k8s-backend-local"]
+
+    def test_multiple_virtual_backends_same_type(self, tmp_path: Path) -> None:
+        """Multiple backends with the same virtual type expand independently."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+  integration-test-arm:
+    type: integration-test
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, arm64]
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+      - integration-test-arm
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "integration-test-local" in parsed["backends"]
+        assert "integration-test-arm-local" in parsed["backends"]
+        suite_backends = parsed["suites"]["tests/integration/"]["backends"]
+        assert "integration-test-local" in suite_backends
+        assert "integration-test-arm-local" in suite_backends
+
 
 _SPREAD_WITH_RUNNER = """\
 project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-22.04:
           runner: ubuntu-22.04-runner
@@ -982,6 +1070,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04
 environment:
@@ -1072,6 +1161,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04
 environment:

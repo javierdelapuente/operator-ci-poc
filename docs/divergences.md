@@ -619,10 +619,34 @@ shell used by `runuser -l ubuntu` in the EXECUTE script.
 
 **Spec:** Describes the backends as `local:` (for local/LXD) and `ci:` (for GitHub Actions runners).
 
-**Implementation:** Concrete backend names are derived from the virtual backend name by appending `-local` or `-ci`:
+**Implementation:** Virtual backends are identified by a `type:` field (mirroring how spread itself uses `type: lxd`, `type: adhoc`, etc.). The recognised virtual types are `integration-test` and `tutorial`. The backend name is user-defined; the concrete name is derived by appending `-local` or `-ci`:
+
+```yaml
+backends:
+  integration-test:       # user-defined name
+    type: integration-test  # virtual type recognized by opcli
+    systems:
+      - ubuntu-24.04
+
+  integration-test-arm:   # second backend, same type, different systems
+    type: integration-test
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, arm64]
+
+  tutorial-test:
+    type: tutorial
+    systems:
+      - ubuntu-24.04
+```
+
+The `type:` field is consumed by opcli and replaced with `type: adhoc` in the expanded YAML. Concrete names produced:
 
 - `integration-test` → `integration-test-local` / `integration-test-ci`
+- `integration-test-arm` → `integration-test-arm-local` / `integration-test-arm-ci`
 - `tutorial-test` → `tutorial-test-local` / `tutorial-test-ci`
+
+The spec names the tutorial type `tutorial-test`; the implementation uses `tutorial`.
 
 This means spread selectors use the derived name, e.g.:
 

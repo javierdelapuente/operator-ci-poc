@@ -165,7 +165,21 @@ charms:
 
 ### `spread.yaml`
 
-Uses a **virtual backend** called `integration-test:` that is not real spread syntax. `opcli spread run/expand` replaces it with `integration-test-local:` or `integration-test-ci:` (determined by the `CI` env var). Users may add any other spread-native backends, suites, or environment variables — opcli must preserve them all.
+Uses **virtual backends** identified by a `type:` field. Recognised virtual types: `integration-test` and `tutorial`. `opcli spread run/expand` finds all backends whose `type:` is a known virtual type, consumes the `type:` field, and replaces each backend with a concrete `{name}-local` or `{name}-ci` backend (determined by the `CI` env var). The backend name is fully user-defined. Multiple backends of the same virtual type may coexist. Users may add any other spread-native backends, suites, or environment variables — opcli must preserve them all.
+
+Example:
+```yaml
+backends:
+  integration-test:        # user-defined name
+    type: integration-test # virtual type
+    systems:
+      - ubuntu-24.04
+  integration-test-arm:    # second backend, same type
+    type: integration-test
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, arm64]
+```
 
 ### `concierge.yaml`
 
@@ -225,7 +239,7 @@ tests/
 
 ### `opcli spread run`
 
-- Reads `spread.yaml`, expands the `integration-test:` virtual backend into `integration-test-local:` or `integration-test-ci:` (based on `CI` env var), writes the expanded YAML to a **temp file** (never overwrites the original).
+- Reads `spread.yaml`, expands all backends whose `type:` is a known virtual type (`integration-test` or `tutorial`) into concrete `{name}-local:` or `{name}-ci:` backends (based on `CI` env var), writes the expanded YAML to a **temp file** (never overwrites the original).
 - Invokes `spread` as a subprocess with the temp file.
 - **Argument forwarding:** all tokens after `--` are forwarded **verbatim and in order** to the spread subprocess. `opcli` must not reinterpret, normalize, or swallow spread selectors or flags.
   ```bash

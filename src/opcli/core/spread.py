@@ -3,8 +3,9 @@
 ``init`` discovers integration test modules and generates ``spread.yaml``
 plus ``tests/integration/run/task.yaml``.
 
-``expand`` reads ``spread.yaml``, replaces the virtual ``integration-test``
-backend with a concrete ``local:`` or ``ci:`` backend, and returns the
+``expand`` reads ``spread.yaml``, finds backends whose ``type:`` field is a
+recognized virtual type (``integration-test`` or ``tutorial``), replaces them
+with concrete ``<name>-local`` or ``<name>-ci`` backends, and returns the
 expanded YAML.  The original file is **never** modified.
 
 ``run`` creates a temporary directory inside the project root containing
@@ -40,7 +41,7 @@ _SPREAD_YAML = "spread.yaml"
 _TASK_YAML_REL = "tests/integration/run/task.yaml"
 _TUTORIAL_TASK_YAML_REL = "tests/tutorial/run/task.yaml"
 _VIRTUAL_BACKEND = "integration-test"
-_TUTORIAL_BACKEND = "tutorial-test"
+_TUTORIAL_BACKEND = "tutorial"
 
 
 def _literalize(obj: Any) -> Any:
@@ -107,6 +108,7 @@ def _generate_spread_yaml(
         "kill-timeout": "60m",
         "backends": {
             _VIRTUAL_BACKEND: {
+                "type": _VIRTUAL_BACKEND,
                 "systems": ["ubuntu-24.04"],
             },
         },
@@ -365,10 +367,13 @@ fi
 """
 
 
-# Map each virtual backend name to:
+# Map each virtual backend type value to:
 #   (local_prepare, ci_prepare)
-# Concrete names are derived as "{virtual_name}-local" / "{virtual_name}-ci".
-# The CI prepare for tutorial-test is empty — workflows are expected to
+# Backends in spread.yaml declare their virtual type via the ``type:`` field
+# (e.g. ``type: integration-test``).  Concrete names are derived as
+# ``"{backend_name}-local"`` / ``"{backend_name}-ci"`` from the user-defined
+# backend name.
+# The CI prepare for tutorial is empty — workflows are expected to
 # install opcli before invoking spread.
 _BACKEND_CONFIGS: dict[str, tuple[str, str]] = {
     _VIRTUAL_BACKEND: (_LOCAL_PREPARE, _CI_PREPARE),
@@ -585,19 +590,23 @@ def _expand_backend(
     *,
     ci: bool | None = None,
 ) -> dict[str, object]:
-    """Replace all known virtual backends with concrete ones.
+    """Replace all virtual-typed backends with concrete ones.
 
-    Recognises ``integration-test`` and ``tutorial-test`` virtual backends.
-    Each is removed from the YAML and replaced with its concrete counterpart
-    (``integration-test-local`` / ``integration-test-ci`` for integration,
-    ``tutorial-test-local`` / ``tutorial-test-ci`` for tutorials).
-    All user-defined fields (``systems``, ``environment``,
-    ``prepare-each``, ``kill-timeout``, etc.) are preserved.
+    Scans all backends in ``spread.yaml`` for a ``type:`` field whose value
+    is a recognised virtual type (``integration-test`` or ``tutorial``).
+    Each such backend is removed and replaced with a concrete counterpart
+    named ``{backend_name}-local`` or ``{backend_name}-ci``.  The ``type:``
+    field is consumed by opcli and replaced with ``type: adhoc``.  All other
+    user-defined fields (``systems``, ``environment``, ``prepare-each``,
+    ``kill-timeout``, etc.) are preserved.
+
+    Multiple virtual backends may coexist in a single ``spread.yaml`` — each
+    is expanded independently, so users can declare e.g.
+    ``integration-test:`` and ``integration-test-arm:`` (both with
+    ``type: integration-test``) with different system lists.
 
     Suite-level ``backends:`` lists are also updated so that any reference to
     a virtual backend name is replaced with the corresponding concrete name.
-    This prevents suites from accidentally running on the wrong backend when
-    both virtual backends are declared in the same ``spread.yaml``.
 
     Args:
         spread_data: Parsed spread.yaml (mutated in place on a deep copy).
@@ -607,7 +616,8 @@ def _expand_backend(
         New dict with the backends replaced.
 
     Raises:
-        ConfigurationError: If no known virtual backend is found.
+        ConfigurationError: If no backend with a recognised virtual type is
+            found.
     """
     data = deepcopy(spread_data)
     backends = data.get("backends")
@@ -618,29 +628,34 @@ def _expand_backend(
     use_ci = ci if ci is not None else _is_ci()
     found_any = False
 
-    for virtual_name, (
-        local_prepare,
-        ci_prepare,
-    ) in _BACKEND_CONFIGS.items():
-        virtual = backends.pop(virtual_name, None)
-        if virtual is None:
+    for backend_name in list(backends.keys()):
+        backend_entry = backends.get(backend_name)
+        if not isinstance(backend_entry, dict):
+            continue
+        backend_type = backend_entry.get("type")
+        if backend_type not in _BACKEND_CONFIGS:
             continue
         found_any = True
 
-        concrete_name = f"{virtual_name}-ci" if use_ci else f"{virtual_name}-local"
+        local_prepare, ci_prepare = _BACKEND_CONFIGS[str(backend_type)]
+        # Strip the virtual type field; _build_concrete_backend sets type: adhoc
+        virtual = {k: v for k, v in backend_entry.items() if k != "type"}
+        del backends[backend_name]
+
+        concrete_name = f"{backend_name}-ci" if use_ci else f"{backend_name}-local"
         backends[concrete_name] = _build_concrete_backend(
             virtual,
             use_ci=use_ci,
             local_prepare=local_prepare,
             ci_prepare=ci_prepare,
         )
-        _replace_suite_backend_name(data, virtual_name, concrete_name)
+        _replace_suite_backend_name(data, backend_name, concrete_name)
 
     if not found_any:
         known = ", ".join(f"'{n}'" for n in _BACKEND_CONFIGS)
         msg = (
-            f"spread.yaml contains no known virtual backend ({known}). "
-            "Nothing to expand."
+            f"spread.yaml contains no backend with a recognised virtual type "
+            f"({known}). Nothing to expand."
         )
         raise ConfigurationError(msg)
 
