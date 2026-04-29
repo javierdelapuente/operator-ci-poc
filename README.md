@@ -107,6 +107,8 @@ opcli pytest expand -- -k test_charm
 | `opcli artifacts build` | Build all artifacts and produce `artifacts-generated.yaml`. Filter with `--charm <name>`, `--rock <name>`, `--snap <name>`. |
 | `opcli artifacts matrix` | Read `artifacts.yaml` and print a JSON build matrix for GitHub Actions (one entry per artifact). |
 | `opcli artifacts collect <partial>...` | Merge partial `artifacts-generated.yaml` files from parallel build jobs into a single output file. |
+| `opcli artifacts fetch` | Download `artifacts-generated.yaml` and all charm/snap archives from a CI run, then rewrite paths to local files so `opcli pytest expand` and `opcli spread run` work without a local build. Rock artifacts are GHCR images and need no download. Use `--run-id`, `--repo`, and `--wait` (retries until the artifact appears). |
+| `opcli artifacts localize` | Rewrite `artifacts-generated.yaml` to replace CI artifact references with local `.charm` file paths after charm archives have been manually downloaded. (Prefer `opcli artifacts fetch` for the full workflow.) |
 
 ### `opcli provision`
 
@@ -123,6 +125,7 @@ opcli pytest expand -- -k test_charm
 | `opcli spread init` | Discover integration tests and generate `spread.yaml` + `tests/integration/run/task.yaml`. Use `--force` to overwrite. |
 | `opcli spread expand` | Print the fully expanded `spread.yaml` to stdout. |
 | `opcli spread run` | Expand the virtual backend and run spread. Extra args after `--` are forwarded verbatim to spread (e.g. `opcli spread run -- -list`). |
+| `opcli spread tasks` | List the spread tasks/variants discovered in `spread.yaml`. |
 
 ### `opcli pytest`
 
