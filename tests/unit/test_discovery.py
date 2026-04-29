@@ -16,9 +16,11 @@ from opcli.core.yaml_io import (
 )
 from opcli.models.artifacts import ArtifactsPlan
 from opcli.models.artifacts_generated import (
-    ArtifactOutput,
     ArtifactsGenerated,
+    CharmArchBuild,
+    GeneratedCharm,
     GeneratedRock,
+    RockArchBuild,
 )
 
 
@@ -211,7 +213,7 @@ class TestYamlIO:
                 GeneratedRock(
                     name="r1",
                     rockcraft_yaml="rd/rockcraft.yaml",
-                    output=ArtifactOutput(file="./r1.rock"),
+                    output=[RockArchBuild(arch="amd64", file="./r1.rock")],
                 )
             ],
         )
@@ -222,11 +224,11 @@ class TestYamlIO:
 
     def test_run_id_alias_survives_round_trip(self, tmp_path: Path) -> None:
         gen = ArtifactsGenerated(
-            rocks=[
-                GeneratedRock(
-                    name="r1",
-                    rockcraft_yaml="rd/rockcraft.yaml",
-                    output=ArtifactOutput(artifact="a1", run_id="42"),
+            charms=[
+                GeneratedCharm(
+                    name="c1",
+                    charmcraft_yaml="charmcraft.yaml",
+                    output=[CharmArchBuild(arch="amd64", artifact="a1", run_id="42")],
                 )
             ],
         )
@@ -235,7 +237,7 @@ class TestYamlIO:
         raw = path.read_text()
         assert "run-id" in raw
         loaded = load_artifacts_generated(path)
-        assert loaded.rocks[0].output.run_id == "42"
+        assert loaded.charms[0].output[0].run_id == "42"
 
     def test_load_invalid_yaml_raises(self, tmp_path: Path) -> None:
         path = tmp_path / "bad.yaml"

@@ -10,6 +10,8 @@ Schema version: 1
 - An optional ``pack-dir`` field controls the working directory for the build
   tool (e.g. run ``rockcraft pack`` from the repo root when ``go.mod`` lives
   there but ``rockcraft.yaml`` is in a subdirectory).
+- An optional ``builds`` list declares the target architectures and GitHub
+  runner labels for each artifact.  Defaults to a single amd64 build.
 """
 
 from __future__ import annotations
@@ -28,6 +30,19 @@ class ArtifactResource(BaseModel):
     rock: str | None = None
 
 
+class BuildTarget(BaseModel):
+    """A single build target: an architecture and optional runner label(s)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    arch: str
+    runner: list[str] | None = None
+
+
+def _default_builds() -> list[BuildTarget]:
+    return [BuildTarget(arch="amd64")]
+
+
 class CharmArtifact(BaseModel):
     """A charm declared in artifacts.yaml."""
 
@@ -37,6 +52,7 @@ class CharmArtifact(BaseModel):
     charmcraft_yaml: str = Field(alias="charmcraft-yaml")
     pack_dir: str | None = Field(default=None, alias="pack-dir")
     resources: dict[str, ArtifactResource] = {}
+    builds: list[BuildTarget] = Field(default_factory=_default_builds)
 
 
 class RockArtifact(BaseModel):
@@ -47,6 +63,7 @@ class RockArtifact(BaseModel):
     name: str
     rockcraft_yaml: str = Field(alias="rockcraft-yaml")
     pack_dir: str | None = Field(default=None, alias="pack-dir")
+    builds: list[BuildTarget] = Field(default_factory=_default_builds)
 
 
 class SnapArtifact(BaseModel):
@@ -57,6 +74,7 @@ class SnapArtifact(BaseModel):
     name: str
     snapcraft_yaml: str = Field(alias="snapcraft-yaml")
     pack_dir: str | None = Field(default=None, alias="pack-dir")
+    builds: list[BuildTarget] = Field(default_factory=_default_builds)
 
 
 class ArtifactsPlan(BaseModel):

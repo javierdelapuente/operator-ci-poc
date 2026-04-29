@@ -94,35 +94,36 @@ def provision_load(
     pushed: list[str] = []
 
     for rock in generated.rocks:
-        if not rock.output.file:
-            continue
+        for build in rock.output:
+            if not build.file:
+                continue
 
-        rock_path = Path(rock.output.file)
-        image_ref = f"{registry}/{rock.name}:latest"
+            rock_path = Path(build.file)
+            image_ref = f"{registry}/{rock.name}:{build.arch}"
 
-        if rock.output.image == image_ref:
-            logger.info("Already loaded %s, skipping", image_ref)
-            continue
+            if build.image == image_ref:
+                logger.info("Already loaded %s, skipping", image_ref)
+                continue
 
-        # Push directly from .rock archive to registry in one step — no Docker
-        # daemon needed (avoids failures in MicroK8s-only environments).
-        run_command(
-            [
-                "sudo",
-                "rockcraft.skopeo",
-                "--insecure-policy",
-                "copy",
-                "--dest-tls-verify=false",
-                f"oci-archive:{rock_path}",
-                f"docker://{image_ref}",
-            ],
-            cwd=str(root),
-        )
+            # Push directly from .rock archive to registry in one step — no Docker
+            # daemon needed (avoids failures in MicroK8s-only environments).
+            run_command(
+                [
+                    "sudo",
+                    "rockcraft.skopeo",
+                    "--insecure-policy",
+                    "copy",
+                    "--dest-tls-verify=false",
+                    f"oci-archive:{rock_path}",
+                    f"docker://{image_ref}",
+                ],
+                cwd=str(root),
+            )
 
-        rock.output.image = image_ref
+            build.image = image_ref
 
-        pushed.append(image_ref)
-        logger.info("Pushed %s", image_ref)
+            pushed.append(image_ref)
+            logger.info("Pushed %s", image_ref)
 
     if pushed:
         dump_artifacts_generated(generated, gen_path)

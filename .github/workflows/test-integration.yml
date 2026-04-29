@@ -102,8 +102,11 @@ jobs:
       # No CI=true → spread uses the local: backend (LXD VM).
       # _LOCAL_PREPARE inside the VM runs concierge and opcli provision load.
       # Explicitly clear CI to override GitHub Actions' default CI=true.
+      # Set OPCLI_GIT_REF so the LXD VM installs the same opcli commit that
+      # produced artifacts-generated.yaml, keeping the format in sync.
       - name: Run spread (local/LXD)
         env:
           CI: ""
+          OPCLI_GIT_REF: ${{ github.sha }}
         run: opcli spread run -- -vv
 

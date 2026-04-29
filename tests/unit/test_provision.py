@@ -24,15 +24,18 @@ rocks:
 - name: myrock
   rockcraft-yaml: rock_dir/rockcraft.yaml
   output:
+  - arch: amd64
     file: ./rock_dir/myrock.rock
 - name: otherrock
   rockcraft-yaml: other/rockcraft.yaml
   output:
+  - arch: amd64
     image: ghcr.io/canonical/otherrock:abc
 charms:
 - name: mycharm
   charmcraft-yaml: charmcraft.yaml
   output:
+  - arch: amd64
     files:
     - path: ./mycharm_ubuntu-22.04-amd64.charm
       base: ubuntu@22.04
@@ -44,15 +47,18 @@ rocks:
 - name: myrock
   rockcraft-yaml: rock_dir/rockcraft.yaml
   output:
+  - arch: amd64
     file: ./rock_dir/myrock.rock
 - name: otherrock
   rockcraft-yaml: other_dir/rockcraft.yaml
   output:
+  - arch: amd64
     image: ghcr.io/canonical/otherrock:abc
 charms:
 - name: mycharm
   charmcraft-yaml: charmcraft.yaml
   output:
+  - arch: amd64
     files:
     - path: ./mycharm_ubuntu-22.04-amd64.charm
       base: ubuntu@22.04
@@ -131,7 +137,7 @@ class TestProvisionLoad:
             tmp_path / "artifacts-generated.yaml",
             "version: 1\n"
             "rocks:\n- name: r1\n  rockcraft-yaml: rd/rockcraft.yaml\n"
-            "  output:\n    image: ghcr.io/r1:v1\n",
+            "  output:\n  - arch: amd64\n    image: ghcr.io/r1:v1\n",
         )
 
         with patch("opcli.core.provision.run_command") as mock_run:
@@ -173,8 +179,8 @@ class TestProvisionLoad:
 
         updated = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
         myrock = next(r for r in updated.rocks if r.name == "myrock")
-        assert myrock.output.image == "localhost:32000/myrock:latest"
-        assert myrock.output.file == "./rock_dir/myrock.rock"
+        assert myrock.output[0].image == "localhost:32000/myrock:amd64"
+        assert myrock.output[0].file == "./rock_dir/myrock.rock"
 
     def test_updates_charm_resources_for_pushed_rock(self, tmp_path: Path) -> None:
         """provision_load pushes rocks; charm resources reference via rock: field."""
@@ -189,7 +195,7 @@ class TestProvisionLoad:
         updated = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
         # Rock output.image is updated after push
         myrock = next(r for r in updated.rocks if r.name == "myrock")
-        assert myrock.output.image == "localhost:32000/myrock:latest"
+        assert myrock.output[0].image == "localhost:32000/myrock:amd64"
         # Charm resources still only carry the rock reference, not a duplicated image
         charm = updated.charms[0]
         assert charm.resources is not None
@@ -202,8 +208,8 @@ class TestProvisionLoad:
             tmp_path / "artifacts-generated.yaml",
             "version: 1\n"
             "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
-            "  output:\n    file: ./rock_dir/myrock.rock\n"
-            "    image: localhost:32000/myrock:latest\n",
+            "  output:\n  - arch: amd64\n    file: ./rock_dir/myrock.rock\n"
+            "    image: localhost:32000/myrock:amd64\n",
         )
 
         with patch("opcli.core.provision.run_command") as mock_run:
