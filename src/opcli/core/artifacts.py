@@ -783,6 +783,10 @@ _AUTH_ERROR_KEYWORDS = (
     "401",
 )
 
+# Keywords that indicate a deterministic (non-transient) failure.
+# With --clobber these should never occur, but guard against unexpected cases.
+_DETERMINISTIC_ERROR_KEYWORDS = ("file exists",)
+
 
 def _gh_download(cmd: list[str], cwd: str) -> None:
     """Run ``gh run download``, raising :class:`SubprocessError` on failure."""
@@ -794,7 +798,8 @@ def _gh_download_with_wait(cmd: list[str], cwd: str, run_id: str) -> None:
 
     Retries up to :data:`_WAIT_MAX_ATTEMPTS` times with
     :data:`_WAIT_SLEEP_SECONDS` between each attempt.  Fails immediately if
-    the error looks like an authentication/permission problem.
+    the error looks like an authentication/permission problem or a
+    deterministic failure (e.g. "file exists").
 
     Args:
         cmd: Full ``gh run download ...`` command list.
@@ -819,6 +824,9 @@ def _gh_download_with_wait(cmd: list[str], cwd: str, run_id: str) -> None:
                     f"from run {run_id!r}. Check GH_TOKEN and repository "
                     f"permissions.\n{exc.stderr.strip()}"
                 )
+                raise ConfigurationError(msg) from exc
+            if any(kw in stderr_lower for kw in _DETERMINISTIC_ERROR_KEYWORDS):
+                raise
                 raise ConfigurationError(msg) from exc
             last_exc = exc
             logger.info(

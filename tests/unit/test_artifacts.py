@@ -1327,6 +1327,22 @@ class TestArtifactsFetch:
 
         mock_sleep.assert_not_called()
 
+    def test_wait_fails_fast_on_file_exists(self, tmp_path: Path) -> None:
+        """With wait=True, fails immediately on 'file exists' (no retry)."""
+        file_exists_error = SubprocessError(
+            ["gh"], 1, 'error extracting "artifacts-generated.yaml": open ...: file exists'
+        )
+        with (
+            patch("opcli.core.artifacts.run_command", side_effect=file_exists_error),
+            patch("opcli.core.artifacts.time.sleep") as mock_sleep,
+            pytest.raises(SubprocessError),
+        ):
+            artifacts_fetch(
+                tmp_path, run_id="99887766", repo="owner/my-repo", wait=True
+            )
+
+        mock_sleep.assert_not_called()
+
     def test_wait_times_out_with_last_error(self, tmp_path: Path) -> None:
         """With wait=True, raises ConfigurationError after exhausting all attempts."""
         not_ready = SubprocessError(["gh"], 1, "no artifact named X in run")
