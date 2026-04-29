@@ -109,7 +109,7 @@ opcli artifacts build
 opcli provision run
 # If spread.yaml or task.yaml was modified manually, that prepare section should be executed here.
 # Runs "tox -e integration -- --charm-file=... ..."
-opcli pytest run -- -k test_charm
+opcli pytest expand -- -k test_charm | bash
 ```
 
 ### **CI (GitHub)**
@@ -141,58 +141,82 @@ The following files serve as the interfaces for the different steps of the pipel
 
 ### **artifacts.yaml**
 
-```
+Each artifact points to its craft YAML file (`charmcraft-yaml`, `rockcraft-yaml`, or `snapcraft-yaml`) rather than a source directory. An optional `pack-dir` field sets the working directory for the build tool (useful when the craft YAML lives in a subdirectory but packing must run from the repo root).
+
+```yaml
 version: 1
 rocks:
-- name: indico
-  source: indico_rock
-- name: indico-nginx
-  source: nginx_rock
+  - name: indico
+    rockcraft-yaml: indico_rock/rockcraft.yaml
+  - name: indico-nginx
+    rockcraft-yaml: nginx_rock/rockcraft.yaml
 charms:
-- name: indico
-  source: .
-  resources:
-    indico-image:
-      type: oci-image
-      rock: indico
-    indico-nginx-image:
-      type: oci-image
-      rock: indico-nginx
+  - name: indico
+    charmcraft-yaml: charmcraft.yaml
+    resources:
+      indico-image:
+        type: oci-image
+        rock: indico
+      indico-nginx-image:
+        type: oci-image
+        rock: indico-nginx
+snaps:
+  - name: my-snap
+    snapcraft-yaml: snap/snapcraft.yaml
 ```
 
 ### **artifacts-generated.yaml**
 
-**Locally** — always local files:
+Extends the build plan with output paths. Each entry carries the same craft YAML path as `artifacts.yaml`. Charm output uses a `files` list because `charmcraft pack` may produce one `.charm` file per declared base; each entry records the file path and an inferred `base` annotation.
 
-```
+**Locally** — built files on disk:
+
+```yaml
 version: 1
 rocks:
   - name: indico
-    source: indico_rock
+    rockcraft-yaml: indico_rock/rockcraft.yaml
     output:
       file: ./indico_rock/indico_1.0_amd64.rock
 charms:
   - name: indico
-    source: .
+    charmcraft-yaml: charmcraft.yaml
     output:
-      file: ./indico_ubuntu-22.04-amd64.charm
+      files:
+        - path: ./indico_ubuntu-22.04-amd64.charm
+          base: ubuntu@22.04
+        - path: ./indico_ubuntu-24.04-amd64.charm
+          base: ubuntu@24.04
+    resources:
+      indico-image:
+        type: oci-image
+        rock: indico
+snaps:
+  - name: my-snap
+    snapcraft-yaml: snap/snapcraft.yaml
+    output:
+      file: ./snap/my-snap_1.0_amd64.snap
 ```
 
-**In CI** — artifacts in GitHub or OCI images pushed to GHCR:
+**In CI** — rocks are pushed to GHCR; charms/snaps reference the GitHub artifact archive:
 
-```
+```yaml
 version: 1
 rocks:
   - name: indico
-    source: indico_rock
+    rockcraft-yaml: indico_rock/rockcraft.yaml
     output:
       image: ghcr.io/canonical/indico:abc1234-22.04
 charms:
   - name: indico
-    source: .
+    charmcraft-yaml: charmcraft.yaml
     output:
       artifact: charm-indico
-      run-id: 1234567890
+      run-id: "1234567890"
+    resources:
+      indico-image:
+        type: oci-image
+        rock: indico
 ```
 
 ### **concierge.yaml**
@@ -282,7 +306,7 @@ environment:
   # MODULE variants could be there instead of spread.yaml
 
 execute: |
-    $( opcli pytest run -- -k $MODULE )
+    $( opcli pytest expand -- -k $MODULE )
 ```
 
 The  MODULE  environment variable is set by the spread variant (defined in  spread.yaml ). Each variant runs one test module.
@@ -297,30 +321,35 @@ The functionality for opcli is grouped into four command families:  artifacts , 
 
 | Command | Description | Extra options |
 | :---- | :---- | :---- |
-| opcli artifacts init | Discovers charms, rocks and snaps in the repository and generates artifacts.yaml |  |
-| opcli artifacts build | Builds all artifacts declared in artifacts.yaml and produces artifacts-generated.yaml If charms or rocks arg is used, only those artifacts will be built. |  —charm \<charm-name\>, charms to build. Can be used several times. —rock \<rock-name\>, rocks to build Can be used several times.  |
+| opcli artifacts init | Discovers charms, rocks and snaps in the repository and generates artifacts.yaml | --force: overwrite existing artifacts.yaml |
+| opcli artifacts build | Builds all artifacts declared in artifacts.yaml and produces artifacts-generated.yaml | --charm \<name\>: build only this charm (repeatable). --rock \<name\>: rocks to build (repeatable). --snap \<name\>: snaps to build (repeatable). |
+| opcli artifacts matrix | Prints the GitHub Actions build matrix as JSON, suitable for use as strategy.matrix in a workflow. | |
+| opcli artifacts collect \<partial…\> | Merges partial artifacts-generated.yaml files produced by parallel CI build jobs into a single file. | |
+| opcli artifacts fetch | Downloads artifacts-generated.yaml and all built charm/snap archives from a CI run, then rewrites paths to local files so that opcli pytest run and opcli spread run work without a local build. Rock artifacts are GHCR images and require no download. | --run-id \<id\>: GitHub Actions workflow run ID (required). --repo \<owner/name\>: GitHub repository (default: current git remote). --wait/--no-wait: retry until artifacts-generated appears, for use when the build job may still be running. |
+| opcli artifacts localize | Rewrites artifacts-generated.yaml to replace CI artifact references with local .charm file paths after the charm archives have been manually downloaded. (Prefer opcli artifacts fetch for the full workflow.) | |
 
 ### **opcli provision**
 
 | Command | Description | Extra options |
 | :---- | :---- | :---- |
-| opcli provision run | Runs concierge prepare to provision the test. |  |
-| opcli provision load | Loads the image artifacts into the local image registry. | \-r registry. Specify the image registry. Defaults to localhost:32000 |
+| opcli provision run | Runs concierge prepare to provision the test environment. |  |
+| opcli provision load | Loads OCI image artifacts (rocks) into a local image registry. | -r / --registry: target registry (default: localhost:32000) |
+| opcli provision registry | Deploys a local OCI registry at localhost:32000 for k8s/MicroK8s. Reads concierge.yaml to detect the active k8s provider. No-op if the registry is already running or no k8s provider is configured. | -c / --concierge: path to concierge.yaml (default: concierge.yaml) |
 
 ### **opcli spread**
 
 | Command | Description | Extra options |
 | :---- | :---- | :---- |
 | opcli spread init | Discovers integration tests and generates spread.yaml and tests/integration/run/task.yaml |  |
-| opcli spread run | Expands the virtual backend in spread.yaml and runs spread as a subprocess, passing the same arguments as received. | As in craft-application, the CI env var defines whether to run locally or in the pipeline. All arguments are passed to the spread subprocess. |
+| opcli spread run | Expands the virtual backend in spread.yaml and runs spread as a subprocess, passing the same arguments as received. | As in craft-application, the CI env var defines whether to run locally or in the pipeline. All arguments after -- are passed verbatim to the spread subprocess. |
 | opcli spread expand | Prints the fully expanded spread.yaml | As in craft-application, the CI env var defines whether to run locally or in the pipeline |
+| opcli spread tasks | Prints the list of spread tasks/variants discovered in spread.yaml. | |
 
 ### **opcli pytest**
 
 | Command | Description | Extra options |
 | :---- | :---- | :---- |
-| opcli pytest run | Runs integration tests with tox with the arguments as in “opcli pytest args” | \-e tox environment. By default “integration”.  “- \-” passes extra arguments to pytest |
-| opcli pytest args | Prints the assembled tox/pytest flags to stdout without running it, using as input the file artifacts-generated.yaml. Useful for debugging/manual script invocation. Follows the same conventions as currently in operator-workflows. |  |
+| opcli pytest expand | Prints the full tox command assembled from artifacts-generated.yaml. Assembles --charm-file and resource flags following the same conventions as operator-workflows. Extra args after -- are forwarded into the printed command. Useful for debugging and scripting. | -e: tox environment name (default: integration). -- <args>: forwarded to pytest. |
 
 ## Design decisions
 

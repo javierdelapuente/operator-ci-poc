@@ -83,19 +83,21 @@ Not all YAML files should be modeled the same way:
 
 ### `artifacts.yaml` schema
 
+Each artifact points to its craft YAML file rather than a source directory. An optional `pack-dir` sets the working directory for the build tool.
+
 ```yaml
 version: 1
 rocks:
   - name: indico
-    source: indico_rock
+    rockcraft-yaml: indico_rock/rockcraft.yaml
   - name: indico-nginx
-    source: nginx_rock
+    rockcraft-yaml: nginx_rock/rockcraft.yaml
 snaps:
   - name: my-snap
-    source: snap/
+    snapcraft-yaml: snap/snapcraft.yaml
 charms:
   - name: indico
-    source: .
+    charmcraft-yaml: charmcraft.yaml
     resources:
       indico-image:
         type: oci-image
@@ -109,26 +111,34 @@ All three artifact lists (`rocks`, `charms`, `snaps`) are optional and default t
 
 ### `artifacts-generated.yaml` schema
 
-The `output` field shape depends on execution context:
+Each entry carries the same craft YAML path as `artifacts.yaml`. Charm output uses a `files` list because `charmcraft pack` may produce one `.charm` file per declared base.
 
 **Local** (file paths):
 ```yaml
 version: 1
 rocks:
   - name: indico
-    source: indico_rock
+    rockcraft-yaml: indico_rock/rockcraft.yaml
     output:
       file: ./indico_rock/indico_1.0_amd64.rock
 snaps:
   - name: my-snap
-    source: snap/
+    snapcraft-yaml: snap/snapcraft.yaml
     output:
       file: ./snap/my-snap_1.0_amd64.snap
 charms:
   - name: indico
-    source: .
+    charmcraft-yaml: charmcraft.yaml
     output:
-      file: ./indico_ubuntu-22.04-amd64.charm
+      files:
+        - path: ./indico_ubuntu-22.04-amd64.charm
+          base: ubuntu@22.04
+        - path: ./indico_ubuntu-24.04-amd64.charm
+          base: ubuntu@24.04
+    resources:
+      indico-image:
+        type: oci-image
+        rock: indico
 ```
 
 **CI** (GitHub artifacts / GHCR images):
@@ -136,18 +146,22 @@ charms:
 version: 1
 rocks:
   - name: indico
-    source: indico_rock
+    rockcraft-yaml: indico_rock/rockcraft.yaml
     output:
       image: ghcr.io/canonical/indico:abc1234-22.04
 charms:
   - name: indico
-    source: .
+    charmcraft-yaml: charmcraft.yaml
     output:
       artifact: charm-indico
-      run-id: 1234567890
+      run-id: "1234567890"
+    resources:
+      indico-image:
+        type: oci-image
+        rock: indico
 ```
 
-**Modeling guidance:** The `output` section is a union — local builds produce `file`, CI rocks produce `image`, CI charms/snaps produce `artifact` + `run-id`. Model with optional fields (all `str | None`) rather than a complex tagged union.
+**Modeling guidance:** Rocks/snaps use `ArtifactOutput` (optional fields `file`, `image`, `artifact`+`run-id`). Charms use `CharmArtifactOutput` with a `files` list (each entry has `path` and optional `base`) for local builds, or `artifact`+`run-id` for CI.
 
 ### `spread.yaml`
 
@@ -224,21 +238,17 @@ tests/
 
 - Same expansion logic as `spread run`, but prints the fully expanded `spread.yaml` to stdout without running spread. Useful for debugging.
 
-### `opcli pytest run`
+### `opcli pytest expand`
 
-- Wraps `tox -e integration` (default tox environment; override with `-e <env>`).
-- Assembles pytest arguments from `artifacts-generated.yaml` (same as `opcli pytest args`) and passes them to tox.
-- Extra arguments after `--` are forwarded verbatim to pytest.
-  ```bash
-  opcli pytest run -- -k test_charm
-  ```
-
-### `opcli pytest args`
-
-- Reads `artifacts-generated.yaml` and prints the assembled tox/pytest flags to stdout without running anything.
+- Reads `artifacts-generated.yaml` and prints the full assembled tox command to stdout without running anything.
 - Flag assembly rules (matching current operator-workflows conventions):
   - For each charm: `--charm-file <path-or-artifact-ref>`
   - For each OCI resource: `--<resource-name> <image-ref-or-local-path>`
+- Extra arguments after `--` are forwarded into the printed command.
+  ```bash
+  opcli pytest expand -- -k test_charm
+  # prints: tox -e integration -- --charm-file ./indico.charm ... -k test_charm
+  ```
 
 ---
 
