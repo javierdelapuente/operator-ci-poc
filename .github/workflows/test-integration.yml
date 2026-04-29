@@ -39,6 +39,7 @@ jobs:
   test-local:
     name: "Spread (local/LXD)"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       actions: read
