@@ -369,9 +369,9 @@ fi
 #   (concrete_local, concrete_ci, local_prepare, ci_prepare)
 # The CI prepare for tutorial-test is empty — workflows are expected to
 # install opcli before invoking spread.
-_BACKEND_CONFIGS: dict[str, tuple[str, str, str, str]] = {
-    _VIRTUAL_BACKEND: ("local", "ci", _LOCAL_PREPARE, _CI_PREPARE),
-    _TUTORIAL_BACKEND: ("local-tutorial", "ci-tutorial", _TUTORIAL_LOCAL_PREPARE, ""),
+_BACKEND_CONFIGS: dict[str, tuple[str, str]] = {
+    _VIRTUAL_BACKEND: (_LOCAL_PREPARE, _CI_PREPARE),
+    _TUTORIAL_BACKEND: (_TUTORIAL_LOCAL_PREPARE, ""),
 }
 
 # Keys in system entries that are opcli-specific and must be stripped before
@@ -588,8 +588,9 @@ def _expand_backend(
 
     Recognises ``integration-test`` and ``tutorial-test`` virtual backends.
     Each is removed from the YAML and replaced with its concrete counterpart
-    (``local`` / ``ci`` for integration, ``local-tutorial`` / ``ci-tutorial``
-    for tutorials).  All user-defined fields (``systems``, ``environment``,
+    (``integration-test-local`` / ``integration-test-ci`` for integration,
+    ``tutorial-test-local`` / ``tutorial-test-ci`` for tutorials).
+    All user-defined fields (``systems``, ``environment``,
     ``prepare-each``, ``kill-timeout``, etc.) are preserved.
 
     Suite-level ``backends:`` lists are also updated so that any reference to
@@ -617,8 +618,6 @@ def _expand_backend(
     found_any = False
 
     for virtual_name, (
-        concrete_local,
-        concrete_ci,
         local_prepare,
         ci_prepare,
     ) in _BACKEND_CONFIGS.items():
@@ -627,7 +626,7 @@ def _expand_backend(
             continue
         found_any = True
 
-        concrete_name = concrete_ci if use_ci else concrete_local
+        concrete_name = f"{virtual_name}-ci" if use_ci else f"{virtual_name}-local"
         backends[concrete_name] = _build_concrete_backend(
             virtual,
             use_ci=use_ci,

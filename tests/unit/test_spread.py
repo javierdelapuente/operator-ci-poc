@@ -164,8 +164,8 @@ class TestSpreadExpand:
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
 
-        assert "integration-test" not in result
-        local = parsed["backends"]["local"]
+        assert "integration-test:" not in result
+        local = parsed["backends"]["integration-test-local"]
         assert local["type"] == "adhoc"
         assert "lxc launch --vm" in local["allocate"]
         assert "SPREAD_PASSWORD" in local["allocate"]
@@ -200,8 +200,8 @@ class TestSpreadExpand:
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
 
-        assert "integration-test" not in result
-        ci = parsed["backends"]["ci"]
+        assert "integration-test:" not in result
+        ci = parsed["backends"]["integration-test-ci"]
         assert ci["type"] == "adhoc"
         assert "ADDRESS localhost" in ci["allocate"]
         assert "chpasswd" in ci["allocate"]
@@ -289,7 +289,7 @@ suites:
         _write(tmp_path / "spread.yaml", spread_with_extras)
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        local = parsed["backends"]["local"]
+        local = parsed["backends"]["integration-test-local"]
 
         assert local["environment"] == {"EXTRA_VAR": "hello"}
         assert "extra setup" in local["prepare-each"]
@@ -306,7 +306,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         assert "CLEANUP_VM=true" in allocate
         assert "trap cleanup EXIT" in allocate
@@ -318,7 +318,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         # Agent readiness must come before cloud-init
         agent_pos = allocate.index('lxc exec "${VM_NAME}" -- true')
@@ -332,14 +332,16 @@ suites:
         with patch.dict("os.environ", {"CI": "true"}):
             result = spread_expand(tmp_path)
         parsed = _yaml.load(StringIO(result))
-        assert "ci" in parsed["backends"]
-        assert "ADDRESS localhost" in parsed["backends"]["ci"]["allocate"]
+        assert "integration-test-ci" in parsed["backends"]
+        ci_backend = parsed["backends"]["integration-test-ci"]
+        assert "ADDRESS localhost" in ci_backend["allocate"]
 
         with patch.dict("os.environ", {"CI": ""}, clear=False):
             result = spread_expand(tmp_path)
         parsed = _yaml.load(StringIO(result))
-        assert "local" in parsed["backends"]
-        assert "lxc launch --vm" in parsed["backends"]["local"]["allocate"]
+        assert "integration-test-local" in parsed["backends"]
+        local_backend = parsed["backends"]["integration-test-local"]
+        assert "lxc launch --vm" in local_backend["allocate"]
 
     def test_expanded_is_valid_yaml(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
@@ -356,7 +358,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         assert "echo ubuntu:${SPREAD_PASSWORD}" in allocate
         assert "PermitRootLogin" not in allocate
@@ -368,7 +370,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        prepare = parsed["backends"]["local"]["prepare"]
+        prepare = parsed["backends"]["integration-test-local"]["prepare"]
 
         assert '[ -f "$CONCIERGE" ]' in prepare
         assert '[ -f "${SPREAD_PATH}/artifacts-generated.yaml" ]' in prepare
@@ -379,7 +381,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
-        prepare = parsed["backends"]["ci"]["prepare"]
+        prepare = parsed["backends"]["integration-test-ci"]["prepare"]
 
         assert '[ -f "$CONCIERGE" ]' in prepare
         assert "tox" in prepare
@@ -407,7 +409,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        systems = parsed["backends"]["local"]["systems"]
+        systems = parsed["backends"]["integration-test-local"]["systems"]
 
         assert len(systems) == 1
         sys_def = systems[0]["ubuntu-24.04"]
@@ -438,7 +440,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        systems = parsed["backends"]["local"]["systems"]
+        systems = parsed["backends"]["integration-test-local"]["systems"]
 
         assert systems[0]["ubuntu-24.04"]["username"] == "custom-user"
 
@@ -471,7 +473,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         assert "ubuntu-24.04" in allocate
         assert 'CPU="${CPU:-2}"' in allocate
@@ -484,7 +486,8 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        sys_def = parsed["backends"]["local"]["systems"][0]["ubuntu-24.04"]
+        local_backend = parsed["backends"]["integration-test-local"]
+        sys_def = local_backend["systems"][0]["ubuntu-24.04"]
 
         assert "cpu" not in sys_def
         assert "memory" not in sys_def
@@ -498,7 +501,7 @@ suites:
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
         # After stripping resource keys, only username: ubuntu remains
-        systems = parsed["backends"]["ci"]["systems"]
+        systems = parsed["backends"]["integration-test-ci"]["systems"]
         assert len(systems) == 1
         assert isinstance(systems[0], dict)
         sys_props = systems[0]["ubuntu-24.04"]
@@ -527,7 +530,8 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        sys_def = parsed["backends"]["local"]["systems"][0]["ubuntu-24.04"]
+        local_b = parsed["backends"]["integration-test-local"]
+        sys_def = local_b["systems"][0]["ubuntu-24.04"]
 
         assert "runner" not in sys_def
         assert sys_def["username"] == "ubuntu"
@@ -552,7 +556,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
-        systems = parsed["backends"]["ci"]["systems"]
+        systems = parsed["backends"]["integration-test-ci"]["systems"]
 
         assert len(systems) == 1
         sys_def = systems[0]["ubuntu-24.04"]
@@ -585,7 +589,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         assert "ubuntu-22.04" in allocate
         assert "ubuntu-24.04" in allocate
@@ -598,7 +602,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         # Each arm must use ${VAR:-value} not bare assignment
         assert 'CPU="${CPU:-' in allocate
@@ -632,7 +636,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         assert "case" not in allocate
         # Fallback defaults still present
@@ -665,7 +669,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         # Pattern must be quoted: "ubuntu-24.04") not ubuntu-24.04)
         assert '"ubuntu-24.04")' in allocate
@@ -717,7 +721,7 @@ class TestSpreadRun:
 
         assert len(captured_yaml) == 1
         written = captured_yaml[0]
-        assert "local" in written["backends"]
+        assert "integration-test-local" in written["backends"]
         assert "integration-test" not in written["backends"]
         assert written.get("reroot") == ".."
 
@@ -757,7 +761,9 @@ class TestSpreadRun:
     def test_extra_args_forwarded(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
-        _SELECTOR = "local:ubuntu-24.04:tests/integration/run:test_charm"
+        _SELECTOR = (
+            "integration-test-local:ubuntu-24.04:tests/integration/run:test_charm"
+        )
         with patch("opcli.core.spread.run_command") as mock_run:
             spread_run(
                 tmp_path,
@@ -827,8 +833,8 @@ suites:
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
 
-        assert "tutorial-test" not in result
-        backend = parsed["backends"]["local-tutorial"]
+        assert "tutorial-test:" not in result
+        backend = parsed["backends"]["tutorial-test-local"]
         assert backend["type"] == "adhoc"
         assert "lxc launch --vm" in backend["allocate"]
         assert "lxc delete" in backend["discard"]
@@ -858,7 +864,7 @@ suites:
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
 
-        backend = parsed["backends"]["ci-tutorial"]
+        backend = parsed["backends"]["tutorial-test-ci"]
         assert backend["type"] == "adhoc"
         assert "ADDRESS localhost" in backend["allocate"]
         assert "chpasswd" in backend["allocate"]
@@ -879,7 +885,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        systems = parsed["backends"]["local-tutorial"]["systems"]
+        systems = parsed["backends"]["tutorial-test-local"]["systems"]
         assert systems[0]["ubuntu-24.04"]["username"] == "ubuntu"
 
     def test_suite_backend_scoping_replaces_virtual_names(self, tmp_path: Path) -> None:
@@ -889,10 +895,12 @@ suites:
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
 
-        assert "integration-test" not in result
-        assert "tutorial-test" not in result
-        assert parsed["suites"]["tests/integration/"]["backends"] == ["local"]
-        assert parsed["suites"]["tests/tutorial/"]["backends"] == ["local-tutorial"]
+        assert "integration-test:" not in result
+        assert "tutorial-test:" not in result
+        integration_backends = parsed["suites"]["tests/integration/"]["backends"]
+        assert integration_backends == ["integration-test-local"]
+        tutorial_backends = parsed["suites"]["tests/tutorial/"]["backends"]
+        assert tutorial_backends == ["tutorial-test-local"]
 
     def test_both_backends_coexist(self, tmp_path: Path) -> None:
         """Both virtual backends can be expanded from the same spread.yaml."""
@@ -901,8 +909,8 @@ suites:
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
 
-        assert "local" in parsed["backends"]
-        assert "local-tutorial" in parsed["backends"]
+        assert "integration-test-local" in parsed["backends"]
+        assert "tutorial-test-local" in parsed["backends"]
 
     def test_no_known_virtual_backend_raises(self, tmp_path: Path) -> None:
         """Raises ConfigurationError when no known virtual backend is found."""
@@ -940,7 +948,7 @@ suites:
 
         suite = parsed["suites"]["tests/integration/"]
         assert "integration-test" not in suite.get("backends", [])
-        assert "local" in suite["backends"]
+        assert "integration-test-local" in suite["backends"]
 
 
 # ---------------------------------------------------------------------------
@@ -1043,7 +1051,7 @@ class TestSpreadTasks:
 
         assert len(entries) == 1
         entry = entries[0]
-        assert entry["selector"].startswith("ci:")
+        assert entry["selector"].startswith("integration-test-ci:")
         assert "ubuntu-24.04" in entry["selector"]
         assert ":test_charm" in entry["selector"]
 
@@ -1094,7 +1102,7 @@ suites:
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
 
-        ci_backend = parsed["backends"].get("ci")
+        ci_backend = parsed["backends"].get("integration-test-ci")
         assert ci_backend is not None
         systems = ci_backend.get("systems", [])
         assert len(systems) > 0
@@ -1112,7 +1120,7 @@ suites:
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
 
-        ci_backend = parsed["backends"].get("ci")
+        ci_backend = parsed["backends"].get("integration-test-ci")
         assert ci_backend is not None
         for system_entry in ci_backend.get("systems", []):
             if isinstance(system_entry, dict):

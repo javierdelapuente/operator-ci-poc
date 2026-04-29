@@ -20,8 +20,8 @@ This is the single most important branching point in the tool:
 
 | `CI` value | Backend expansion | Artifact resolution | Provisioning |
 |---|---|---|---|
-| **unset / falsy** | `local:` — provisions an LXD VM | Local file paths (`output.file`) | concierge runs inside the VM |
-| **truthy** | `ci:` — runs on current machine | GitHub artifacts / GHCR images | concierge runs on the runner; concierge.yaml is patched with CI-specific overrides first |
+| **unset / falsy** | `integration-test-local:` — provisions an LXD VM | Local file paths (`output.file`) | concierge runs inside the VM |
+| **truthy** | `integration-test-ci:` — runs on current machine | GitHub artifacts / GHCR images | concierge runs on the runner; concierge.yaml is patched with CI-specific overrides first |
 
 All `opcli spread run`, `opcli spread expand`, and `opcli provision run` must respect this variable.
 
@@ -165,7 +165,7 @@ charms:
 
 ### `spread.yaml`
 
-Uses a **virtual backend** called `integration-test:` that is not real spread syntax. `opcli spread run/expand` replaces it with the real `local:` or `ci:` backend (determined by the `CI` env var). Users may add any other spread-native backends, suites, or environment variables — opcli must preserve them all.
+Uses a **virtual backend** called `integration-test:` that is not real spread syntax. `opcli spread run/expand` replaces it with `integration-test-local:` or `integration-test-ci:` (determined by the `CI` env var). Users may add any other spread-native backends, suites, or environment variables — opcli must preserve them all.
 
 ### `concierge.yaml`
 
@@ -225,13 +225,13 @@ tests/
 
 ### `opcli spread run`
 
-- Reads `spread.yaml`, expands the `integration-test:` virtual backend into `local:` or `ci:` (based on `CI` env var), writes the expanded YAML to a **temp file** (never overwrites the original).
+- Reads `spread.yaml`, expands the `integration-test:` virtual backend into `integration-test-local:` or `integration-test-ci:` (based on `CI` env var), writes the expanded YAML to a **temp file** (never overwrites the original).
 - Invokes `spread` as a subprocess with the temp file.
 - **Argument forwarding:** all tokens after `--` are forwarded **verbatim and in order** to the spread subprocess. `opcli` must not reinterpret, normalize, or swallow spread selectors or flags.
   ```bash
   opcli spread run -- -list
-  opcli spread run -- local:ubuntu-26.04:tests/integration/run:test_charm
-  opcli spread run -- -v local:ubuntu-26.04:tests/integration/run:test_charm
+  opcli spread run -- integration-test-local:ubuntu-26.04:tests/integration/run:test_charm
+  opcli spread run -- -v integration-test-local:ubuntu-26.04:tests/integration/run:test_charm
   ```
 
 ### `opcli spread expand`
