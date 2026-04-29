@@ -1330,7 +1330,9 @@ class TestArtifactsFetch:
     def test_wait_fails_fast_on_file_exists(self, tmp_path: Path) -> None:
         """With wait=True, fails immediately on 'file exists' (no retry)."""
         file_exists_error = SubprocessError(
-            ["gh"], 1, 'error extracting "artifacts-generated.yaml": open ...: file exists'
+            ["gh"],
+            1,
+            'error extracting "artifacts-generated.yaml": open ...: file exists',
         )
         with (
             patch("opcli.core.artifacts.run_command", side_effect=file_exists_error),
