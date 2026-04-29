@@ -32,6 +32,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04
 environment:
@@ -164,8 +165,8 @@ class TestSpreadExpand:
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
 
-        assert "integration-test" not in result
-        local = parsed["backends"]["local"]
+        assert "integration-test:" not in result
+        local = parsed["backends"]["integration-test-local"]
         assert local["type"] == "adhoc"
         assert "lxc launch --vm" in local["allocate"]
         assert "SPREAD_PASSWORD" in local["allocate"]
@@ -200,8 +201,8 @@ class TestSpreadExpand:
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
 
-        assert "integration-test" not in result
-        ci = parsed["backends"]["ci"]
+        assert "integration-test:" not in result
+        ci = parsed["backends"]["integration-test-ci"]
         assert ci["type"] == "adhoc"
         assert "ADDRESS localhost" in ci["allocate"]
         assert "chpasswd" in ci["allocate"]
@@ -274,6 +275,7 @@ class TestSpreadExpand:
 project: test-project
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04
     environment:
@@ -289,7 +291,7 @@ suites:
         _write(tmp_path / "spread.yaml", spread_with_extras)
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        local = parsed["backends"]["local"]
+        local = parsed["backends"]["integration-test-local"]
 
         assert local["environment"] == {"EXTRA_VAR": "hello"}
         assert "extra setup" in local["prepare-each"]
@@ -306,7 +308,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         assert "CLEANUP_VM=true" in allocate
         assert "trap cleanup EXIT" in allocate
@@ -318,7 +320,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         # Agent readiness must come before cloud-init
         agent_pos = allocate.index('lxc exec "${VM_NAME}" -- true')
@@ -332,14 +334,16 @@ suites:
         with patch.dict("os.environ", {"CI": "true"}):
             result = spread_expand(tmp_path)
         parsed = _yaml.load(StringIO(result))
-        assert "ci" in parsed["backends"]
-        assert "ADDRESS localhost" in parsed["backends"]["ci"]["allocate"]
+        assert "integration-test-ci" in parsed["backends"]
+        ci_backend = parsed["backends"]["integration-test-ci"]
+        assert "ADDRESS localhost" in ci_backend["allocate"]
 
         with patch.dict("os.environ", {"CI": ""}, clear=False):
             result = spread_expand(tmp_path)
         parsed = _yaml.load(StringIO(result))
-        assert "local" in parsed["backends"]
-        assert "lxc launch --vm" in parsed["backends"]["local"]["allocate"]
+        assert "integration-test-local" in parsed["backends"]
+        local_backend = parsed["backends"]["integration-test-local"]
+        assert "lxc launch --vm" in local_backend["allocate"]
 
     def test_expanded_is_valid_yaml(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
@@ -356,7 +360,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         assert "echo ubuntu:${SPREAD_PASSWORD}" in allocate
         assert "PermitRootLogin" not in allocate
@@ -368,7 +372,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        prepare = parsed["backends"]["local"]["prepare"]
+        prepare = parsed["backends"]["integration-test-local"]["prepare"]
 
         assert '[ -f "$CONCIERGE" ]' in prepare
         assert '[ -f "${SPREAD_PATH}/artifacts-generated.yaml" ]' in prepare
@@ -379,7 +383,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
-        prepare = parsed["backends"]["ci"]["prepare"]
+        prepare = parsed["backends"]["integration-test-ci"]["prepare"]
 
         assert '[ -f "$CONCIERGE" ]' in prepare
         assert "tox" in prepare
@@ -393,6 +397,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           runner: [self-hosted, noble]
@@ -407,7 +412,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        systems = parsed["backends"]["local"]["systems"]
+        systems = parsed["backends"]["integration-test-local"]["systems"]
 
         assert len(systems) == 1
         sys_def = systems[0]["ubuntu-24.04"]
@@ -425,6 +430,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           username: custom-user
@@ -438,9 +444,122 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        systems = parsed["backends"]["local"]["systems"]
+        systems = parsed["backends"]["integration-test-local"]["systems"]
 
         assert systems[0]["ubuntu-24.04"]["username"] == "custom-user"
+
+
+class TestImplicitBackendType:
+    """Implicit type fallback: backend name used as type when type: is absent."""
+
+    def test_name_only_backend_expands_as_virtual(self, tmp_path: Path) -> None:
+        """Backend named 'integration-test' with no type: is treated as virtual."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "integration-test:" not in result
+        assert "integration-test-local" in parsed["backends"]
+        assert parsed["backends"]["integration-test-local"]["type"] == "adhoc"
+
+    def test_unknown_name_no_type_is_not_expanded(self, tmp_path: Path) -> None:
+        """A backend with an unrecognised name and no type: is not a virtual backend."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  my-custom:
+    systems:
+      - ubuntu-24.04
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        # my-custom has no type: so its name is the type — not a virtual type
+        assert "my-custom" in parsed["backends"]
+        assert "my-custom-local" not in parsed["backends"]
+
+    def test_non_string_type_field_falls_back_to_name(self, tmp_path: Path) -> None:
+        """A non-string type: value is ignored; backend name used as type fallback."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    type: [integration-test]
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        # type: is a list (not a string) — falls back to backend name "integration-test"
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "integration-test-local" in parsed["backends"]
+
+    def test_concrete_name_collision_raises(self, tmp_path: Path) -> None:
+        """Expanding a virtual backend whose concrete name already exists raises."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+  integration-test-local:
+    type: adhoc
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        with pytest.raises(ConfigurationError, match=r"concrete name.*already exists"):
+            spread_expand(tmp_path, ci=False)
 
 
 class TestSystemResourceFields:
@@ -451,6 +570,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           cpu: 2
@@ -471,7 +591,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         assert "ubuntu-24.04" in allocate
         assert 'CPU="${CPU:-2}"' in allocate
@@ -484,7 +604,8 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        sys_def = parsed["backends"]["local"]["systems"][0]["ubuntu-24.04"]
+        local_backend = parsed["backends"]["integration-test-local"]
+        sys_def = local_backend["systems"][0]["ubuntu-24.04"]
 
         assert "cpu" not in sys_def
         assert "memory" not in sys_def
@@ -498,7 +619,7 @@ suites:
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
         # After stripping resource keys, only username: ubuntu remains
-        systems = parsed["backends"]["ci"]["systems"]
+        systems = parsed["backends"]["integration-test-ci"]["systems"]
         assert len(systems) == 1
         assert isinstance(systems[0], dict)
         sys_props = systems[0]["ubuntu-24.04"]
@@ -514,6 +635,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           runner: [self-hosted, noble]
@@ -527,7 +649,8 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        sys_def = parsed["backends"]["local"]["systems"][0]["ubuntu-24.04"]
+        local_b = parsed["backends"]["integration-test-local"]
+        sys_def = local_b["systems"][0]["ubuntu-24.04"]
 
         assert "runner" not in sys_def
         assert sys_def["username"] == "ubuntu"
@@ -539,6 +662,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           runner: [self-hosted, noble]
@@ -552,7 +676,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
-        systems = parsed["backends"]["ci"]["systems"]
+        systems = parsed["backends"]["integration-test-ci"]["systems"]
 
         assert len(systems) == 1
         sys_def = systems[0]["ubuntu-24.04"]
@@ -566,6 +690,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-22.04:
           cpu: 2
@@ -585,7 +710,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         assert "ubuntu-22.04" in allocate
         assert "ubuntu-24.04" in allocate
@@ -598,7 +723,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         # Each arm must use ${VAR:-value} not bare assignment
         assert 'CPU="${CPU:-' in allocate
@@ -612,6 +737,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           cpu: -1
@@ -632,7 +758,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         assert "case" not in allocate
         # Fallback defaults still present
@@ -645,6 +771,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04:
           cpu: true
@@ -665,7 +792,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        allocate = parsed["backends"]["local"]["allocate"]
+        allocate = parsed["backends"]["integration-test-local"]["allocate"]
 
         # Pattern must be quoted: "ubuntu-24.04") not ubuntu-24.04)
         assert '"ubuntu-24.04")' in allocate
@@ -717,7 +844,7 @@ class TestSpreadRun:
 
         assert len(captured_yaml) == 1
         written = captured_yaml[0]
-        assert "local" in written["backends"]
+        assert "integration-test-local" in written["backends"]
         assert "integration-test" not in written["backends"]
         assert written.get("reroot") == ".."
 
@@ -757,7 +884,9 @@ class TestSpreadRun:
     def test_extra_args_forwarded(self, tmp_path: Path) -> None:
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
-        _SELECTOR = "local:ubuntu-24.04:tests/integration/run:test_charm"
+        _SELECTOR = (
+            "integration-test-local:ubuntu-24.04:tests/integration/run:test_charm"
+        )
         with patch("opcli.core.spread.run_command") as mock_run:
             spread_run(
                 tmp_path,
@@ -786,9 +915,11 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04
   tutorial-test:
+    type: tutorial
     systems:
       - ubuntu-24.04
 suites:
@@ -817,6 +948,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   tutorial-test:
+    type: tutorial
     systems:
       - ubuntu-24.04
 suites:
@@ -827,8 +959,8 @@ suites:
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
 
-        assert "tutorial-test" not in result
-        backend = parsed["backends"]["local-tutorial"]
+        assert "tutorial-test:" not in result
+        backend = parsed["backends"]["tutorial-test-local"]
         assert backend["type"] == "adhoc"
         assert "lxc launch --vm" in backend["allocate"]
         assert "lxc delete" in backend["discard"]
@@ -848,6 +980,7 @@ suites:
 project: test-project
 backends:
   tutorial-test:
+    type: tutorial
     systems:
       - ubuntu-24.04
 suites:
@@ -858,7 +991,7 @@ suites:
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
 
-        backend = parsed["backends"]["ci-tutorial"]
+        backend = parsed["backends"]["tutorial-test-ci"]
         assert backend["type"] == "adhoc"
         assert "ADDRESS localhost" in backend["allocate"]
         assert "chpasswd" in backend["allocate"]
@@ -870,6 +1003,7 @@ suites:
 project: test-project
 backends:
   tutorial-test:
+    type: tutorial
     systems:
       - ubuntu-24.04
 suites:
@@ -879,7 +1013,7 @@ suites:
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
-        systems = parsed["backends"]["local-tutorial"]["systems"]
+        systems = parsed["backends"]["tutorial-test-local"]["systems"]
         assert systems[0]["ubuntu-24.04"]["username"] == "ubuntu"
 
     def test_suite_backend_scoping_replaces_virtual_names(self, tmp_path: Path) -> None:
@@ -889,10 +1023,12 @@ suites:
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
 
-        assert "integration-test" not in result
-        assert "tutorial-test" not in result
-        assert parsed["suites"]["tests/integration/"]["backends"] == ["local"]
-        assert parsed["suites"]["tests/tutorial/"]["backends"] == ["local-tutorial"]
+        assert "integration-test:" not in result
+        assert "tutorial-test:" not in result
+        integration_backends = parsed["suites"]["tests/integration/"]["backends"]
+        assert integration_backends == ["integration-test-local"]
+        tutorial_backends = parsed["suites"]["tests/tutorial/"]["backends"]
+        assert tutorial_backends == ["tutorial-test-local"]
 
     def test_both_backends_coexist(self, tmp_path: Path) -> None:
         """Both virtual backends can be expanded from the same spread.yaml."""
@@ -901,11 +1037,11 @@ suites:
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
 
-        assert "local" in parsed["backends"]
-        assert "local-tutorial" in parsed["backends"]
+        assert "integration-test-local" in parsed["backends"]
+        assert "tutorial-test-local" in parsed["backends"]
 
     def test_no_known_virtual_backend_raises(self, tmp_path: Path) -> None:
-        """Raises ConfigurationError when no known virtual backend is found."""
+        """Raises ConfigurationError when no backend with a virtual type is found."""
         spread = """\
 project: test-project
 backends:
@@ -916,7 +1052,9 @@ suites:
 """
         _write(tmp_path / "spread.yaml", spread)
 
-        with pytest.raises(ConfigurationError, match="no known virtual backend"):
+        with pytest.raises(
+            ConfigurationError, match="no backend with a recognised virtual type"
+        ):
             spread_expand(tmp_path)
 
     def test_generated_suite_has_backends_key(self, tmp_path: Path) -> None:
@@ -940,18 +1078,89 @@ suites:
 
         suite = parsed["suites"]["tests/integration/"]
         assert "integration-test" not in suite.get("backends", [])
-        assert "local" in suite["backends"]
+        assert "integration-test-local" in suite["backends"]
 
+    def test_generated_spread_yaml_has_type_field(self, tmp_path: Path) -> None:
+        """spread_init generates a backend with type: integration-test."""
+        _write(tmp_path / "tests" / "integration" / "test_charm.py", "")
+        spread_path, _ = spread_init(tmp_path)
 
-# ---------------------------------------------------------------------------
-#  Tests for _runner_by_system and spread_tasks
-# ---------------------------------------------------------------------------
+        parsed = _yaml.load(StringIO(spread_path.read_text()))
+        assert parsed["backends"]["integration-test"]["type"] == "integration-test"
+
+    def test_custom_backend_name_with_integration_test_type(
+        self, tmp_path: Path
+    ) -> None:
+        """A user-defined backend name with type: integration-test is expanded."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  my-k8s-backend:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - my-k8s-backend
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "my-k8s-backend:" not in result
+        assert "my-k8s-backend-local" in parsed["backends"]
+        assert parsed["backends"]["my-k8s-backend-local"]["type"] == "adhoc"
+        suite_backends = parsed["suites"]["tests/integration/"]["backends"]
+        assert suite_backends == ["my-k8s-backend-local"]
+
+    def test_multiple_virtual_backends_same_type(self, tmp_path: Path) -> None:
+        """Multiple backends with the same virtual type expand independently."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+  integration-test-arm:
+    type: integration-test
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, arm64]
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+      - integration-test-arm
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "integration-test-local" in parsed["backends"]
+        assert "integration-test-arm-local" in parsed["backends"]
+        suite_backends = parsed["suites"]["tests/integration/"]["backends"]
+        assert "integration-test-local" in suite_backends
+        assert "integration-test-arm-local" in suite_backends
+
 
 _SPREAD_WITH_RUNNER = """\
 project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-22.04:
           runner: ubuntu-22.04-runner
@@ -974,6 +1183,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04
 environment:
@@ -1043,7 +1253,7 @@ class TestSpreadTasks:
 
         assert len(entries) == 1
         entry = entries[0]
-        assert entry["selector"].startswith("ci:")
+        assert entry["selector"].startswith("integration-test-ci:")
         assert "ubuntu-24.04" in entry["selector"]
         assert ":test_charm" in entry["selector"]
 
@@ -1064,6 +1274,7 @@ project: test-project
 path: /home/ubuntu/proj
 backends:
   integration-test:
+    type: integration-test
     systems:
       - ubuntu-24.04
 environment:
@@ -1094,7 +1305,7 @@ suites:
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
 
-        ci_backend = parsed["backends"].get("ci")
+        ci_backend = parsed["backends"].get("integration-test-ci")
         assert ci_backend is not None
         systems = ci_backend.get("systems", [])
         assert len(systems) > 0
@@ -1112,7 +1323,7 @@ suites:
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
 
-        ci_backend = parsed["backends"].get("ci")
+        ci_backend = parsed["backends"].get("integration-test-ci")
         assert ci_backend is not None
         for system_entry in ci_backend.get("systems", []):
             if isinstance(system_entry, dict):

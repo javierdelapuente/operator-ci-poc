@@ -64,7 +64,7 @@ opcli spread expand
 # Run integration tests via spread (local LXD backend)
 opcli spread run
 # Or target a specific test:
-opcli spread run -- local:ubuntu-24.04:tests/integration/run:test_charm
+opcli spread run -- integration-test-local:ubuntu-24.04:tests/integration/run:test_charm
 ```
 
 ### Local testing without spread
@@ -261,7 +261,7 @@ Two environment variables govern how opcli behaves in different environments:
 
 | Env var | Controls | Local | CI |
 |---|---|---|---|
-| `CI` | Spread backend expansion | `local:` (LXD VM) | `ci:` (current machine) |
+| `CI` | Spread backend expansion | `integration-test-local:` (LXD VM) | `integration-test-ci:` (current machine) |
 | `GITHUB_ACTIONS` | Artifact build output format | Local file paths (`output.file`) | GHCR images + GitHub artifact refs |
 
 When `GITHUB_ACTIONS=true` (set automatically by GitHub Actions runners),

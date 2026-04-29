@@ -3,6 +3,7 @@ path: /home/ubuntu/proj
 kill-timeout: 60m
 backends:
   integration-test:
+    type: integration-test
     systems:
     - ubuntu-24.04
 environment:
