@@ -632,7 +632,10 @@ def _expand_backend(
         backend_entry = backends.get(backend_name)
         if not isinstance(backend_entry, dict):
             continue
-        backend_type = backend_entry.get("type")
+        # If type: is absent, fall back to the backend name as the type —
+        # mirroring spread's own convention where the backend name implies
+        # the driver type when type: is not explicitly set.
+        backend_type = backend_entry.get("type") or backend_name
         if backend_type not in _BACKEND_CONFIGS:
             continue
         found_any = True

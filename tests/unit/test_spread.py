@@ -449,6 +449,66 @@ suites:
         assert systems[0]["ubuntu-24.04"]["username"] == "custom-user"
 
 
+class TestImplicitBackendType:
+    """Implicit type fallback: backend name used as type when type: is absent."""
+
+    def test_name_only_backend_expands_as_virtual(self, tmp_path: Path) -> None:
+        """Backend named 'integration-test' with no type: is treated as virtual."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "integration-test:" not in result
+        assert "integration-test-local" in parsed["backends"]
+        assert parsed["backends"]["integration-test-local"]["type"] == "adhoc"
+
+    def test_unknown_name_no_type_is_not_expanded(self, tmp_path: Path) -> None:
+        """A backend with an unrecognised name and no type: is not a virtual backend."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  my-custom:
+    systems:
+      - ubuntu-24.04
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        # my-custom has no type: so its name is the type — not a virtual type
+        assert "my-custom" in parsed["backends"]
+        assert "my-custom-local" not in parsed["backends"]
+
+
 class TestSystemResourceFields:
     """Tests for cpu/memory/disk/runner handling in virtual backend system entries."""
 
