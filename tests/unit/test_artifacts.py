@@ -1174,6 +1174,7 @@ class TestArtifactsFetch:
                 "artifacts-generated",
                 "--dir",
                 str(tmp_path),
+                "--clobber",
             ],
             cwd=str(tmp_path),
         )
