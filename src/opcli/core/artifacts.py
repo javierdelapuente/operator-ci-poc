@@ -892,7 +892,6 @@ def artifacts_fetch(
         "artifacts-generated",
         "--dir",
         str(root),
-        "--clobber",
     ]
     if wait:
         _gh_download_with_wait(generated_cmd, str(root), run_id)
@@ -931,7 +930,6 @@ def artifacts_fetch(
                 name,
                 "--dir",
                 str(root),
-                "--clobber",
             ],
             cwd=str(root),
         )
