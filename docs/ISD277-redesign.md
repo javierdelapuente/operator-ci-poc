@@ -74,8 +74,8 @@ The new design preserves the same three phases (plan, build, test) but makes  ea
 
 **Spread for test execution**. [Spread](https://github.com/canonical/spread)  orchestrates the full test run (provisioning \+ test execution) through a spread.yaml  file with two backends:
 
-- Local ( integration-test-local: ): provisions an LXD VM, runs concierge inside it, and uploads OCI images to a local registry.  
-- CI ( integration-test-ci: ): runs on the current machine, provisions with a CI-adapted concierge file, waits for artifacts to be built in parallel, downloads them,  and prepares them for the tests. 
+- Local ( local: ): provisions an LXD VM, runs concierge inside it, and uploads OCI images to a local registry.  
+- CI ( ci: ): runs on the current machine, provisions with a CI-adapted concierge file, waits for artifacts to be built in parallel, downloads them,  and prepares them for the tests. 
 
 After backend provisioning, spread tasks (or variants within a task) run the integration tests. For standard repositories,  spread.yaml  and  task.yaml  can be auto-generated with test auto-discovery. For more complex setups  (multiple Juju versions, different Kubernetes substrates, extra provisioning), the user customizes the spread files directly. Spread's prepare  and  prepare-each  hooks provide additional extension points beyond what concierge covers. 
 
@@ -96,7 +96,7 @@ opcli artifacts build
 opcli spread init
 # "opcli spread run" is a wrapper for spread that expands the backends and runs spread as a subprocess
 opcli spread run -list
-opcli spread run -- integration-test-local:ubuntu-26.04:tests/integration/run:test_charm
+opcli spread run local:ubuntu-26.04:tests/integration/run:test_charm
 ```
 
 For quick local iteration, spread can be skipped, but extra provisioning in spread.yaml/task.yaml has to be done manually.
@@ -119,7 +119,7 @@ The CI workflow mirrors the local sequence but distributes work across  parallel
 1. **Plan**. Reads  artifacts.yaml  and produces a build matrix (one entry per  artifact).  
 2. **Build (matrix).** Each job builds one artifact (charm, rock, etc.). A final  collection step waits for all build jobs to finish, assembles  artifacts- generated.yaml , and uploads it as a GitHub artifact.  
 3. **Test plan**. Parses  spread.yaml  to discover the test tasks and produces a test matrix (one entry per test module).  
-4. **Test (matrix).** Each job runs a single spread test with the  ``integration-test-ci``  backend, which targets the current GitHub runner. Inside each job:  
+4. **Test (matrix).** Each job runs a single spread test with the  ci:  backend, which targets the current GitHub runner. Inside each job:  
    1. Backend prepare  
       1. opcli is installed  
       2. concierge.yaml  is patched with docker mirrors and any other CI specific overrides.  
@@ -260,13 +260,13 @@ host:
 
 ### **spread.yaml**
 
-The  spread.yaml  file defines a mandatory backend called  integration-test  — a virtual backend that  opcli  expands into  ``integration-test-local``  or  ``integration-test-ci``  before running spread. This file can be auto-generated with “opcli spread init”  (which discovers all integration tests in the repository) and then optionally edited and committed. Similar to  “charmcraft test”  and  “snapcraft test”, the backend expansion happens transparently using “opcli spread run”.
+The  spread.yaml  file defines a mandatory backend called  integration-test  — a virtual backend that  opcli  expands into the real  local:  or  ci:  backend  before running spread. This file can be auto-generated with “opcli spread init”  (which discovers all integration tests in the repository) and then optionally edited and committed. Similar to  “charmcraft test”  and  “snapcraft test”, the backend expansion happens transparently using “opcli spread run”.
 
 ```
 project: indico-operator
 
 backends:
-  # Virtual backend. Expanded by opcli into integration-test-local: or integration-test-ci:
+  # Virtual backend. Expanded by opcli into local: or ci:
   integration-test:
     systems:
       - ubuntu-24.04:

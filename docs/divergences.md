@@ -614,3 +614,27 @@ runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with 
 
 This ensures `tox` is at `/usr/local/bin/tox`, reachable in the ubuntu login
 shell used by `runuser -l ubuntu` in the EXECUTE script.
+
+## 23. Concrete backend names derived from virtual name
+
+**Spec:** Describes the backends as `local:` (for local/LXD) and `ci:` (for GitHub Actions runners).
+
+**Implementation:** Concrete backend names are derived from the virtual backend name by appending `-local` or `-ci`:
+
+- `integration-test` → `integration-test-local` / `integration-test-ci`
+- `tutorial-test` → `tutorial-test-local` / `tutorial-test-ci`
+
+This means spread selectors use the derived name, e.g.:
+
+```bash
+opcli spread run -- integration-test-local:ubuntu-24.04:tests/integration/run:test_charm
+opcli spread run -- integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm
+```
+
+And `opcli spread tasks` produces entries like:
+
+```json
+{"name": "test_charm", "selector": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm", "runs-on": ["self-hosted", "noble"]}
+```
+
+The naming convention makes the origin of each backend immediately visible in selector strings and spread output, and avoids clashing with user-defined backends named `local` or `ci`.
