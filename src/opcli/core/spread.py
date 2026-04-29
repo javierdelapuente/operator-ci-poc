@@ -327,10 +327,6 @@ if [ -f "$CONCIERGE" ]; then
   concierge prepare -c "$CONCIERGE"
 fi
 if [ -n "${GITHUB_RUN_ID:-}" ]; then
-  if ! command -v gh >/dev/null 2>&1; then
-    echo "Error: gh CLI is required for CI artifact download but was not found" >&2
-    exit 1
-  fi
   export GH_TOKEN="${GITHUB_TOKEN}"
   cd "${SPREAD_PATH}" && opcli artifacts fetch \
     --run-id "${GITHUB_RUN_ID}" \
