@@ -70,9 +70,9 @@ jobs:
 
   # ── Job 2: build each artifact in parallel ─────────────────────────────────
   build:
-    name: "Build ${{ matrix.type }} ${{ matrix.name }}"
+    name: "Build ${{ matrix.type }} ${{ matrix.name }} (${{ matrix.arch }})"
     needs: build-matrix
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(matrix.runner) }}
     permissions:
       contents: read
       packages: write
@@ -137,14 +137,14 @@ jobs:
         if: matrix.type != 'rock'
         uses: actions/upload-artifact@v4
         with:
-          name: built-${{ matrix.type }}-${{ matrix.name }}
+          name: built-${{ matrix.type }}-${{ matrix.name }}-${{ matrix.arch }}
           path: ${{ inputs.working-directory }}/**/*.${{ matrix.type }}
           if-no-files-found: error
 
       - name: Upload partial artifacts-generated.yaml
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-generated-${{ matrix.type }}-${{ matrix.name }}
+          name: artifacts-generated-${{ matrix.type }}-${{ matrix.name }}-${{ matrix.arch }}
           path: ${{ inputs.working-directory }}/artifacts-generated.yaml
           if-no-files-found: error
 

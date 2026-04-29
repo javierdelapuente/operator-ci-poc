@@ -301,7 +301,7 @@ artifact types.
 
 ---
 
-## 12. Multi-base charm output — `output.files` list instead of single `output.file`
+## 12. Multi-base charm output — `output[*].files` list inside each arch build
 
 **Spec:** The `artifacts-generated.yaml` schema shows a single `output.file`
 path for each charm entry:
@@ -313,23 +313,24 @@ charms:
       file: ./indico_ubuntu-22.04-amd64.charm
 ```
 
-**Implementation:** Charms use an `output.files` list of `{path, base}` objects
-because `charmcraft pack` produces **one `.charm` file per declared base** in a
-single invocation (e.g. ubuntu@20.04, ubuntu@22.04, ubuntu@24.04 with the same
-architecture each produce a separate file):
+**Implementation:** The `output:` field is now a **list of per-architecture build
+objects** (`CharmArchBuild`). Each `CharmArchBuild` has an `arch` field and a
+`files` list of `{path, base}` objects, because `charmcraft pack` produces
+**one `.charm` file per declared base** in a single invocation (e.g. ubuntu@20.04,
+ubuntu@22.04, ubuntu@24.04 with the same architecture each produce a separate file):
 
 ```yaml
 charms:
   - name: aproxy
-    charmcraft-yaml: charmcraft.yaml
     output:
-      files:
-        - path: ./aproxy_ubuntu-20.04-amd64.charm
-          base: ubuntu@20.04
-        - path: ./aproxy_ubuntu-22.04-amd64.charm
-          base: ubuntu@22.04
-        - path: ./aproxy_ubuntu-24.04-amd64.charm
-          base: ubuntu@24.04
+      - arch: amd64
+        files:
+          - path: ./aproxy_ubuntu-20.04-amd64.charm
+            base: ubuntu@20.04
+          - path: ./aproxy_ubuntu-22.04-amd64.charm
+            base: ubuntu@22.04
+          - path: ./aproxy_ubuntu-24.04-amd64.charm
+            base: ubuntu@24.04
 ```
 
 The `base` field is parsed best-effort from the filename
@@ -337,15 +338,14 @@ The `base` field is parsed best-effort from the filename
 `null` when the filename does not follow this convention.
 
 `opcli pytest expand` emits one `--charm-file=<path>` flag per entry in
-`output.files`.
+`files` for the arch matching the current machine.
 
-For CI-built charms, the `artifact` and `run-id` fields remain on
-`CharmArtifactOutput` alongside `files` (which is empty in that case).
+For CI-built charms, `artifact` and `run-id` fields replace `files` in the
+`CharmArchBuild` entry.
 
-**Rationale:** Rocks and snaps always produce exactly one file per
-architecture so their schema is unchanged. Only charms need the list because
-multi-base (same-arch) builds are a common pattern in the Canonical operator
-ecosystem.
+**Rationale:** Rocks and snaps always produce exactly one file per architecture.
+Only charms need the inner files list because multi-base (same-arch) builds
+are a common pattern in the Canonical operator ecosystem.
 
 ---
 
@@ -355,12 +355,12 @@ ecosystem.
 The spec does not describe any modification of `artifacts-generated.yaml`.
 
 **Implementation:** After successfully pushing each rock image,
-`opcli provision load` updates the corresponding `rock.output.image` field in
-`artifacts-generated.yaml` with the pushed image reference (e.g.
-`localhost:32000/myrock:latest`).
+`opcli provision load` updates the corresponding arch build entry's `image`
+field in `artifacts-generated.yaml` with the pushed image reference (e.g.
+`localhost:32000/myrock:amd64`).
 
 This means that after running `opcli provision load`, `opcli pytest expand`
-automatically emits `--<resource-name>=localhost:32000/myrock:latest` (the
+automatically emits `--<resource-name>=localhost:32000/myrock:amd64` (the
 live registry reference) for any charm resource linked to that rock, because
 pytest-args resolves image refs by looking up the rock — not by reading a
 separate field on the resource.
@@ -397,18 +397,29 @@ downside.
 **Implementation:** Two new commands support the parallel CI build pattern:
 
 - **`opcli artifacts matrix`** reads `artifacts.yaml` and prints a JSON object
-  suitable for use as a GitHub Actions `strategy.matrix`. Each artifact
-  (rocks, then charms, then snaps) becomes one entry with `name` and `type`:
+  suitable for use as a GitHub Actions `strategy.matrix`. Each matrix entry is
+  expanded per `builds:` target (one entry per `{artifact, arch}` pair) and
+  includes `name`, `type`, `arch`, and `runner` fields:
   ```json
-  {"include": [{"name": "my-rock", "type": "rock"}, {"name": "my-charm", "type": "charm"}]}
+  {"include": [
+    {"name": "my-rock",  "type": "rock",  "arch": "amd64", "runner": "[\"ubuntu-latest\"]"},
+    {"name": "my-charm", "type": "charm", "arch": "amd64", "runner": "[\"ubuntu-latest\"]"},
+    {"name": "my-charm", "type": "charm", "arch": "arm64", "runner": "[\"ubuntu-latest-arm64\"]"}
+  ]}
   ```
-  This drives the parallel `build` job in the reusable `build-artifacts.yml` workflow.
+  The `runner` value is a **JSON-encoded string** (not a nested array) so that
+  GitHub Actions `fromJSON(matrix.runner)` correctly converts it to a runner
+  label array at job execution time. This supports both single-label
+  (`'["ubuntu-latest"]'`) and multi-label (`'["self-hosted", "arm64"]'`) runner
+  specs. Workflow usage: `runs-on: ${{ fromJSON(matrix.runner) }}`.
 
 - **`opcli artifacts collect <partial1> <partial2> ...`** reads multiple partial
   `artifacts-generated.yaml` files (one per parallel build job) and merges them
-  into a single `artifacts-generated.yaml`. It validates that:
-  - No artifact name appears in more than one partial.
-  - Every rock referenced by a charm resource is present in the collected set.
+  into a single `artifacts-generated.yaml`. Each artifact can appear in multiple
+  partials as long as no two partials contain the same `(name, arch)` pair — this
+  enables multi-arch builds where each runner produces a partial for its arch and
+  the collect step merges the output lists. It also validates that every rock
+  referenced by a charm resource is present in the collected set.
 
 **Rationale:** Each parallel build job produces its own partial
 `artifacts-generated.yaml`. The collect step merges them into the single file

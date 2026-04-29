@@ -17,19 +17,83 @@ The ``KEY=VALUE`` form is required because some conftest.py files register
 ``--charm-file`` with ``nargs="+"``, which makes argparse greedy.  With the
 space-separated form, subsequent ``--charm-file`` tokens would be consumed as
 values of the first flag instead of starting a new flag.
+
+When the generated file contains multi-arch builds, flags are filtered to the
+current machine's architecture.  If no build matches the current arch, all
+available builds are used (graceful degradation for single-arch repos).
 """
 
 from __future__ import annotations
 
 import logging
+import platform
 from pathlib import Path
+from typing import overload
 
 from opcli.core.exceptions import ConfigurationError
 from opcli.core.yaml_io import load_artifacts_generated
+from opcli.models.artifacts_generated import (
+    CharmArchBuild,
+    RockArchBuild,
+    SnapArchBuild,
+)
 
 logger = logging.getLogger(__name__)
 
 _ARTIFACTS_GENERATED_YAML = "artifacts-generated.yaml"
+
+
+def _current_arch() -> str:
+    """Return the normalised architecture of the current machine."""
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        return "amd64"
+    if machine in ("aarch64", "arm64"):
+        return "arm64"
+    return machine
+
+
+@overload
+def _select_arch_builds(
+    builds: list[RockArchBuild], arch: str, artifact_name: str
+) -> list[RockArchBuild]: ...
+
+
+@overload
+def _select_arch_builds(
+    builds: list[CharmArchBuild], arch: str, artifact_name: str
+) -> list[CharmArchBuild]: ...
+
+
+@overload
+def _select_arch_builds(
+    builds: list[SnapArchBuild], arch: str, artifact_name: str
+) -> list[SnapArchBuild]: ...
+
+
+def _select_arch_builds(
+    builds: list[RockArchBuild] | list[CharmArchBuild] | list[SnapArchBuild],
+    arch: str,
+    artifact_name: str,
+) -> list[RockArchBuild] | list[CharmArchBuild] | list[SnapArchBuild]:
+    """Return the subset of *builds* matching *arch*, or all if none match.
+
+    When an exact arch match is found, only those builds are returned.
+    When no build matches the current arch (e.g. running arm64 tests against
+    an amd64-only artifact set), all builds are returned with a warning so
+    that single-arch repos continue to work.
+    """
+    matching = [b for b in builds if b.arch == arch]
+    if matching:
+        return matching  # type: ignore[return-value]
+    if builds:
+        logger.warning(
+            "No build for '%s' matches arch '%s'; using all available builds: %s",
+            artifact_name,
+            arch,
+            [b.arch for b in builds],
+        )
+    return builds
 
 
 def assemble_pytest_args(
@@ -52,6 +116,7 @@ def assemble_pytest_args(
         raise ConfigurationError(msg)
 
     generated = load_artifacts_generated(gen_path)
+    arch = _current_arch()
 
     args: list[str] = []
 
@@ -59,23 +124,29 @@ def assemble_pytest_args(
     # This runs unconditionally so no rock: annotation is needed on charm resources.
     rock_flag_names: set[str] = set()
     for rock in generated.rocks:
-        value = rock.output.image or rock.output.file
-        if value:
-            flag_name = f"{rock.name}-image"
-            rock_flag_names.add(flag_name)
-            args.append(f"--{flag_name}={value}")
+        rock_builds = _select_arch_builds(rock.output, arch, rock.name)
+        for rock_build in rock_builds:
+            value = rock_build.image or rock_build.file
+            if value:
+                flag_name = f"{rock.name}-image"
+                rock_flag_names.add(flag_name)
+                args.append(f"--{flag_name}={value}")
 
     for charm in generated.charms:
-        if charm.output.files:
-            for charm_file in charm.output.files:
-                args.append(f"--charm-file={charm_file.path}")
-        elif charm.output.artifact:
-            logger.warning(
-                "Skipping --charm-file for charm '%s': output is a CI artifact "
-                "(%s). Run 'opcli artifacts build' locally to get a local file.",
-                charm.name,
-                charm.output.artifact,
-            )
+        charm_builds = _select_arch_builds(charm.output, arch, charm.name)
+        for charm_build in charm_builds:
+            if charm_build.files:
+                for charm_file in charm_build.files:
+                    args.append(f"--charm-file={charm_file.path}")
+            elif charm_build.artifact:
+                logger.warning(
+                    "Skipping --charm-file for charm '%s' (%s): output is a CI "
+                    "artifact (%s). Run 'opcli artifacts build' locally to get "
+                    "a local file.",
+                    charm.name,
+                    charm_build.arch,
+                    charm_build.artifact,
+                )
 
         # Resources backed by a rock are already covered by the rock
         # iteration above. Resources without a rock link have no output info.

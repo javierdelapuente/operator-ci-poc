@@ -9,8 +9,10 @@
 from __future__ import annotations
 
 import glob as globmod
+import json
 import logging
 import os
+import platform
 import re
 import time
 from dataclasses import dataclass
@@ -31,14 +33,15 @@ from opcli.models.artifacts import (
     SnapArtifact,
 )
 from opcli.models.artifacts_generated import (
-    ArtifactOutput,
     ArtifactsGenerated,
-    CharmArtifactOutput,
+    CharmArchBuild,
     CharmFile,
     GeneratedCharm,
     GeneratedResource,
     GeneratedRock,
     GeneratedSnap,
+    RockArchBuild,
+    SnapArchBuild,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,31 +116,50 @@ def _get_ci_context() -> _CIContext | None:
     return _CIContext(run_id=run_id, owner=owner, repo=repo, sha=sha[:7])
 
 
+def _current_arch() -> str:
+    """Return the normalised architecture of the current machine.
+
+    Maps ``x86_64`` → ``amd64`` and ``aarch64`` → ``arm64``.
+    All other values are returned as-is (lower-cased).
+    """
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        return "amd64"
+    if machine in ("aarch64", "arm64"):
+        return "arm64"
+    return machine
+
+
 def _push_rock_to_ghcr(
     rock: GeneratedRock, ci: _CIContext, root: Path
 ) -> GeneratedRock:
     """Push a locally-built rock to GHCR and return an updated ``GeneratedRock``.
 
     The rock ``.rock`` file is pushed to
-    ``ghcr.io/<owner>/<repo>/<name>:<sha7>`` using ``skopeo copy``.
-    The returned object has ``output.image`` set and no ``output.file``.
+    ``ghcr.io/<owner>/<repo>/<name>:<sha7>-<arch>`` using ``skopeo copy``.
+    The returned object has its ``output`` rewritten to a single
+    :class:`RockArchBuild` with ``image`` set and no ``file``.
 
     Raises:
-        OpcliError: If the rock file does not exist.
+        OpcliError: If the rock output list is empty or has no local file.
         SubprocessError: If the skopeo push fails.
     """
-    if not rock.output.file:
+    if not rock.output:
+        msg = f"Rock '{rock.name}' has no build output to push to GHCR."
+        raise OpcliError(msg)
+    build = rock.output[0]
+    if not build.file:
         msg = f"Rock '{rock.name}' has no local file to push to GHCR."
         raise OpcliError(msg)
 
-    rock_path = Path(rock.output.file)
+    rock_path = Path(build.file)
     if not rock_path.is_absolute():
         rock_path = (root / rock_path).resolve()
     if not rock_path.exists():
         msg = f"Rock file not found: {rock_path}"
         raise OpcliError(msg)
 
-    image_ref = f"ghcr.io/{ci.owner}/{ci.repo}/{rock.name}:{ci.sha}"
+    image_ref = f"ghcr.io/{ci.owner}/{ci.repo}/{rock.name}:{ci.sha}-{build.arch}"
     run_command(
         [
             "skopeo",
@@ -152,30 +174,52 @@ def _push_rock_to_ghcr(
     return GeneratedRock(
         name=rock.name,
         **{"rockcraft-yaml": rock.rockcraft_yaml},
-        output=ArtifactOutput(image=image_ref),
+        output=[RockArchBuild(arch=build.arch, image=image_ref)],
     )
 
 
 def _to_ci_charm(charm: GeneratedCharm, ci: _CIContext) -> GeneratedCharm:
-    """Return a copy of *charm* with CI artifact-reference output."""
+    """Return a copy of *charm* with CI artifact-reference output.
+
+    The artifact name includes the architecture so parallel multi-arch builds
+    produce distinct artifact names (e.g. ``built-charm-my-charm-amd64``).
+    """
+    arch = charm.output[0].arch if charm.output else _current_arch()
     return GeneratedCharm(
         name=charm.name,
         **{"charmcraft-yaml": charm.charmcraft_yaml},
-        output=CharmArtifactOutput.model_validate(
-            {"artifact": f"built-charm-{charm.name}", "run-id": ci.run_id}
-        ),
+        output=[
+            CharmArchBuild.model_validate(
+                {
+                    "arch": arch,
+                    "artifact": f"built-charm-{charm.name}-{arch}",
+                    "run-id": ci.run_id,
+                }
+            )
+        ],
         resources=charm.resources,
     )
 
 
 def _to_ci_snap(snap: GeneratedSnap, ci: _CIContext) -> GeneratedSnap:
-    """Return a copy of *snap* with CI artifact-reference output."""
+    """Return a copy of *snap* with CI artifact-reference output.
+
+    The artifact name includes the architecture so parallel multi-arch builds
+    produce distinct artifact names (e.g. ``built-snap-my-snap-amd64``).
+    """
+    arch = snap.output[0].arch if snap.output else _current_arch()
     return GeneratedSnap(
         name=snap.name,
         **{"snapcraft-yaml": snap.snapcraft_yaml},
-        output=ArtifactOutput.model_validate(
-            {"artifact": f"built-snap-{snap.name}", "run-id": ci.run_id}
-        ),
+        output=[
+            SnapArchBuild.model_validate(
+                {
+                    "arch": arch,
+                    "artifact": f"built-snap-{snap.name}-{arch}",
+                    "run-id": ci.run_id,
+                }
+            )
+        ],
     )
 
 
@@ -268,9 +312,9 @@ def _relative_to_root(path_str: str, root: Path) -> str:
 
 
 # Pattern: {name}_{distro}-{version}-{arch}.charm
-# e.g. aproxy_ubuntu-22.04-amd64.charm → distro=ubuntu, version=22.04
+# e.g. aproxy_ubuntu-22.04-amd64.charm → distro=ubuntu, version=22.04, arch=amd64
 _CHARM_FILENAME_RE = re.compile(
-    r"^.+_(?P<distro>[a-z]+)-(?P<version>\d+\.\d+)-[^.]+\.charm$"
+    r"^.+_(?P<distro>[a-z]+)-(?P<version>\d+\.\d+)-(?P<arch>[^.]+)\.charm$"
 )
 
 
@@ -285,6 +329,30 @@ def _parse_base_from_charm_path(path: str) -> str | None:
     if not m:
         return None
     return f"{m.group('distro')}@{m.group('version')}"
+
+
+def _parse_arch_from_charm_path(path: str) -> str | None:
+    """Return the arch (e.g. ``amd64``) parsed from a charm filename.
+
+    Returns ``None`` if the filename does not follow the expected convention.
+    """
+    filename = Path(path).name
+    m = _CHARM_FILENAME_RE.match(filename)
+    return m.group("arch") if m else None
+
+
+# Pattern: {name}_{version}_{arch}.snap  e.g. my-snap_1.0_amd64.snap
+_SNAP_FILENAME_RE = re.compile(r"^.+_[^_]+_(?P<arch>[^.]+)\.snap$")
+
+
+def _parse_arch_from_snap_path(path: str) -> str | None:
+    """Return the arch (e.g. ``amd64``) parsed from a snap filename.
+
+    Returns ``None`` if the filename does not follow the expected convention.
+    """
+    filename = Path(path).name
+    m = _SNAP_FILENAME_RE.match(filename)
+    return m.group("arch") if m else None
 
 
 def _pick_new_charm_outputs(
@@ -380,7 +448,7 @@ def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
     return GeneratedRock(
         name=rock.name,
         **{"rockcraft-yaml": rock.rockcraft_yaml},
-        output=ArtifactOutput(file=output_file),
+        output=[RockArchBuild(arch=_current_arch(), file=output_file)],
     )
 
 
@@ -419,7 +487,7 @@ def _build_charm(
     return GeneratedCharm(
         name=charm.name,
         **{"charmcraft-yaml": charm.charmcraft_yaml},
-        output=CharmArtifactOutput(files=charm_files),
+        output=[CharmArchBuild(arch=_current_arch(), files=charm_files)],
         resources=resources if resources else None,
     )
 
@@ -442,7 +510,7 @@ def _build_snap(snap: SnapArtifact, root: Path) -> GeneratedSnap:
     return GeneratedSnap(
         name=snap.name,
         **{"snapcraft-yaml": snap.snapcraft_yaml},
-        output=ArtifactOutput(file=output_file),
+        output=[SnapArchBuild(arch=_current_arch(), file=output_file)],
     )
 
 
@@ -509,12 +577,16 @@ def artifacts_build(
     return dest
 
 
-def artifacts_matrix(root: Path) -> dict[str, list[dict[str, str]]]:
+def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:
     """Read ``artifacts.yaml`` and return a GitHub Actions matrix dict.
 
     The returned dict has a single key ``"include"`` whose value is a list of
-    entries — one per artifact — each with ``"name"`` and ``"type"`` keys.
-    Rocks come first, then charms, then snaps.
+    entries — one per (artifact, arch) combination — each with ``"name"``,
+    ``"type"``, ``"arch"``, and ``"runner"`` keys.  ``runner`` is a list of
+    GitHub runner label strings.
+
+    Rocks come first, then charms, then snaps.  Within each kind, entries are
+    ordered by artifact declaration order, then by ``builds`` order.
 
     The result is JSON-serialisable and suitable for use as a GitHub Actions
     ``strategy.matrix`` value via ``$GITHUB_OUTPUT``.
@@ -528,15 +600,72 @@ def artifacts_matrix(root: Path) -> dict[str, list[dict[str, str]]]:
         raise ConfigurationError(msg)
 
     plan = load_artifacts_plan(plan_path)
-    include: list[dict[str, str]] = []
+    include: list[dict[str, object]] = []
     for rock in plan.rocks:
-        include.append({"name": rock.name, "type": "rock"})
+        for build in rock.builds:
+            include.append(
+                {
+                    "name": rock.name,
+                    "type": "rock",
+                    "arch": build.arch,
+                    "runner": json.dumps(build.runner or ["ubuntu-latest"]),
+                }
+            )
     for charm in plan.charms:
-        include.append({"name": charm.name, "type": "charm"})
+        for build in charm.builds:
+            include.append(
+                {
+                    "name": charm.name,
+                    "type": "charm",
+                    "arch": build.arch,
+                    "runner": json.dumps(build.runner or ["ubuntu-latest"]),
+                }
+            )
     for snap in plan.snaps:
-        include.append({"name": snap.name, "type": "snap"})
+        for build in snap.builds:
+            include.append(
+                {
+                    "name": snap.name,
+                    "type": "snap",
+                    "arch": build.arch,
+                    "runner": json.dumps(build.runner or ["ubuntu-latest"]),
+                }
+            )
 
     return {"include": include}
+
+
+def _merge_artifact_outputs[T: (GeneratedRock, GeneratedCharm, GeneratedSnap)](
+    items: list[T],
+    kind: str,
+) -> list[T]:
+    """Merge artifacts with the same name by combining their output lists.
+
+    In a multi-arch CI build, each arch produces a separate partial file for
+    the same artifact but with a different arch entry in ``output``.  This
+    function groups them by name and concatenates the ``output`` lists so that
+    the collected file holds all arches for each artifact.
+
+    Raises :class:`ConfigurationError` if the same ``(name, arch)`` pair
+    appears in more than one partial (genuine conflict, not a multi-arch merge).
+    """
+    merged: dict[str, T] = {}
+    for item in items:
+        if item.name not in merged:
+            merged[item.name] = item
+        else:
+            existing = merged[item.name]
+            existing_arches = {b.arch for b in existing.output}
+            for build in item.output:
+                if build.arch in existing_arches:
+                    msg = (
+                        f"Duplicate {kind} '{item.name}' arch '{build.arch}' across "
+                        "collected partials. Each (artifact, arch) must appear in "
+                        "exactly one partial file."
+                    )
+                    raise ConfigurationError(msg)
+            existing.output.extend(item.output)
+    return list(merged.values())
 
 
 def artifacts_collect(root: Path, partial_paths: list[Path]) -> Path:
@@ -577,24 +706,15 @@ def artifacts_collect(root: Path, partial_paths: list[Path]) -> Path:
         all_charms.extend(partial.charms)
         all_snaps.extend(partial.snaps)
 
-    # Reject duplicate artifact names — each name must appear in exactly one partial.
-    for kind, names in (
-        ("rock", [r.name for r in all_rocks]),
-        ("charm", [c.name for c in all_charms]),
-        ("snap", [s.name for s in all_snaps]),
-    ):
-        dupes = {n for n in names if names.count(n) > 1}
-        if dupes:
-            msg = (
-                f"Duplicate {kind} name(s) across collected partials: "
-                f"{', '.join(sorted(dupes))}. Each artifact must appear in "
-                "exactly one partial file."
-            )
-            raise ConfigurationError(msg)
+    # Merge same-named artifacts: combine their output lists.
+    # Reject duplicate (name, arch) combinations across partials.
+    merged_rocks = _merge_artifact_outputs(all_rocks, "rock")
+    merged_charms = _merge_artifact_outputs(all_charms, "charm")
+    merged_snaps = _merge_artifact_outputs(all_snaps, "snap")
 
     # Validate that every rock referenced by a charm resource is present.
-    rocks_by_name: dict[str, GeneratedRock] = {r.name: r for r in all_rocks}
-    for charm in all_charms:
+    rocks_by_name: dict[str, GeneratedRock] = {r.name: r for r in merged_rocks}
+    for charm in merged_charms:
         for res_name, res in (charm.resources or {}).items():
             if res.rock and res.rock not in rocks_by_name:
                 msg = (
@@ -605,9 +725,9 @@ def artifacts_collect(root: Path, partial_paths: list[Path]) -> Path:
                 raise ConfigurationError(msg)
 
     generated = ArtifactsGenerated(
-        rocks=all_rocks,
-        charms=all_charms,
-        snaps=all_snaps,
+        rocks=merged_rocks,
+        charms=merged_charms,
+        snaps=merged_snaps,
     )
     dest = root / _ARTIFACTS_GENERATED_YAML
     dump_artifacts_generated(generated, dest)
@@ -635,14 +755,21 @@ def _filter_by_name[T: (RockArtifact, CharmArtifact, SnapArtifact)](
     return [item for item in items if item.name in name_set]
 
 
-def _find_local_file(root: Path, name: str, extension: str) -> str | None:
+def _find_local_file(
+    root: Path, name: str, extension: str, arch: str | None = None
+) -> str | None:
     """Find a single ``name_*.{extension}`` file under *root*.
+
+    When *arch* is given and the filename follows the expected naming
+    convention, only files whose parsed arch matches are considered.
 
     Returns the relative path (``./...``) on success, or ``None`` if no file
     is found.  Logs a warning when multiple matches exist and picks the first.
     """
     pattern = str(root / "**" / f"{name}_*.{extension}")
     matches = sorted(globmod.glob(pattern, recursive=True))
+    if arch is not None and extension == "snap":
+        matches = [m for m in matches if _parse_arch_from_snap_path(m) in (arch, None)]
     if not matches:
         return None
     if len(matches) > 1:
@@ -655,15 +782,20 @@ def _find_local_file(root: Path, name: str, extension: str) -> str | None:
     return "./" + str(Path(matches[0]).relative_to(root))
 
 
-def _find_local_charm_files(root: Path, name: str) -> list[CharmFile]:
+def _find_local_charm_files(
+    root: Path, name: str, arch: str | None = None
+) -> list[CharmFile]:
     """Find all ``name_*.charm`` files under *root* and return CharmFile list.
 
-    Returns an empty list when no files are found.  Multiple matches are
-    expected for multi-base charms — each file gets its base parsed from
-    the filename via :func:`_parse_base_from_charm_path`.
+    When *arch* is given, only files whose parsed arch matches (or whose arch
+    cannot be determined) are returned.  Returns an empty list when no files
+    are found.  Multiple matches are expected for multi-base charms — each
+    file gets its base parsed from the filename.
     """
     pattern = str(root / "**" / f"{name}_*.charm")
     matches = sorted(globmod.glob(pattern, recursive=True))
+    if arch is not None:
+        matches = [m for m in matches if _parse_arch_from_charm_path(m) in (arch, None)]
     return [
         CharmFile(
             path="./" + str(Path(m).relative_to(root)),
@@ -680,11 +812,11 @@ def artifacts_localize(root: Path) -> int:
     references.  Before running integration tests, the workflow downloads
     the artifacts to the working directory.  This command scans the project
     tree for ``.charm`` / ``.snap`` files and rewrites
-    ``artifacts-generated.yaml`` so that each artifact with only a CI
-    artifact reference gets an ``output.file(s)`` entry pointing to the
-    discovered local file.
+    ``artifacts-generated.yaml`` so that each :class:`CharmArchBuild` /
+    :class:`SnapArchBuild` with only a CI artifact reference gets a
+    ``files`` / ``file`` entry pointing to the discovered local file.
 
-    Returns the total number of artifacts that were localised.
+    Returns the total number of arch-builds that were localised.
 
     Raises:
         ConfigurationError: If ``artifacts-generated.yaml`` is not found or
@@ -701,28 +833,45 @@ def artifacts_localize(root: Path) -> int:
     missing: list[str] = []
 
     for charm in generated.charms:
-        if charm.output.files or not charm.output.artifact:
-            continue
-        charm_files = _find_local_charm_files(root, charm.name)
-        if not charm_files:
-            missing.append(charm.name)
-            logger.error("No .charm file found for charm '%s'.", charm.name)
-            continue
-        charm.output.files = charm_files
-        logger.info("Localised charm '%s' → %d file(s).", charm.name, len(charm_files))
-        updated += 1
+        for build in charm.output:
+            if build.files or not build.artifact:
+                continue
+            charm_files = _find_local_charm_files(root, charm.name, build.arch)
+            if not charm_files:
+                missing.append(f"{charm.name} ({build.arch})")
+                logger.error(
+                    "No .charm file found for charm '%s' arch '%s'.",
+                    charm.name,
+                    build.arch,
+                )
+                continue
+            build.files = charm_files
+            logger.info(
+                "Localised charm '%s' (%s) → %d file(s).",
+                charm.name,
+                build.arch,
+                len(charm_files),
+            )
+            updated += 1
 
     for snap in generated.snaps:
-        if snap.output.file or not snap.output.artifact:
-            continue
-        rel = _find_local_file(root, snap.name, "snap")
-        if rel is None:
-            missing.append(snap.name)
-            logger.error("No .snap file found for snap '%s'.", snap.name)
-            continue
-        snap.output.file = rel
-        logger.info("Localised snap '%s' → %s", snap.name, rel)
-        updated += 1
+        for snap_build in snap.output:
+            if snap_build.file or not snap_build.artifact:
+                continue
+            rel = _find_local_file(root, snap.name, "snap", snap_build.arch)
+            if rel is None:
+                missing.append(f"{snap.name} ({snap_build.arch})")
+                logger.error(
+                    "No .snap file found for snap '%s' arch '%s'.",
+                    snap.name,
+                    snap_build.arch,
+                )
+                continue
+            snap_build.file = rel
+            logger.info(
+                "Localised snap '%s' (%s) → %s", snap.name, snap_build.arch, rel
+            )
+            updated += 1
 
     if missing:
         msg = (
@@ -940,11 +1089,13 @@ def artifacts_fetch(
     # Download each charm / snap artifact archive (deduplicated)
     seen_artifacts: set[str] = set()
     for charm in generated.charms:
-        if charm.output.artifact:
-            seen_artifacts.add(charm.output.artifact)
+        for build in charm.output:
+            if build.artifact:
+                seen_artifacts.add(build.artifact)
     for snap in generated.snaps:
-        if snap.output.artifact:
-            seen_artifacts.add(snap.output.artifact)
+        for snap_build in snap.output:
+            if snap_build.artifact:
+                seen_artifacts.add(snap_build.artifact)
 
     for name in sorted(seen_artifacts):
         run_command(
