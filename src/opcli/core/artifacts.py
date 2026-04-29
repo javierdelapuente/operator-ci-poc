@@ -827,7 +827,6 @@ def _gh_download_with_wait(cmd: list[str], cwd: str, run_id: str) -> None:
                 raise ConfigurationError(msg) from exc
             if any(kw in stderr_lower for kw in _DETERMINISTIC_ERROR_KEYWORDS):
                 raise
-                raise ConfigurationError(msg) from exc
             last_exc = exc
             logger.info(
                 "Artifact not yet available (attempt %d/%d), retrying in %ds...",
