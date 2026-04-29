@@ -635,17 +635,25 @@ def _expand_backend(
         # If type: is absent, fall back to the backend name as the type —
         # mirroring spread's own convention where the backend name implies
         # the driver type when type: is not explicitly set.
-        backend_type = backend_entry.get("type") or backend_name
+        raw_type = backend_entry.get("type")
+        backend_type = raw_type if isinstance(raw_type, str) else backend_name
         if backend_type not in _BACKEND_CONFIGS:
             continue
         found_any = True
 
-        local_prepare, ci_prepare = _BACKEND_CONFIGS[str(backend_type)]
+        local_prepare, ci_prepare = _BACKEND_CONFIGS[backend_type]
         # Strip the virtual type field; _build_concrete_backend sets type: adhoc
         virtual = {k: v for k, v in backend_entry.items() if k != "type"}
         del backends[backend_name]
 
         concrete_name = f"{backend_name}-ci" if use_ci else f"{backend_name}-local"
+        if concrete_name in backends:
+            msg = (
+                f"Cannot expand virtual backend '{backend_name}': the concrete "
+                f"name '{concrete_name}' already exists in spread.yaml. "
+                "Rename or remove the conflicting backend."
+            )
+            raise ConfigurationError(msg)
         backends[concrete_name] = _build_concrete_backend(
             virtual,
             use_ci=use_ci,

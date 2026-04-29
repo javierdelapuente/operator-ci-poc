@@ -508,6 +508,59 @@ suites:
         assert "my-custom" in parsed["backends"]
         assert "my-custom-local" not in parsed["backends"]
 
+    def test_non_string_type_field_falls_back_to_name(self, tmp_path: Path) -> None:
+        """A non-string type: value is ignored; backend name used as type fallback."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    type: [integration-test]
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        # type: is a list (not a string) — falls back to backend name "integration-test"
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+
+        assert "integration-test-local" in parsed["backends"]
+
+    def test_concrete_name_collision_raises(self, tmp_path: Path) -> None:
+        """Expanding a virtual backend whose concrete name already exists raises."""
+        spread = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+  integration-test-local:
+    type: adhoc
+    systems:
+      - ubuntu-24.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread)
+
+        with pytest.raises(ConfigurationError, match=r"concrete name.*already exists"):
+            spread_expand(tmp_path, ci=False)
+
 
 class TestSystemResourceFields:
     """Tests for cpu/memory/disk/runner handling in virtual backend system entries."""
