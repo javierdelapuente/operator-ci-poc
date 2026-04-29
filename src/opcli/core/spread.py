@@ -366,7 +366,8 @@ fi
 
 
 # Map each virtual backend name to:
-#   (concrete_local, concrete_ci, local_prepare, ci_prepare)
+#   (local_prepare, ci_prepare)
+# Concrete names are derived as "{virtual_name}-local" / "{virtual_name}-ci".
 # The CI prepare for tutorial-test is empty — workflows are expected to
 # install opcli before invoking spread.
 _BACKEND_CONFIGS: dict[str, tuple[str, str]] = {
