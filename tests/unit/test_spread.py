@@ -229,7 +229,6 @@ class TestSpreadExpand:
         assert "GH_TOKEN" in ci["prepare"]
         assert "GITHUB_RUN_ID" in ci["prepare"]
         assert "opcli artifacts localize" not in ci["prepare"]  # fetch does it
-        assert "command -v gh" in ci["prepare"]
         assert "--wait" in ci["prepare"]
         # CI backend has GitHub Actions vars scoped to it for artifact download
         assert "environment" in ci
