@@ -536,6 +536,86 @@ class TestArtifactsBuild:
 
         mock_run.assert_not_called()
 
+    def test_build_charm_nonstandard_yaml_name_creates_symlink(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-standard charmcraft yaml name triggers symlink creation during build."""
+        _write(tmp_path / "charmcraft-mycharm.yaml", "name: mycharm\n")
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "fake charm")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n- name: mycharm\n"
+            "  charmcraft-yaml: charmcraft-mycharm.yaml\n",
+        )
+
+        symlink_seen: list[bool] = []
+        symlink_target: list[str] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> None:
+            symlink = tmp_path / "charmcraft.yaml"
+            symlink_seen.append(symlink.is_symlink())
+            if symlink.is_symlink():
+                symlink_target.append(str(os.readlink(symlink)))
+
+        with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
+            artifacts_build(tmp_path)
+
+        assert symlink_seen == [True], "symlink must exist while pack runs"
+        assert symlink_target == ["charmcraft-mycharm.yaml"]
+        assert not (tmp_path / "charmcraft.yaml").exists(), (
+            "symlink removed after build"
+        )
+
+    def test_build_charm_real_charmcraft_yaml_blocks_build(
+        self, tmp_path: Path
+    ) -> None:
+        """A real charmcraft.yaml in pack-dir that differs from charmcraft-yaml raises.
+
+        This prevents silently building the wrong charm when the repo root
+        already has a charmcraft.yaml pointing to a different charm.
+        """
+        _write(tmp_path / "charmcraft-mycharm.yaml", "name: mycharm\n")
+        _write(tmp_path / "charmcraft.yaml", "name: some-other-charm\n")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n- name: mycharm\n"
+            "  charmcraft-yaml: charmcraft-mycharm.yaml\n",
+        )
+
+        with (
+            patch("opcli.core.artifacts.run_command") as mock_run,
+            pytest.raises(ConfigurationError, match="regular file already exists"),
+        ):
+            artifacts_build(tmp_path)
+
+        mock_run.assert_not_called()
+
+    def test_build_charm_standard_yaml_name_no_symlink(self, tmp_path: Path) -> None:
+        """charmcraft-yaml named charmcraft.yaml in pack-dir needs no symlink."""
+        _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "fake charm")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n- name: mycharm\n"
+            "  charmcraft-yaml: charmcraft.yaml\n",
+        )
+
+        symlink_created: list[bool] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> None:
+            symlink = tmp_path / "charmcraft.yaml"
+            symlink_created.append(symlink.is_symlink())
+
+        with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
+            artifacts_build(tmp_path)
+
+        assert symlink_created == [False], (
+            "no symlink should be created for standard name"
+        )
+
     def test_pick_new_charm_output_overwrite_in_place_multi(
         self, tmp_path: Path
     ) -> None:

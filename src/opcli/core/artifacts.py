@@ -422,6 +422,46 @@ def _with_rock_symlink(
     return target, True
 
 
+def _with_charm_symlink(
+    yaml_path: Path,
+    pack_dir: Path,
+) -> tuple[Path | None, bool]:
+    """Prepare a ``charmcraft.yaml`` symlink in *pack_dir* if needed.
+
+    Charmcraft always looks for a file literally named ``charmcraft.yaml`` in
+    the working directory.  This function creates
+    ``<pack_dir>/charmcraft.yaml → <relative-path>`` when the source file is
+    not already named ``charmcraft.yaml`` and located in *pack_dir*.
+
+    The symlink target is always **relative** so that it remains valid if
+    charmcraft copies the directory into a managed container.
+
+    Returns ``(symlink_path, created)`` where *created* is ``True`` when this
+    call created the symlink (and the caller must remove it afterwards).
+
+    Raises:
+        ConfigurationError: If a real (non-symlink) ``charmcraft.yaml`` already
+            exists in *pack_dir* and points to a different file than *yaml_path*.
+            This prevents silently building the wrong charm.
+    """
+    target = pack_dir / "charmcraft.yaml"
+    if target.resolve() == yaml_path.resolve():
+        # Already the right file — no symlink needed.
+        return None, False
+
+    if target.exists() and not target.is_symlink():
+        msg = (
+            f"A regular file already exists at {target} and it differs from "
+            f"{yaml_path}. Remove it or set pack-dir to a directory without a "
+            "charmcraft.yaml."
+        )
+        raise ConfigurationError(msg)
+    if target.is_symlink():
+        target.unlink()
+    target.symlink_to(os.path.relpath(yaml_path, pack_dir))
+    return target, True
+
+
 def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
     yaml_path = (root / rock.rockcraft_yaml).resolve()
     if not yaml_path.is_file():
@@ -465,7 +505,12 @@ def _build_charm(
         raise ConfigurationError(msg)
 
     before = _snapshot_outputs(pack_dir, "charm")
-    run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
+    symlink_path, symlink_created = _with_charm_symlink(yaml_path, pack_dir)
+    try:
+        run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
+    finally:
+        if symlink_created and symlink_path and symlink_path.exists():
+            symlink_path.unlink()
     after = _snapshot_outputs(pack_dir, "charm")
     new_outputs = _pick_new_charm_outputs(before, after, pack_dir)
     arch = _current_arch()
