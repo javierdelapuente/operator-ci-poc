@@ -389,11 +389,11 @@ class TestArtifactsBuild:
         assert gen.rocks[0].output[0].file is not None
 
     def test_build_rock_pack_dir_real_file_raises(self, tmp_path: Path) -> None:
-        """A real rockcraft.yaml at pack-dir raises ConfigurationError."""
+        """A real rockcraft.yaml with different content at pack-dir raises."""
         rock_subdir = tmp_path / "rocks" / "myrock"
         rock_subdir.mkdir(parents=True)
         _write(rock_subdir / "rockcraft.yaml", "name: myrock\n")
-        # Real file at the pack-dir location (not a symlink)
+        # Real file at the pack-dir location with DIFFERENT content
         _write(tmp_path / "rockcraft.yaml", "name: other\n")
 
         _write(
@@ -409,6 +409,36 @@ class TestArtifactsBuild:
             pytest.raises(ConfigurationError, match="regular file already exists"),
         ):
             artifacts_build(tmp_path)
+
+    def test_build_rock_pack_dir_identical_real_file_ok(self, tmp_path: Path) -> None:
+        """A real rockcraft.yaml with identical content at pack-dir is allowed."""
+        content = "name: myrock\n"
+        rock_subdir = tmp_path / "rocks" / "myrock"
+        rock_subdir.mkdir(parents=True)
+        _write(rock_subdir / "rockcraft.yaml", content)
+        # Real file at the pack-dir location with identical content
+        _write(tmp_path / "rockcraft.yaml", content)
+        _write(tmp_path / "myrock_1.0_amd64.rock", "fake rock")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\n"
+            "rocks:\n- name: myrock\n"
+            "  rockcraft-yaml: rocks/myrock/rockcraft.yaml\n"
+            "  pack-dir: .\n",
+        )
+
+        symlink_created: list[bool] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> None:
+            symlink_created.append((tmp_path / "rockcraft.yaml").is_symlink())
+
+        with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
+            result = artifacts_build(tmp_path)
+
+        assert symlink_created == [False], "no symlink when content is identical"
+        gen = load_artifacts_generated(result)
+        assert gen.rocks[0].output[0].file is not None
 
     def test_build_rock_pack_dir_existing_symlink_replaced(
         self, tmp_path: Path
@@ -727,6 +757,67 @@ class TestArtifactsBuild:
         paths = {o.path for o in outputs}
         assert "./mycharm_ubuntu-22.04-amd64.charm" in paths
         assert "./mycharm_ubuntu-24.04-amd64.charm" in paths
+
+    def test_two_charms_same_output_filename_raises(self, tmp_path: Path) -> None:
+        """Two charms that produce the same output filename raise an error.
+
+        If both charmcraft yamls declare the same internal name (e.g. 'any-charm'),
+        charmcraft produces identically-named .charm files. The second build
+        overwrites the first and the attribution would be silently wrong.
+        opcli must detect this and raise rather than silently recording stale data.
+        """
+        _write(tmp_path / "charmcraft-a.yaml", "name: same-charm\n")
+        _write(tmp_path / "charmcraft-b.yaml", "name: same-charm\n")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n"
+            "- name: charm-a\n  charmcraft-yaml: charmcraft-a.yaml\n"
+            "- name: charm-b\n  charmcraft-yaml: charmcraft-b.yaml\n",
+        )
+
+        call_count = [0]
+
+        def fake_run(cmd: list[str], **kwargs: object) -> None:
+            call_count[0] += 1
+            # Both builds produce the same filename (overwrite-in-place for #2)
+            _write(tmp_path / "same-charm_ubuntu-22.04-amd64.charm", "charm")
+
+        with (
+            patch("opcli.core.artifacts.run_command", side_effect=fake_run),
+            pytest.raises(OpcliError, match="already produced by another artifact"),
+        ):
+            artifacts_build(tmp_path)
+
+    def test_symlink_not_removed_if_replaced_by_real_file(self, tmp_path: Path) -> None:
+        """If pack replaces the symlink with a real file, cleanup does not delete it.
+
+        A crafting tool could theoretically create a real charmcraft.yaml during
+        the build (unlikely but possible). The cleanup must only remove symlinks,
+        not real files.
+        """
+        _write(tmp_path / "charmcraft-mycharm.yaml", "name: mycharm\n")
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "fake charm")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n- name: mycharm\n"
+            "  charmcraft-yaml: charmcraft-mycharm.yaml\n",
+        )
+
+        def fake_run(cmd: list[str], **kwargs: object) -> None:
+            # Simulate pack replacing the symlink with a real file
+            symlink = tmp_path / "charmcraft.yaml"
+            if symlink.is_symlink():
+                symlink.unlink()
+            _write(symlink, "name: mycharm\n")  # real file now
+
+        with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
+            artifacts_build(tmp_path)
+
+        # Real file must still be there — cleanup must not have deleted it
+        assert (tmp_path / "charmcraft.yaml").exists()
+        assert not (tmp_path / "charmcraft.yaml").is_symlink()
 
 
 class TestArtifactsMatrix:
