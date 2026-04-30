@@ -646,6 +646,58 @@ class TestArtifactsBuild:
             "no symlink should be created for standard name"
         )
 
+    def test_two_charms_same_pack_dir_no_cross_attribution(
+        self, tmp_path: Path
+    ) -> None:
+        """Two charms in the same pack-dir only claim their own output files.
+
+        When charms share pack-dir (e.g. both yamls are in the repo root), the
+        second charm's build must not inherit the first charm's .charm files.
+        """
+        charm1_content = "name: charm-a\n"
+        charm2_content = "name: charm-b\n"
+        _write(tmp_path / "charmcraft-a.yaml", charm1_content)
+        _write(tmp_path / "charmcraft-b.yaml", charm2_content)
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n"
+            "- name: charm-a\n  charmcraft-yaml: charmcraft-a.yaml\n"
+            "- name: charm-b\n  charmcraft-yaml: charmcraft-b.yaml\n",
+        )
+
+        call_count = [0]
+
+        def fake_run(cmd: list[str], **kwargs: object) -> None:
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First charm pack produces charm-a files
+                _write(tmp_path / "charm-a_ubuntu-22.04-amd64.charm", "a1")
+                _write(tmp_path / "charm-a_ubuntu-24.04-amd64.charm", "a2")
+            else:
+                # Second charm pack produces charm-b files
+                _write(tmp_path / "charm-b_ubuntu-22.04-amd64.charm", "b1")
+                _write(tmp_path / "charm-b_ubuntu-24.04-amd64.charm", "b2")
+
+        with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
+            result = artifacts_build(tmp_path)
+
+        gen = load_artifacts_generated(result)
+        charm_a = next(c for c in gen.charms if c.name == "charm-a")
+        charm_b = next(c for c in gen.charms if c.name == "charm-b")
+
+        a_paths = {o.path for o in charm_a.output}
+        b_paths = {o.path for o in charm_b.output}
+
+        assert a_paths == {
+            "./charm-a_ubuntu-22.04-amd64.charm",
+            "./charm-a_ubuntu-24.04-amd64.charm",
+        }, "charm-a must only claim its own output files"
+        assert b_paths == {
+            "./charm-b_ubuntu-22.04-amd64.charm",
+            "./charm-b_ubuntu-24.04-amd64.charm",
+        }, "charm-b must not inherit charm-a files"
+
     def test_pick_new_charm_output_overwrite_in_place_multi(
         self, tmp_path: Path
     ) -> None:

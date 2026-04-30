@@ -357,21 +357,30 @@ def _parse_arch_from_snap_path(path: str) -> str | None:
 def _pick_new_charm_outputs(
     before: set[str], after: set[str], pack_dir: Path
 ) -> list[str]:
-    """Return all charm files produced by pack, relative paths TBD by caller.
+    """Return the charm files produced by this pack invocation.
 
     ``charmcraft pack`` always rebuilds **all** declared bases in a single
-    invocation, so the complete set of output files is always ``after``.
-    The ``before`` snapshot is only used to detect the error case where the
-    pack produced nothing.
+    invocation.  When multiple charms share the same pack_dir, files from a
+    previous charm build are already present in ``before``.  Using
+    ``after - before`` ensures we only attribute newly-produced files to this
+    charm rather than accumulating all charm files in the directory.
 
     Cases:
-    1. Files present after pack — return all of them (sorted for determinism).
-    2. No files at all — raise error.
+    1. New files appeared (``after - before`` non-empty) — return those.
+    2. No change (overwrite-in-place rebuild) — return all files in ``after``.
+       This handles the case where a charm is rebuilt and the same filenames
+       are overwritten.
+    3. No files at all after pack — raise error.
     """
     if not after:
         msg = f"No *.charm found in {pack_dir} after pack"
         raise OpcliError(msg)
 
+    new = after - before
+    if new:
+        return sorted(new)
+
+    # Overwrite-in-place: charmcraft rebuilt the same files (before == after).
     return sorted(after)
 
 
