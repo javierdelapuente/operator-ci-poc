@@ -567,6 +567,36 @@ class TestArtifactsBuild:
             "symlink removed after build"
         )
 
+    def test_build_charm_real_charmcraft_yaml_same_content_ok(
+        self, tmp_path: Path
+    ) -> None:
+        """A real charmcraft.yaml with identical content to charmcraft-yaml is allowed.
+
+        This handles repos that keep both charmcraft.yaml and charmcraft-mycharm.yaml
+        as duplicate files.  Charmcraft will use the existing charmcraft.yaml and
+        produce the correct charm — no symlink is needed, no error raised.
+        """
+        content = "name: mycharm\n"
+        _write(tmp_path / "charmcraft-mycharm.yaml", content)
+        _write(tmp_path / "charmcraft.yaml", content)  # identical content
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "fake charm")
+
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\ncharms:\n- name: mycharm\n"
+            "  charmcraft-yaml: charmcraft-mycharm.yaml\n",
+        )
+
+        symlink_created: list[bool] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> None:
+            symlink_created.append((tmp_path / "charmcraft.yaml").is_symlink())
+
+        with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
+            artifacts_build(tmp_path)
+
+        assert symlink_created == [False], "no symlink when content is identical"
+
     def test_build_charm_real_charmcraft_yaml_blocks_build(
         self, tmp_path: Path
     ) -> None:

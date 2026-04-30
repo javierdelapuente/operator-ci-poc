@@ -450,6 +450,11 @@ def _with_charm_symlink(
         return None, False
 
     if target.exists() and not target.is_symlink():
+        if target.read_bytes() == yaml_path.read_bytes():
+            # A real charmcraft.yaml already exists with identical content
+            # (e.g. a copy kept alongside a non-standard filename).
+            # Charmcraft will use it and produce the correct charm — no action.
+            return None, False
         msg = (
             f"A regular file already exists at {target} and it differs from "
             f"{yaml_path}. Remove it or set pack-dir to a directory without a "
