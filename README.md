@@ -115,7 +115,7 @@ opcli pytest expand -- -k test_charm
 | Command | Description |
 |---|---|
 | `opcli provision run` | Run `concierge prepare` to provision the test environment. |
-| `opcli provision load` | Push locally-built rock images to a container registry and update `rock.output.image` in `artifacts-generated.yaml`. Use `-r` to set registry (default: `localhost:32000`). |
+| `opcli provision load` | Push locally-built rock images to a container registry and update each arch build entry's `image` field in `artifacts-generated.yaml`. Use `-r` to set registry (default: `localhost:32000`). Images are tagged `{registry}/{name}:{arch}` (e.g. `localhost:32000/my-rock:amd64`). |
 | `opcli provision registry` | Deploy a local OCI registry at `localhost:32000`. Reads `concierge.yaml` to detect whether MicroK8s or canonical k8s is enabled and deploys accordingly. No-op if the registry is already running. Use `-c` to specify a custom concierge file path. |
 
 ### `opcli spread`
@@ -169,13 +169,19 @@ Different suites can each declare their own `TOX_ENV` value.
 
 ## `artifacts.yaml` schema
 
-Each artifact entry uses an explicit path to its craft YAML file rather than a directory:
+Each artifact entry uses an explicit path to its craft YAML file rather than a directory.
+An optional `builds:` list declares which architectures (and runners) to build for — it
+defaults to `[{arch: amd64}]` when omitted:
 
 ```yaml
 version: 1
 rocks:
   - name: my-rock
     rockcraft-yaml: rocks/my-rock/rockcraft.yaml
+    builds:
+      - arch: amd64
+      - arch: arm64
+        runner: '["self-hosted", "arm64"]'
 charms:
   - name: my-charm
     charmcraft-yaml: charmcraft.yaml
@@ -188,6 +194,11 @@ snaps:
     snapcraft-yaml: snap/snapcraft.yaml
     pack-dir: .        # run snapcraft pack from the repo root
 ```
+
+The `runner` field in each `builds:` entry is a JSON-encoded string containing
+GitHub Actions runner labels (e.g. `'["ubuntu-latest"]'`). It is used by
+`opcli artifacts matrix` and the reusable build workflow to select the correct
+runner for each arch. If omitted, it defaults to `["ubuntu-latest"]`.
 
 ### `pack-dir` (rocks and snaps)
 
@@ -210,28 +221,36 @@ exists at that path, the build fails with an error.
 
 ## `artifacts-generated.yaml` schema — local format
 
-`opcli artifacts build` produces `artifacts-generated.yaml`. In local mode,
-rocks and snaps carry a single `output.file` path. Charms use an `output.files`
-list because `charmcraft pack` produces one `.charm` file per declared base in
-a single invocation:
+`opcli artifacts build` produces `artifacts-generated.yaml`. The `output:` field
+is a list of per-architecture build objects. Rocks and snaps produce one file per
+arch. Charms produce one entry per arch with an inner `files` list, because
+`charmcraft pack` produces one `.charm` file per declared base in a single
+invocation:
 
 ```yaml
 version: 1
+rocks:
+  - name: my-rock
+    rockcraft-yaml: rocks/my-rock/rockcraft.yaml
+    output:
+      - arch: amd64
+        file: ./rocks/my-rock/my-rock_1.0_amd64.rock
 charms:
   - name: aproxy
     charmcraft-yaml: charmcraft.yaml
     output:
-      files:
-        - path: ./aproxy_ubuntu-20.04-amd64.charm
-          base: ubuntu@20.04
-        - path: ./aproxy_ubuntu-22.04-amd64.charm
-          base: ubuntu@22.04
-        - path: ./aproxy_ubuntu-24.04-amd64.charm
-          base: ubuntu@24.04
+      - arch: amd64
+        files:
+          - path: ./aproxy_ubuntu-20.04-amd64.charm
+            base: ubuntu@20.04
+          - path: ./aproxy_ubuntu-22.04-amd64.charm
+            base: ubuntu@22.04
+          - path: ./aproxy_ubuntu-24.04-amd64.charm
+            base: ubuntu@24.04
 ```
 
-`opcli pytest expand` emits one `--charm-file=<path>` flag per entry, so all bases
-are passed to the test run.
+`opcli pytest expand` emits one `--charm-file=<path>` flag per entry in
+`files` for the arch matching the current machine.
 
 System entries under the virtual `integration-test` (or `tutorial-test`) backend accept opcli-specific fields alongside standard spread fields:
 
@@ -267,8 +286,8 @@ Two environment variables govern how opcli behaves in different environments:
 When `GITHUB_ACTIONS=true` (set automatically by GitHub Actions runners),
 `opcli artifacts build` switches to CI format:
 
-- **Rocks**: pushed to GHCR via skopeo; `output.image: ghcr.io/<owner>/<repo>/<rock>:<sha7>`
-- **Charms / Snaps**: `output.artifact: built-<type>-<name>` + `output.run-id: <GITHUB_RUN_ID>`
+- **Rocks**: pushed to GHCR via skopeo; each arch build entry gets `output[*].image: ghcr.io/<owner>/<repo>/<rock>:<sha7>-<arch>`
+- **Charms / Snaps**: each arch build entry gets `output[*].artifact: built-<type>-<name>-<arch>` + `output[*].run-id: <GITHUB_RUN_ID>`
 
 ## `artifacts-generated.yaml` — CI vs local format
 
@@ -280,14 +299,16 @@ rocks:
   - name: my-rock
     rockcraft-yaml: rocks/my-rock/rockcraft.yaml
     output:
-      file: ./rocks/my-rock/my-rock_1.0_amd64.rock
+      - arch: amd64
+        file: ./rocks/my-rock/my-rock_1.0_amd64.rock
 charms:
   - name: my-charm
     charmcraft-yaml: charmcraft.yaml
     output:
-      files:
-        - path: ./my-charm_ubuntu-24.04-amd64.charm
-          base: ubuntu@24.04
+      - arch: amd64
+        files:
+          - path: ./my-charm_ubuntu-24.04-amd64.charm
+            base: ubuntu@24.04
     resources:
       my-rock-image:
         type: oci-image
@@ -302,13 +323,15 @@ rocks:
   - name: my-rock
     rockcraft-yaml: rocks/my-rock/rockcraft.yaml
     output:
-      image: ghcr.io/myorg/my-repo/my-rock:abc1234
+      - arch: amd64
+        image: ghcr.io/myorg/my-repo/my-rock:abc1234-amd64
 charms:
   - name: my-charm
     charmcraft-yaml: charmcraft.yaml
     output:
-      artifact: built-charm-my-charm
-      run-id: "1234567890"
+      - arch: amd64
+        artifact: built-charm-my-charm-amd64
+        run-id: "1234567890"
     resources:
       my-rock-image:
         type: oci-image
