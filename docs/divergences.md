@@ -117,9 +117,10 @@ does not explicitly specify how they are produced.
 **Implementation:** When `GITHUB_ACTIONS=true`, `opcli artifacts build`:
 
 - **Rocks**: pushes the built `.rock` image to GHCR via `skopeo` and writes
-  `output.image: ghcr.io/<owner-lowercased>/<repo>/<rock>:<sha7>` (no `output.file`).
-- **Charms / Snaps**: writes `output.artifact: built-<type>-<name>` and
-  `output.run-id: <GITHUB_RUN_ID>` (no `output.files`).
+  `output: [{arch: <arch>, image: ghcr.io/<owner-lowercased>/<repo>/<rock>:<sha7>-<arch>}]`
+  (no `output[*].file`).
+- **Charms / Snaps**: writes `output: [{arch: <arch>, artifact: built-<type>-<name>-<arch>, run-id: <GITHUB_RUN_ID>}]`
+  (no `output[*].files`).
 
 A companion command `opcli artifacts collect` (also not in the spec — see below)
 merges the per-artifact partial files from parallel build jobs.
@@ -462,7 +463,8 @@ images live exclusively on `rocks[].output.image`. Charm resources only carry
 rocks:
   - name: my-rock
     output:
-      image: ghcr.io/owner/repo/my-rock:abc1234   # ← image lives here only
+      - arch: amd64
+        image: ghcr.io/owner/repo/my-rock:abc1234-amd64   # ← image lives here only
 charms:
   - name: my-charm
     resources:
@@ -537,7 +539,7 @@ This is used in the CI `Test Integration` workflow after downloading
 charm artifacts from GitHub Actions. The downloaded files land flat in the
 working directory (e.g. `./k8s-charm_ubuntu-24.04-amd64.charm`). Running
 `opcli artifacts localize` discovers those files and populates
-`output.files[].path` with the correct repo-relative paths (`./k8s-charm_ubuntu-24.04-amd64.charm`).
+`output[*].files[*].path` with the correct repo-relative paths.
 Downstream, `opcli pytest expand` reads these paths and passes them as
 `--charm-file=` arguments to pytest.
 
