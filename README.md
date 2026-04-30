@@ -222,10 +222,10 @@ exists at that path, the build fails with an error.
 ## `artifacts-generated.yaml` schema — local format
 
 `opcli artifacts build` produces `artifacts-generated.yaml`. The `output:` field
-is a list of per-architecture build objects. Rocks and snaps produce one file per
-arch. Charms produce one entry per arch with an inner `files` list, because
-`charmcraft pack` produces one `.charm` file per declared base in a single
-invocation:
+is a flat list where each entry carries `arch` alongside its file info. Rocks and
+snaps produce one entry per arch. Charms produce **one entry per produced `.charm`
+file** — when `charmcraft pack` builds multiple bases (e.g. ubuntu@22.04 and
+ubuntu@24.04), each file becomes a separate entry in the list:
 
 ```yaml
 version: 1
@@ -240,17 +240,17 @@ charms:
     charmcraft-yaml: charmcraft.yaml
     output:
       - arch: amd64
-        files:
-          - path: ./aproxy_ubuntu-20.04-amd64.charm
-            base: ubuntu@20.04
-          - path: ./aproxy_ubuntu-22.04-amd64.charm
-            base: ubuntu@22.04
-          - path: ./aproxy_ubuntu-24.04-amd64.charm
-            base: ubuntu@24.04
+        path: ./aproxy_ubuntu-20.04-amd64.charm
+        base: ubuntu@20.04
+      - arch: amd64
+        path: ./aproxy_ubuntu-22.04-amd64.charm
+        base: ubuntu@22.04
+      - arch: amd64
+        path: ./aproxy_ubuntu-24.04-amd64.charm
+        base: ubuntu@24.04
 ```
 
-`opcli pytest expand` emits one `--charm-file=<path>` flag per entry in
-`files` for the arch matching the current machine.
+`opcli pytest expand` emits one `--charm-file=<path>` flag per entry matching the current machine's arch.
 
 System entries under the virtual `integration-test` (or `tutorial-test`) backend accept opcli-specific fields alongside standard spread fields:
 
@@ -306,9 +306,8 @@ charms:
     charmcraft-yaml: charmcraft.yaml
     output:
       - arch: amd64
-        files:
-          - path: ./my-charm_ubuntu-24.04-amd64.charm
-            base: ubuntu@24.04
+        path: ./my-charm_ubuntu-24.04-amd64.charm
+        base: ubuntu@24.04
     resources:
       my-rock-image:
         type: oci-image

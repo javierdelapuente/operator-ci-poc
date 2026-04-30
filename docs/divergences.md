@@ -302,7 +302,7 @@ artifact types.
 
 ---
 
-## 12. Multi-base charm output — `output[*].files` list inside each arch build
+## 12. Multi-base charm output — flat list with `arch`+`path`+`base` per entry
 
 **Spec:** The `artifacts-generated.yaml` schema shows a single `output.file`
 path for each charm entry:
@@ -314,39 +314,49 @@ charms:
       file: ./indico_ubuntu-22.04-amd64.charm
 ```
 
-**Implementation:** The `output:` field is now a **list of per-architecture build
-objects** (`CharmArchBuild`). Each `CharmArchBuild` has an `arch` field and a
-`files` list of `{path, base}` objects, because `charmcraft pack` produces
-**one `.charm` file per declared base** in a single invocation (e.g. ubuntu@20.04,
-ubuntu@22.04, ubuntu@24.04 with the same architecture each produce a separate file):
+**Implementation:** The `output:` field is a **flat list** (`list[CharmOutput]`).
+Each entry has `arch`, `path`, and optional `base` fields. Because `charmcraft pack`
+produces **one `.charm` file per declared base** in a single invocation
+(e.g. ubuntu@20.04, ubuntu@22.04, ubuntu@24.04 each produce a separate file),
+each file becomes its own top-level entry in the list:
 
 ```yaml
 charms:
   - name: aproxy
     output:
       - arch: amd64
-        files:
-          - path: ./aproxy_ubuntu-20.04-amd64.charm
-            base: ubuntu@20.04
-          - path: ./aproxy_ubuntu-22.04-amd64.charm
-            base: ubuntu@22.04
-          - path: ./aproxy_ubuntu-24.04-amd64.charm
-            base: ubuntu@24.04
+        path: ./aproxy_ubuntu-20.04-amd64.charm
+        base: ubuntu@20.04
+      - arch: amd64
+        path: ./aproxy_ubuntu-22.04-amd64.charm
+        base: ubuntu@22.04
+      - arch: amd64
+        path: ./aproxy_ubuntu-24.04-amd64.charm
+        base: ubuntu@24.04
 ```
 
 The `base` field is parsed best-effort from the filename
 (`{name}_{distro}-{version}-{arch}.charm` → `{distro}@{version}`); it is
 `null` when the filename does not follow this convention.
 
-`opcli pytest expand` emits one `--charm-file=<path>` flag per entry in
-`files` for the arch matching the current machine.
+`opcli pytest expand` emits one `--charm-file=<path>` flag per entry whose
+`arch` matches the current machine.
 
-For CI-built charms, `artifact` and `run-id` fields replace `files` in the
-`CharmArchBuild` entry.
+For CI-built charms, `artifact` and `run-id` replace `path` in the entry
+(one entry per arch, covering all bases):
 
-**Rationale:** Rocks and snaps always produce exactly one file per architecture.
-Only charms need the inner files list because multi-base (same-arch) builds
-are a common pattern in the Canonical operator ecosystem.
+```yaml
+charms:
+  - name: aproxy
+    output:
+      - arch: amd64
+        artifact: built-charm-aproxy-amd64
+        run-id: "1234567890"
+```
+
+**Rationale:** A flat list is simpler and more uniform than nesting a `files:`
+list inside each arch entry. Each row in the list is self-contained with all
+its fields at the same level.
 
 ---
 
@@ -538,8 +548,9 @@ relative paths back into `artifacts-generated.yaml` in-place.
 This is used in the CI `Test Integration` workflow after downloading
 charm artifacts from GitHub Actions. The downloaded files land flat in the
 working directory (e.g. `./k8s-charm_ubuntu-24.04-amd64.charm`). Running
-`opcli artifacts localize` discovers those files and populates
-`output[*].files[*].path` with the correct repo-relative paths.
+`opcli artifacts localize` discovers those files and replaces the CI-only
+`output[*].artifact` entries with flat `CharmOutput` entries carrying `path`
+and `base` (one entry per discovered `.charm` file).
 Downstream, `opcli pytest expand` reads these paths and passes them as
 `--charm-file=` arguments to pytest.
 
