@@ -8,9 +8,12 @@ Schema version: 1
 - Charm entries include a ``resources`` mapping with resolved output paths
   (image reference), making ``artifacts-generated.yaml`` self-contained for
   pytest flag assembly without needing to also read ``artifacts.yaml``.
-- ``output`` is always a **list of per-architecture builds** (:class:`RockArchBuild`,
-  :class:`CharmArchBuild`, or :class:`SnapArchBuild`), one entry per built arch.
-  Local builds produce ``file`` / ``files`` entries; CI builds produce ``image``
+- ``output`` is always a **flat list of per-file build entries** (:class:`RockOutput`,
+  :class:`CharmOutput`, or :class:`SnapOutput`).
+  Rocks and snaps have one entry per built arch.
+  Charms have one entry per produced ``.charm`` file (one per base per arch for local
+  builds, one per arch for CI builds).
+  Local builds produce ``file`` / ``path`` entries; CI builds produce ``image``
   (rocks) or ``artifact`` + ``run-id`` (charms / snaps) entries.
 """
 
@@ -21,23 +24,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class CharmFile(BaseModel):
-    """A single charm file with its local path and optional base annotation.
-
-    The ``base`` field is parsed from the charmcraft output filename on a
-    best-effort basis (e.g. ``aproxy_ubuntu-22.04-amd64.charm`` →
-    ``ubuntu@22.04``).  It is ``None`` when the filename does not follow the
-    expected ``{name}_{distro}-{version}-{arch}.charm`` convention.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    path: str
-    base: str | None = None
-
-
-class RockArchBuild(BaseModel):
-    """Rock output for a specific architecture.
+class RockOutput(BaseModel):
+    """Rock build output entry.
 
     Local builds populate ``file``; CI builds populate ``image``.
     """
@@ -49,32 +37,35 @@ class RockArchBuild(BaseModel):
     image: str | None = None
 
     @model_validator(mode="after")
-    def _at_least_one_output(self) -> RockArchBuild:
+    def _at_least_one_output(self) -> RockOutput:
         if not self.file and not self.image:
-            msg = "RockArchBuild must specify file or image"
+            msg = "RockOutput must specify file or image"
             raise ValueError(msg)
         return self
 
 
-class CharmArchBuild(BaseModel):
-    """Charm output for a specific architecture.
+class CharmOutput(BaseModel):
+    """Charm build output entry.
 
-    Local builds populate ``files`` (one :class:`CharmFile` per built base).
-    CI builds populate ``artifact`` and ``run-id`` instead.
-    Localised CI builds (after ``artifacts localize``) populate both.
+    Local builds: one entry per produced ``.charm`` file, with ``arch``,
+    ``path``, and optional ``base``.
+    CI builds: one entry per arch with ``artifact`` and ``run-id`` (covers
+    all bases for that arch).
+    Localised CI builds (after ``artifacts localize``) carry all fields.
     """
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     arch: str
-    files: list[CharmFile] = []
+    path: str | None = None
+    base: str | None = None
     artifact: str | None = None
     run_id: str | None = Field(default=None, alias="run-id")
 
     @model_validator(mode="after")
-    def _at_least_one_output(self) -> CharmArchBuild:
-        if not self.files and not self.artifact:
-            msg = "CharmArchBuild must specify files or artifact"
+    def _at_least_one_output(self) -> CharmOutput:
+        if not self.path and not self.artifact:
+            msg = "CharmOutput must specify path or artifact"
             raise ValueError(msg)
         if self.artifact and not self.run_id:
             msg = "run-id is required when artifact is set"
@@ -82,8 +73,8 @@ class CharmArchBuild(BaseModel):
         return self
 
 
-class SnapArchBuild(BaseModel):
-    """Snap output for a specific architecture.
+class SnapOutput(BaseModel):
+    """Snap build output entry.
 
     Local builds populate ``file``; CI builds populate ``artifact`` + ``run-id``.
     Localised CI builds (after ``artifacts localize``) populate both.
@@ -97,9 +88,9 @@ class SnapArchBuild(BaseModel):
     run_id: str | None = Field(default=None, alias="run-id")
 
     @model_validator(mode="after")
-    def _at_least_one_output(self) -> SnapArchBuild:
+    def _at_least_one_output(self) -> SnapOutput:
         if not self.file and not self.artifact:
-            msg = "SnapArchBuild must specify file or artifact"
+            msg = "SnapOutput must specify file or artifact"
             raise ValueError(msg)
         if self.artifact and not self.run_id:
             msg = "run-id is required when artifact is set"
@@ -127,17 +118,17 @@ class GeneratedRock(BaseModel):
 
     name: str
     rockcraft_yaml: str = Field(alias="rockcraft-yaml")
-    output: list[RockArchBuild]
+    output: list[RockOutput]
 
 
 class GeneratedCharm(BaseModel):
-    """A charm with its per-architecture build output and resolved resource paths."""
+    """A charm with its flat build output list and resolved resource paths."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     name: str
     charmcraft_yaml: str = Field(alias="charmcraft-yaml")
-    output: list[CharmArchBuild]
+    output: list[CharmOutput]
     resources: dict[str, GeneratedResource] | None = None
 
 
@@ -148,7 +139,7 @@ class GeneratedSnap(BaseModel):
 
     name: str
     snapcraft_yaml: str = Field(alias="snapcraft-yaml")
-    output: list[SnapArchBuild]
+    output: list[SnapOutput]
 
 
 class ArtifactsGenerated(BaseModel):

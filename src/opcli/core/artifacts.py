@@ -34,14 +34,13 @@ from opcli.models.artifacts import (
 )
 from opcli.models.artifacts_generated import (
     ArtifactsGenerated,
-    CharmArchBuild,
-    CharmFile,
+    CharmOutput,
     GeneratedCharm,
     GeneratedResource,
     GeneratedRock,
     GeneratedSnap,
-    RockArchBuild,
-    SnapArchBuild,
+    RockOutput,
+    SnapOutput,
 )
 
 logger = logging.getLogger(__name__)
@@ -174,7 +173,7 @@ def _push_rock_to_ghcr(
     return GeneratedRock(
         name=rock.name,
         **{"rockcraft-yaml": rock.rockcraft_yaml},
-        output=[RockArchBuild(arch=build.arch, image=image_ref)],
+        output=[RockOutput(arch=build.arch, image=image_ref)],
     )
 
 
@@ -189,7 +188,7 @@ def _to_ci_charm(charm: GeneratedCharm, ci: _CIContext) -> GeneratedCharm:
         name=charm.name,
         **{"charmcraft-yaml": charm.charmcraft_yaml},
         output=[
-            CharmArchBuild.model_validate(
+            CharmOutput.model_validate(
                 {
                     "arch": arch,
                     "artifact": f"built-charm-{charm.name}-{arch}",
@@ -212,7 +211,7 @@ def _to_ci_snap(snap: GeneratedSnap, ci: _CIContext) -> GeneratedSnap:
         name=snap.name,
         **{"snapcraft-yaml": snap.snapcraft_yaml},
         output=[
-            SnapArchBuild.model_validate(
+            SnapOutput.model_validate(
                 {
                     "arch": arch,
                     "artifact": f"built-snap-{snap.name}-{arch}",
@@ -448,7 +447,7 @@ def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
     return GeneratedRock(
         name=rock.name,
         **{"rockcraft-yaml": rock.rockcraft_yaml},
-        output=[RockArchBuild(arch=_current_arch(), file=output_file)],
+        output=[RockOutput(arch=_current_arch(), file=output_file)],
     )
 
 
@@ -469,8 +468,10 @@ def _build_charm(
     run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
     after = _snapshot_outputs(pack_dir, "charm")
     new_outputs = _pick_new_charm_outputs(before, after, pack_dir)
-    charm_files = [
-        CharmFile(
+    arch = _current_arch()
+    charm_outputs = [
+        CharmOutput(
+            arch=arch,
             path=_relative_to_root(p, root),
             base=_parse_base_from_charm_path(p),
         )
@@ -487,7 +488,7 @@ def _build_charm(
     return GeneratedCharm(
         name=charm.name,
         **{"charmcraft-yaml": charm.charmcraft_yaml},
-        output=[CharmArchBuild(arch=_current_arch(), files=charm_files)],
+        output=charm_outputs,
         resources=resources if resources else None,
     )
 
@@ -510,7 +511,7 @@ def _build_snap(snap: SnapArtifact, root: Path) -> GeneratedSnap:
     return GeneratedSnap(
         name=snap.name,
         **{"snapcraft-yaml": snap.snapcraft_yaml},
-        output=[SnapArchBuild(arch=_current_arch(), file=output_file)],
+        output=[SnapOutput(arch=_current_arch(), file=output_file)],
     )
 
 
@@ -635,6 +636,21 @@ def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:
     return {"include": include}
 
 
+def _output_key(
+    build: RockOutput | CharmOutput | SnapOutput,
+) -> tuple[object, ...]:
+    """Return a hashable key that uniquely identifies a build output entry.
+
+    For :class:`CharmOutput` (flat format), multiple entries per arch are valid
+    (different bases/paths), so the key includes ``path`` and ``artifact``.
+    For :class:`RockOutput` and :class:`SnapOutput`, ``arch`` alone is the
+    unique key since there is one entry per arch.
+    """
+    if isinstance(build, CharmOutput):
+        return (build.arch, build.path, build.artifact)
+    return (build.arch,)
+
+
 def _merge_artifact_outputs[T: (GeneratedRock, GeneratedCharm, GeneratedSnap)](
     items: list[T],
     kind: str,
@@ -646,8 +662,10 @@ def _merge_artifact_outputs[T: (GeneratedRock, GeneratedCharm, GeneratedSnap)](
     function groups them by name and concatenates the ``output`` lists so that
     the collected file holds all arches for each artifact.
 
-    Raises :class:`ConfigurationError` if the same ``(name, arch)`` pair
-    appears in more than one partial (genuine conflict, not a multi-arch merge).
+    For rocks and snaps, raises :class:`ConfigurationError` if the same
+    ``(name, arch)`` pair appears in more than one partial (genuine conflict).
+    For charms (flat format), raises if the same ``(arch, path, artifact)``
+    tuple appears in more than one partial.
     """
     merged: dict[str, T] = {}
     for item in items:
@@ -655,11 +673,12 @@ def _merge_artifact_outputs[T: (GeneratedRock, GeneratedCharm, GeneratedSnap)](
             merged[item.name] = item
         else:
             existing = merged[item.name]
-            existing_arches = {b.arch for b in existing.output}
+            existing_keys = {_output_key(b) for b in existing.output}
             for build in item.output:
-                if build.arch in existing_arches:
+                key = _output_key(build)
+                if key in existing_keys:
                     msg = (
-                        f"Duplicate {kind} '{item.name}' arch '{build.arch}' across "
+                        f"Duplicate {kind} '{item.name}' output {key!r} across "
                         "collected partials. Each (artifact, arch) must appear in "
                         "exactly one partial file."
                     )
@@ -784,8 +803,8 @@ def _find_local_file(
 
 def _find_local_charm_files(
     root: Path, name: str, arch: str | None = None
-) -> list[CharmFile]:
-    """Find all ``name_*.charm`` files under *root* and return CharmFile list.
+) -> list[tuple[str, str | None]]:
+    """Find all ``name_*.charm`` files under *root* and return (path, base) pairs.
 
     When *arch* is given, only files whose parsed arch matches (or whose arch
     cannot be determined) are returned.  Returns an empty list when no files
@@ -797,12 +816,67 @@ def _find_local_charm_files(
     if arch is not None:
         matches = [m for m in matches if _parse_arch_from_charm_path(m) in (arch, None)]
     return [
-        CharmFile(
-            path="./" + str(Path(m).relative_to(root)),
-            base=_parse_base_from_charm_path(m),
+        (
+            "./" + str(Path(m).relative_to(root)),
+            _parse_base_from_charm_path(m),
         )
         for m in matches
     ]
+
+
+def _localize_charm(
+    charm: GeneratedCharm,
+    root: Path,
+    missing: list[str],
+) -> int:
+    """Localize CI-only charm entries by replacing them with local file entries.
+
+    Returns the number of arch-groups that were localized.
+    """
+    indices_to_replace: list[int] = []
+    new_entries: list[CharmOutput] = []
+    localized = 0
+
+    for idx, build in enumerate(charm.output):
+        if build.path or not build.artifact:
+            continue
+        charm_files = _find_local_charm_files(root, charm.name, build.arch)
+        if not charm_files:
+            missing.append(f"{charm.name} ({build.arch})")
+            logger.error(
+                "No .charm file found for charm '%s' arch '%s'.",
+                charm.name,
+                build.arch,
+            )
+            continue
+        indices_to_replace.append(idx)
+        for path, base in charm_files:
+            new_entries.append(
+                CharmOutput.model_validate(
+                    {
+                        "arch": build.arch,
+                        "path": path,
+                        "base": base,
+                        "artifact": build.artifact,
+                        "run-id": build.run_id,
+                    }
+                )
+            )
+        logger.info(
+            "Localised charm '%s' (%s) → %d file(s).",
+            charm.name,
+            build.arch,
+            len(charm_files),
+        )
+        localized += 1
+
+    if indices_to_replace:
+        replace_set = set(indices_to_replace)
+        charm.output = [
+            b for i, b in enumerate(charm.output) if i not in replace_set
+        ] + new_entries
+
+    return localized
 
 
 def artifacts_localize(root: Path) -> int:
@@ -812,9 +886,9 @@ def artifacts_localize(root: Path) -> int:
     references.  Before running integration tests, the workflow downloads
     the artifacts to the working directory.  This command scans the project
     tree for ``.charm`` / ``.snap`` files and rewrites
-    ``artifacts-generated.yaml`` so that each :class:`CharmArchBuild` /
-    :class:`SnapArchBuild` with only a CI artifact reference gets a
-    ``files`` / ``file`` entry pointing to the discovered local file.
+    ``artifacts-generated.yaml`` so that each :class:`CharmOutput` with only
+    a CI artifact reference gets a ``path`` entry pointing to the discovered
+    local file, and each :class:`SnapOutput` gets a ``file`` entry.
 
     Returns the total number of arch-builds that were localised.
 
@@ -833,26 +907,7 @@ def artifacts_localize(root: Path) -> int:
     missing: list[str] = []
 
     for charm in generated.charms:
-        for build in charm.output:
-            if build.files or not build.artifact:
-                continue
-            charm_files = _find_local_charm_files(root, charm.name, build.arch)
-            if not charm_files:
-                missing.append(f"{charm.name} ({build.arch})")
-                logger.error(
-                    "No .charm file found for charm '%s' arch '%s'.",
-                    charm.name,
-                    build.arch,
-                )
-                continue
-            build.files = charm_files
-            logger.info(
-                "Localised charm '%s' (%s) → %d file(s).",
-                charm.name,
-                build.arch,
-                len(charm_files),
-            )
-            updated += 1
+        updated += _localize_charm(charm, root, missing)
 
     for snap in generated.snaps:
         for snap_build in snap.output:

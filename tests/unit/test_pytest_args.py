@@ -35,9 +35,8 @@ charms:
   charmcraft-yaml: charmcraft.yaml
   output:
   - arch: amd64
-    files:
-    - path: ./mycharm_ubuntu-22.04-amd64.charm
-      base: ubuntu@22.04
+    path: ./mycharm_ubuntu-22.04-amd64.charm
+    base: ubuntu@22.04
   resources:
     myrock-image:
       type: oci-image
@@ -72,9 +71,8 @@ charms:
   charmcraft-yaml: charmcraft.yaml
   output:
   - arch: amd64
-    files:
-    - path: ./simple_ubuntu-22.04-amd64.charm
-      base: ubuntu@22.04
+    path: ./simple_ubuntu-22.04-amd64.charm
+    base: ubuntu@22.04
 """
 
 
@@ -89,8 +87,7 @@ class TestAssemblePytestArgs:
         _write(
             tmp_path / "artifacts-generated.yaml",
             "version: 1\ncharms:\n- name: c\n  source: .\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./c.charm\n      base: ubuntu@22.04\n",
+            "  output:\n  - arch: amd64\n    path: ./c.charm\n",
         )
         with pytest.raises(Exception, match=_V1_ERROR_MATCH):
             assemble_pytest_args(tmp_path)
@@ -139,15 +136,18 @@ class TestAssemblePytestArgs:
     def test_multi_base_charm_emits_multiple_charm_file_flags(
         self, tmp_path: Path
     ) -> None:
-        """Multi-base charm produces one --charm-file per output file."""
+        """Multi-base charm produces one --charm-file per output entry."""
         _write(
             tmp_path / "artifacts-generated.yaml",
             "version: 1\ncharms:\n- name: aproxy\n"
             "  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./aproxy_ubuntu-20.04-amd64.charm\n      base: ubuntu@20.04\n"
-            "    - path: ./aproxy_ubuntu-22.04-amd64.charm\n      base: ubuntu@22.04\n"
-            "    - path: ./aproxy_ubuntu-24.04-amd64.charm\n      base: ubuntu@24.04\n",
+            "  output:\n"
+            "  - arch: amd64\n    path: ./aproxy_ubuntu-20.04-amd64.charm\n"
+            "    base: ubuntu@20.04\n"
+            "  - arch: amd64\n    path: ./aproxy_ubuntu-22.04-amd64.charm\n"
+            "    base: ubuntu@22.04\n"
+            "  - arch: amd64\n    path: ./aproxy_ubuntu-24.04-amd64.charm\n"
+            "    base: ubuntu@24.04\n",
         )
 
         args = assemble_pytest_args(tmp_path)
@@ -168,9 +168,8 @@ class TestAssemblePytestArgs:
         _write(
             tmp_path / "artifacts-generated.yaml",
             "version: 1\ncharms:\n- name: c\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./c_ubuntu-22.04-amd64.charm\n"
-            "      base: ubuntu@22.04\n"
+            "  output:\n  - arch: amd64\n    path: ./c_ubuntu-22.04-amd64.charm\n"
+            "    base: ubuntu@22.04\n"
             "  resources:\n    img:\n      type: oci-image\n      rock: myrock\n",
         )
 
@@ -188,9 +187,8 @@ class TestAssemblePytestArgs:
             "  output:\n  - arch: amd64\n    file: ./rock_dir/myrock.rock\n"
             "    image: localhost:32000/myrock:latest\n"
             "charms:\n- name: c\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./c_ubuntu-22.04-amd64.charm\n"
-            "      base: ubuntu@22.04\n"
+            "  output:\n  - arch: amd64\n    path: ./c_ubuntu-22.04-amd64.charm\n"
+            "    base: ubuntu@22.04\n"
             "  resources:\n    myrock-image:\n      type: oci-image\n"
             "      rock: myrock\n",
         )
@@ -214,9 +212,9 @@ class TestAssemblePytestArgs:
             "  output:\n  - arch: amd64\n    file: ./expressjs-app_1.0_amd64.rock\n"
             "charms:\n- name: expressjs-k8s\n"
             "  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./expressjs-k8s_ubuntu-22.04-amd64.charm\n"
-            "      base: ubuntu@22.04\n"
+            "  output:\n  - arch: amd64\n"
+            "    path: ./expressjs-k8s_ubuntu-22.04-amd64.charm\n"
+            "    base: ubuntu@22.04\n"
             "  resources:\n    app-image:\n      type: oci-image\n"
             "      rock: expressjs-app\n",
         )
@@ -241,9 +239,9 @@ class TestAssemblePytestArgs:
             "- name: fastapi-app\n  rockcraft-yaml: fastapi/rockcraft.yaml\n"
             "  output:\n  - arch: amd64\n    file: ./fastapi-app_1.0_amd64.rock\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./my-charm_ubuntu-22.04-amd64.charm\n"
-            "      base: ubuntu@22.04\n",
+            "  output:\n  - arch: amd64\n"
+            "    path: ./my-charm_ubuntu-22.04-amd64.charm\n"
+            "    base: ubuntu@22.04\n",
         )
 
         args = assemble_pytest_args(tmp_path)
@@ -257,9 +255,9 @@ class TestAssemblePytestArgs:
             tmp_path / "artifacts-generated.yaml",
             "version: 1\ncharms:\n- name: mycharm\n"
             "  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./mycharm_ubuntu-22.04-amd64.charm\n"
-            "      base: ubuntu@22.04\n"
+            "  output:\n  - arch: amd64\n"
+            "    path: ./mycharm_ubuntu-22.04-amd64.charm\n"
+            "    base: ubuntu@22.04\n"
             "  resources:\n    standalone-image:\n      type: oci-image\n",
         )
 

@@ -14,13 +14,12 @@ from opcli.models.artifacts import (
 )
 from opcli.models.artifacts_generated import (
     ArtifactsGenerated,
-    CharmArchBuild,
-    CharmFile,
+    CharmOutput,
     GeneratedCharm,
     GeneratedRock,
     GeneratedSnap,
-    RockArchBuild,
-    SnapArchBuild,
+    RockOutput,
+    SnapOutput,
 )
 
 
@@ -147,35 +146,35 @@ class TestArtifactsGenerated:
     """Validation tests for artifacts-generated.yaml models."""
 
     def test_local_output(self) -> None:
-        out = RockArchBuild(arch="amd64", file="./myrock.rock")
+        out = RockOutput(arch="amd64", file="./myrock.rock")
         assert out.file == "./myrock.rock"
         assert out.image is None
 
     def test_ci_output_with_image(self) -> None:
-        out = RockArchBuild(arch="amd64", image="ghcr.io/canonical/indico:abc1234")
+        out = RockOutput(arch="amd64", image="ghcr.io/canonical/indico:abc1234")
         assert out.image is not None
 
     def test_ci_output_artifact_requires_run_id(self) -> None:
         with pytest.raises(ValidationError, match="run-id is required"):
-            CharmArchBuild(arch="amd64", artifact="charm-indico")
+            CharmOutput(arch="amd64", artifact="charm-indico")
 
     def test_ci_output_artifact_with_run_id(self) -> None:
-        out = CharmArchBuild(arch="amd64", artifact="charm-indico", run_id="123456")
+        out = CharmOutput(arch="amd64", artifact="charm-indico", run_id="123456")
         assert out.artifact == "charm-indico"
         assert out.run_id == "123456"
 
     def test_empty_output_rejected(self) -> None:
         with pytest.raises(ValidationError, match="must specify file or image"):
-            RockArchBuild(arch="amd64")
+            RockOutput(arch="amd64")
 
     def test_run_id_alias_from_yaml(self) -> None:
         """YAML uses ``run-id`` (hyphen), Python uses ``run_id``."""
         data = {"arch": "amd64", "artifact": "charm-x", "run-id": "999"}
-        out = CharmArchBuild.model_validate(data)
+        out = CharmOutput.model_validate(data)
         assert out.run_id == "999"
 
     def test_run_id_serialized_with_hyphen(self) -> None:
-        out = CharmArchBuild(arch="amd64", artifact="charm-x", run_id="999")
+        out = CharmOutput(arch="amd64", artifact="charm-x", run_id="999")
         dumped = out.model_dump(by_alias=True, exclude_none=True)
         assert "run-id" in dumped
         assert "run_id" not in dumped
@@ -186,7 +185,7 @@ class TestArtifactsGenerated:
                 GeneratedRock(
                     name="indico",
                     rockcraft_yaml="indico_rock/rockcraft.yaml",
-                    output=[RockArchBuild(arch="amd64", file="./indico.rock")],
+                    output=[RockOutput(arch="amd64", file="./indico.rock")],
                 )
             ],
             charms=[
@@ -194,18 +193,17 @@ class TestArtifactsGenerated:
                     name="indico",
                     charmcraft_yaml="charmcraft.yaml",
                     output=[
-                        CharmArchBuild(
+                        CharmOutput(
                             arch="amd64",
-                            files=[
-                                CharmFile(path="./indico.charm", base="ubuntu@22.04")
-                            ],
+                            path="./indico.charm",
+                            base="ubuntu@22.04",
                         )
                     ],
                 )
             ],
         )
         assert gen.rocks[0].output[0].file == "./indico.rock"
-        assert gen.charms[0].output[0].files[0].path == "./indico.charm"
+        assert gen.charms[0].output[0].path == "./indico.charm"
 
     def test_generated_extra_fields_rejected(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs"):
@@ -217,61 +215,63 @@ class TestArtifactsGenerated:
                 GeneratedSnap(
                     name="mysnap",
                     snapcraft_yaml="snap/snapcraft.yaml",
-                    output=[SnapArchBuild(arch="amd64", file="./mysnap.snap")],
+                    output=[SnapOutput(arch="amd64", file="./mysnap.snap")],
                 )
             ],
         )
         assert gen.snaps[0].name == "mysnap"
 
 
-class TestCharmArchBuild:
-    """Validation tests for CharmArchBuild and CharmFile models."""
+class TestCharmOutput:
+    """Validation tests for CharmOutput model."""
 
     def test_local_single_base(self) -> None:
-        out = CharmArchBuild(
+        out = CharmOutput(
             arch="amd64",
-            files=[
-                CharmFile(path="./aproxy_ubuntu-22.04-amd64.charm", base="ubuntu@22.04")
-            ],
+            path="./aproxy_ubuntu-22.04-amd64.charm",
+            base="ubuntu@22.04",
         )
-        assert len(out.files) == 1
-        assert out.files[0].base == "ubuntu@22.04"
+        assert out.path == "./aproxy_ubuntu-22.04-amd64.charm"
+        assert out.base == "ubuntu@22.04"
 
-    def test_local_multi_base(self) -> None:
-        out = CharmArchBuild(
+    def test_local_multi_base_separate_entries(self) -> None:
+        out1 = CharmOutput(
             arch="amd64",
-            files=[
-                CharmFile(path="./a_ubuntu-20.04-amd64.charm", base="ubuntu@20.04"),
-                CharmFile(path="./a_ubuntu-22.04-amd64.charm", base="ubuntu@22.04"),
-            ],
+            path="./a_ubuntu-20.04-amd64.charm",
+            base="ubuntu@20.04",
         )
-        expected_count = 2
-        assert len(out.files) == expected_count
+        out2 = CharmOutput(
+            arch="amd64",
+            path="./a_ubuntu-22.04-amd64.charm",
+            base="ubuntu@22.04",
+        )
+        assert out1.path != out2.path
+        assert out1.base != out2.base
 
     def test_ci_artifact_output(self) -> None:
-        out = CharmArchBuild(arch="amd64", artifact="charm-aproxy", run_id="999")
+        out = CharmOutput(arch="amd64", artifact="charm-aproxy", run_id="999")
         assert out.artifact == "charm-aproxy"
         assert out.run_id == "999"
-        assert out.files == []
+        assert out.path is None
 
     def test_ci_artifact_yaml_alias(self) -> None:
-        out = CharmArchBuild.model_validate(
+        out = CharmOutput.model_validate(
             {"arch": "amd64", "artifact": "charm-x", "run-id": "1"}
         )
         assert out.run_id == "1"
 
     def test_empty_output_rejected(self) -> None:
-        with pytest.raises(ValidationError, match="files or artifact"):
-            CharmArchBuild(arch="amd64")
+        with pytest.raises(ValidationError, match="path or artifact"):
+            CharmOutput(arch="amd64")
 
     def test_artifact_without_run_id_rejected(self) -> None:
         with pytest.raises(ValidationError, match="run-id"):
-            CharmArchBuild(arch="amd64", artifact="charm-x")
+            CharmOutput(arch="amd64", artifact="charm-x")
 
     def test_base_none_allowed(self) -> None:
         """Base can be None when filename does not follow convention."""
-        out = CharmArchBuild(arch="amd64", files=[CharmFile(path="./mycharm.charm")])
-        assert out.files[0].base is None
+        out = CharmOutput(arch="amd64", path="./mycharm.charm")
+        assert out.base is None
 
 
 class TestBuildTarget:
@@ -286,42 +286,42 @@ class TestBuildTarget:
         assert bt.runner == ["ubuntu-latest"]
 
 
-class TestRockArchBuild:
-    """Validation tests for RockArchBuild model."""
+class TestRockOutput:
+    """Validation tests for RockOutput model."""
 
     def test_rock_local_build(self) -> None:
-        build = RockArchBuild(arch="amd64", file="./my.rock")
+        build = RockOutput(arch="amd64", file="./my.rock")
         assert build.arch == "amd64"
         assert build.file == "./my.rock"
         assert build.image is None
 
     def test_rock_ci_build(self) -> None:
-        build = RockArchBuild(arch="amd64", image="ghcr.io/canonical/my-rock:abc123")
+        build = RockOutput(arch="amd64", image="ghcr.io/canonical/my-rock:abc123")
         assert build.image == "ghcr.io/canonical/my-rock:abc123"
         assert build.file is None
 
     def test_rock_empty_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            RockArchBuild(arch="amd64")
+            RockOutput(arch="amd64")
 
     def test_rock_extra_fields_rejected(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs"):
-            RockArchBuild.model_validate(
+            RockOutput.model_validate(
                 {"arch": "amd64", "file": "./my.rock", "unknown": "x"}
             )
 
 
-class TestSnapArchBuild:
-    """Validation tests for SnapArchBuild model."""
+class TestSnapOutput:
+    """Validation tests for SnapOutput model."""
 
     def test_snap_local_build(self) -> None:
-        build = SnapArchBuild(arch="amd64", file="./my.snap")
+        build = SnapOutput(arch="amd64", file="./my.snap")
         assert build.arch == "amd64"
         assert build.file == "./my.snap"
         assert build.artifact is None
 
     def test_snap_ci_build(self) -> None:
-        build = SnapArchBuild(
+        build = SnapOutput(
             arch="amd64", artifact="built-snap-my-snap-amd64", run_id="123"
         )
         assert build.artifact == "built-snap-my-snap-amd64"
@@ -329,8 +329,8 @@ class TestSnapArchBuild:
 
     def test_snap_empty_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            SnapArchBuild(arch="amd64")
+            SnapOutput(arch="amd64")
 
     def test_snap_artifact_without_run_id_rejected(self) -> None:
         with pytest.raises(ValidationError, match="run-id"):
-            SnapArchBuild(arch="amd64", artifact="built-snap-my-snap")
+            SnapOutput(arch="amd64", artifact="built-snap-my-snap")
