@@ -17,10 +17,10 @@ from opcli.core.yaml_io import (
 from opcli.models.artifacts import ArtifactsPlan
 from opcli.models.artifacts_generated import (
     ArtifactsGenerated,
-    CharmArchBuild,
+    CharmOutput,
     GeneratedCharm,
     GeneratedRock,
-    RockArchBuild,
+    RockOutput,
 )
 
 
@@ -213,7 +213,7 @@ class TestYamlIO:
                 GeneratedRock(
                     name="r1",
                     rockcraft_yaml="rd/rockcraft.yaml",
-                    output=[RockArchBuild(arch="amd64", file="./r1.rock")],
+                    output=[RockOutput(arch="amd64", file="./r1.rock")],
                 )
             ],
         )
@@ -228,7 +228,7 @@ class TestYamlIO:
                 GeneratedCharm(
                     name="c1",
                     charmcraft_yaml="charmcraft.yaml",
-                    output=[CharmArchBuild(arch="amd64", artifact="a1", run_id="42")],
+                    output=[CharmOutput(arch="amd64", artifact="a1", run_id="42")],
                 )
             ],
         )

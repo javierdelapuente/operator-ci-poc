@@ -94,12 +94,12 @@ class TestArtifactsBuild:
         gen = load_artifacts_generated(result)
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "mycharm"
-        assert len(gen.charms[0].output[0].files) == 1
-        assert gen.charms[0].output[0].files[0].path.startswith("./")
-        assert gen.charms[0].output[0].files[0].path.endswith(".charm")
+        assert len(gen.charms[0].output) == 1
+        assert gen.charms[0].output[0].path.startswith("./")
+        assert gen.charms[0].output[0].path.endswith(".charm")
 
     def test_build_multi_base_charm(self, tmp_path: Path) -> None:
-        """Multi-base charm: all produced files appear in output.files."""
+        """Multi-base charm: all produced files appear as flat output entries."""
         _write(
             tmp_path / "artifacts.yaml",
             "version: 1\ncharms:\n- name: aproxy\n  charmcraft-yaml: charmcraft.yaml\n",
@@ -114,14 +114,14 @@ class TestArtifactsBuild:
             result = artifacts_build(tmp_path)
 
         gen = load_artifacts_generated(result)
-        files = gen.charms[0].output[0].files
+        outputs = gen.charms[0].output
         expected_count = 3
-        assert len(files) == expected_count
-        paths = {f.path for f in files}
+        assert len(outputs) == expected_count
+        paths = {o.path for o in outputs}
         assert "./aproxy_ubuntu-20.04-amd64.charm" in paths
         assert "./aproxy_ubuntu-22.04-amd64.charm" in paths
         assert "./aproxy_ubuntu-24.04-amd64.charm" in paths
-        bases = {f.base for f in files}
+        bases = {o.base for o in outputs}
         assert "ubuntu@20.04" in bases
         assert "ubuntu@22.04" in bases
         assert "ubuntu@24.04" in bases
@@ -147,10 +147,10 @@ class TestArtifactsBuild:
             result = artifacts_build(tmp_path)
 
         gen = load_artifacts_generated(result)
-        files = gen.charms[0].output[0].files
+        outputs = gen.charms[0].output
         expected_count = 2
-        assert len(files) == expected_count
-        paths = {f.path for f in files}
+        assert len(outputs) == expected_count
+        paths = {o.path for o in outputs}
         assert "./aproxy_ubuntu-20.04-amd64.charm" in paths
         assert "./aproxy_ubuntu-22.04-amd64.charm" in paths
 
@@ -559,10 +559,10 @@ class TestArtifactsBuild:
             result = artifacts_build(tmp_path)
 
         gen = load_artifacts_generated(result)
-        files = gen.charms[0].output[0].files
+        outputs = gen.charms[0].output
         expected_count = 2
-        assert len(files) == expected_count
-        paths = {f.path for f in files}
+        assert len(outputs) == expected_count
+        paths = {o.path for o in outputs}
         assert "./mycharm_ubuntu-22.04-amd64.charm" in paths
         assert "./mycharm_ubuntu-24.04-amd64.charm" in paths
 
@@ -675,9 +675,9 @@ class TestArtifactsCollect:
             "charm-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
-            "      base: ubuntu@24.04\n",
+            "  output:\n  - arch: amd64\n"
+            "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
+            "    base: ubuntu@24.04\n",
         )
 
         dest = tmp_path / "artifacts-generated.yaml"
@@ -703,9 +703,9 @@ class TestArtifactsCollect:
             "charm-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
-            "      base: ubuntu@24.04\n"
+            "  output:\n  - arch: amd64\n"
+            "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
+            "    base: ubuntu@24.04\n"
             "  resources:\n"
             "    my-rock-image:\n"
             "      type: oci-image\n"
@@ -759,9 +759,9 @@ class TestArtifactsCollect:
             "charm-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
-            "      base: ubuntu@24.04\n"
+            "  output:\n  - arch: amd64\n"
+            "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
+            "    base: ubuntu@24.04\n"
             "  resources:\n"
             "    missing-rock-image:\n"
             "      type: oci-image\n"
@@ -825,18 +825,18 @@ class TestArtifactsCollect:
             "charm-amd64-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    files:\n"
-            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
-            "      base: ubuntu@24.04\n",
+            "  output:\n  - arch: amd64\n"
+            "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
+            "    base: ubuntu@24.04\n",
         )
         charm_arm64 = self._partial(
             tmp_path,
             "charm-arm64-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: arm64\n    files:\n"
-            "    - path: ./my-charm_ubuntu-24.04-arm64.charm\n"
-            "      base: ubuntu@24.04\n",
+            "  output:\n  - arch: arm64\n"
+            "    path: ./my-charm_ubuntu-24.04-arm64.charm\n"
+            "    base: ubuntu@24.04\n",
         )
 
         artifacts_collect(tmp_path, [charm_amd64, charm_arm64])
@@ -943,7 +943,7 @@ class TestArtifactsBuildCIMode:
         gen = load_artifacts_generated(result)
         assert len(gen.charms) == 1
         charm_out = gen.charms[0].output
-        assert charm_out[0].files == []
+        assert charm_out[0].path is None
         assert charm_out[0].artifact == "built-charm-my-charm-amd64"
         assert charm_out[0].run_id == "9876543210"
 
@@ -993,8 +993,8 @@ class TestArtifactsBuildCIMode:
         gen = load_artifacts_generated(result)
         charm_out = gen.charms[0].output
         assert charm_out[0].artifact is None
-        assert len(charm_out[0].files) == 1
-        assert "my-charm_ubuntu-24.04-amd64.charm" in charm_out[0].files[0].path
+        assert len(charm_out) == 1
+        assert "my-charm_ubuntu-24.04-amd64.charm" in charm_out[0].path
 
     def test_ci_missing_env_vars_raises(self, tmp_path: Path) -> None:
         """GITHUB_ACTIONS=true with missing env vars raises ConfigurationError."""
@@ -1120,15 +1120,15 @@ class TestArtifactsLocalize:
 
         assert count == 1
         gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
-        assert gen.charms[0].output[0].files is not None
-        assert len(gen.charms[0].output[0].files) == 1
-        path = gen.charms[0].output[0].files[0].path
+        assert len(gen.charms[0].output) == 1
+        path = gen.charms[0].output[0].path
+        assert path is not None
         assert path.endswith(".charm")
         assert path.startswith("./"), f"Expected relative path, got: {path}"
         assert "/home/" not in path, f"Expected no absolute home path, got: {path}"
 
     def test_skips_charm_already_with_local_files(self, tmp_path: Path) -> None:
-        """Does not overwrite charms that already have output.files."""
+        """Does not overwrite charms that already have output path."""
 
         generated = (
             "version: 1\n"
@@ -1137,8 +1137,7 @@ class TestArtifactsLocalize:
             "  charmcraft-yaml: charmcraft.yaml\n"
             "  output:\n"
             "  - arch: amd64\n"
-            "    files:\n"
-            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
+            "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
         )
         _write(tmp_path / "artifacts-generated.yaml", generated)
         charm_file = tmp_path / "my-charm_new.charm"
@@ -1172,8 +1171,7 @@ class TestArtifactsLocalize:
             "  charmcraft-yaml: charmcraft.yaml\n"
             "  output:\n"
             "  - arch: amd64\n"
-            "    files:\n"
-            "    - path: ./my-charm_ubuntu-24.04-amd64.charm\n"
+            "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
         )
         _write(tmp_path / "artifacts-generated.yaml", generated)
         # Create a second charm file — should not be picked up since charm
@@ -1204,11 +1202,11 @@ class TestArtifactsLocalize:
 
         gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
         charm = gen.charms[0]
-        assert len(charm.output[0].files) == 2  # noqa: PLR2004
-        paths = {f.path for f in charm.output[0].files}
+        assert len(charm.output) == 2  # noqa: PLR2004
+        paths = {o.path for o in charm.output}
         assert any("22.04" in p for p in paths)
         assert any("24.04" in p for p in paths)
-        bases = {f.base for f in charm.output[0].files}
+        bases = {o.base for o in charm.output}
         assert "ubuntu@22.04" in bases
         assert "ubuntu@24.04" in bases
 
@@ -1394,8 +1392,9 @@ class TestArtifactsFetch:
 
         gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
         for charm in gen.charms:
-            assert charm.output[0].files, f"Charm '{charm.name}' was not localised"
-            assert charm.output[0].files[0].path.endswith(".charm")
+            charm_paths = [o.path for o in charm.output if o.path]
+            assert charm_paths, f"Charm '{charm.name}' was not localised"
+            assert charm_paths[0].endswith(".charm")
         for snap in gen.snaps:
             assert snap.output[0].file, f"Snap '{snap.name}' was not localised"
             assert snap.output[0].file.endswith(".snap")

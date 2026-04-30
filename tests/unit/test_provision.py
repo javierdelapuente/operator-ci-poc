@@ -36,9 +36,8 @@ charms:
   charmcraft-yaml: charmcraft.yaml
   output:
   - arch: amd64
-    files:
-    - path: ./mycharm_ubuntu-22.04-amd64.charm
-      base: ubuntu@22.04
+    path: ./mycharm_ubuntu-22.04-amd64.charm
+    base: ubuntu@22.04
 """
 
 _GENERATED_WITH_ROCKS_AND_RESOURCES = """\
@@ -59,9 +58,8 @@ charms:
   charmcraft-yaml: charmcraft.yaml
   output:
   - arch: amd64
-    files:
-    - path: ./mycharm_ubuntu-22.04-amd64.charm
-      base: ubuntu@22.04
+    path: ./mycharm_ubuntu-22.04-amd64.charm
+    base: ubuntu@22.04
   resources:
     myrock-image:
       type: oci-image

@@ -33,9 +33,9 @@ from typing import overload
 from opcli.core.exceptions import ConfigurationError
 from opcli.core.yaml_io import load_artifacts_generated
 from opcli.models.artifacts_generated import (
-    CharmArchBuild,
-    RockArchBuild,
-    SnapArchBuild,
+    CharmOutput,
+    RockOutput,
+    SnapOutput,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,27 +55,27 @@ def _current_arch() -> str:
 
 @overload
 def _select_arch_builds(
-    builds: list[RockArchBuild], arch: str, artifact_name: str
-) -> list[RockArchBuild]: ...
+    builds: list[RockOutput], arch: str, artifact_name: str
+) -> list[RockOutput]: ...
 
 
 @overload
 def _select_arch_builds(
-    builds: list[CharmArchBuild], arch: str, artifact_name: str
-) -> list[CharmArchBuild]: ...
+    builds: list[CharmOutput], arch: str, artifact_name: str
+) -> list[CharmOutput]: ...
 
 
 @overload
 def _select_arch_builds(
-    builds: list[SnapArchBuild], arch: str, artifact_name: str
-) -> list[SnapArchBuild]: ...
+    builds: list[SnapOutput], arch: str, artifact_name: str
+) -> list[SnapOutput]: ...
 
 
 def _select_arch_builds(
-    builds: list[RockArchBuild] | list[CharmArchBuild] | list[SnapArchBuild],
+    builds: list[RockOutput] | list[CharmOutput] | list[SnapOutput],
     arch: str,
     artifact_name: str,
-) -> list[RockArchBuild] | list[CharmArchBuild] | list[SnapArchBuild]:
+) -> list[RockOutput] | list[CharmOutput] | list[SnapOutput]:
     """Return the subset of *builds* matching *arch*, or all if none match.
 
     When an exact arch match is found, only those builds are returned.
@@ -135,9 +135,8 @@ def assemble_pytest_args(
     for charm in generated.charms:
         charm_builds = _select_arch_builds(charm.output, arch, charm.name)
         for charm_build in charm_builds:
-            if charm_build.files:
-                for charm_file in charm_build.files:
-                    args.append(f"--charm-file={charm_file.path}")
+            if charm_build.path:
+                args.append(f"--charm-file={charm_build.path}")
             elif charm_build.artifact:
                 logger.warning(
                     "Skipping --charm-file for charm '%s' (%s): output is a CI "
