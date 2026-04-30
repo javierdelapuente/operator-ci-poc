@@ -254,9 +254,17 @@ def _snapshot_outputs(pack_dir: Path, kind: str) -> set[str]:
 
 
 def _pick_new_output(
-    before: set[str], after: set[str], kind: str, pack_dir: Path
+    before: set[str],
+    after: set[str],
+    kind: str,
+    pack_dir: Path,
+    attributed: set[str] | None = None,
 ) -> str:
     """Return the new output file produced by pack, relative to repo root.
+
+    *attributed* is the set of paths already claimed by previous artifact builds
+    in this session.  If the overwrite-in-place fallback would return a path that
+    is already attributed, a collision is detected and an error is raised.
 
     Three cases:
     1. New files appeared (``after - before`` non-empty) — use those.
@@ -283,7 +291,16 @@ def _pick_new_output(
 
     if len(after) == 1:
         # Exactly one pre-existing file; the build overwrote it in place.
-        return next(iter(after))
+        path = next(iter(after))
+        if attributed and path in attributed:
+            msg = (
+                f"Output file {path} was already produced by another artifact. "
+                "Two artifacts cannot share the same output filename in the same "
+                "pack-dir. Use separate pack-dirs or ensure each artifact produces "
+                "a unique filename."
+            )
+            raise OpcliError(msg)
+        return path
 
     # Multiple pre-existing files, none added — cannot determine which was built.
     msg = (
@@ -355,23 +372,40 @@ def _parse_arch_from_snap_path(path: str) -> str | None:
 
 
 def _pick_new_charm_outputs(
-    before: set[str], after: set[str], pack_dir: Path
+    before: set[str],
+    after: set[str],
+    pack_dir: Path,
+    attributed: set[str] | None = None,
 ) -> list[str]:
-    """Return all charm files produced by pack, relative paths TBD by caller.
+    """Return the charm files produced by this pack invocation.
 
-    ``charmcraft pack`` always rebuilds **all** declared bases in a single
-    invocation, so the complete set of output files is always ``after``.
-    The ``before`` snapshot is only used to detect the error case where the
-    pack produced nothing.
+    *attributed* is the set of paths already claimed by previous charm builds
+    in this session.  If the overwrite-in-place fallback would return paths that
+    are all already attributed, a collision is detected and an error is raised.
 
     Cases:
-    1. Files present after pack — return all of them (sorted for determinism).
-    2. No files at all — raise error.
+    1. New files appeared (``after - before`` non-empty) — return those.
+    2. No change (overwrite-in-place rebuild) — return all files in ``after``,
+       unless they are all already attributed to a previous artifact (collision).
+    3. No files at all after pack — raise error.
     """
     if not after:
         msg = f"No *.charm found in {pack_dir} after pack"
         raise OpcliError(msg)
 
+    new = after - before
+    if new:
+        return sorted(new)
+
+    # Overwrite-in-place: charmcraft rebuilt the same files (before == after).
+    if attributed and after.issubset(attributed):
+        msg = (
+            f"Output files {sorted(after)} were already produced by another "
+            "artifact. Two artifacts cannot share the same output filenames in "
+            "the same pack-dir. Use separate pack-dirs or ensure each charm "
+            "produces unique filenames."
+        )
+        raise OpcliError(msg)
     return sorted(after)
 
 
@@ -402,18 +436,22 @@ def _with_rock_symlink(
     call created the symlink (and the caller must remove it afterwards).
 
     Raises:
-        ConfigurationError: If a real (non-symlink) file already exists at the
-            target location.
+        ConfigurationError: If a real (non-symlink) ``rockcraft.yaml`` already
+            exists in *pack_dir* and its content differs from *yaml_path*.
     """
-    target = pack_dir / "rockcraft.yaml"  # always the standard name
-    if target == yaml_path:
-        # Already named rockcraft.yaml and already in pack_dir — no symlink needed.
+    target = pack_dir / "rockcraft.yaml"
+    if target.resolve() == yaml_path.resolve():
+        # Already the right file — no symlink needed.
         return None, False
 
     if target.exists() and not target.is_symlink():
+        if target.read_bytes() == yaml_path.read_bytes():
+            # Identical content — rockcraft will use it correctly.
+            return None, False
         msg = (
-            f"A regular file already exists at {target}. "
-            "Remove it or set pack-dir to a directory without a rockcraft.yaml."
+            f"A regular file already exists at {target} and it differs from "
+            f"{yaml_path}. Remove it or set pack-dir to a directory without a "
+            "rockcraft.yaml."
         )
         raise ConfigurationError(msg)
     if target.is_symlink():
@@ -450,6 +488,11 @@ def _with_charm_symlink(
         return None, False
 
     if target.exists() and not target.is_symlink():
+        if target.read_bytes() == yaml_path.read_bytes():
+            # A real charmcraft.yaml already exists with identical content
+            # (e.g. a copy kept alongside a non-standard filename).
+            # Charmcraft will use it and produce the correct charm — no action.
+            return None, False
         msg = (
             f"A regular file already exists at {target} and it differs from "
             f"{yaml_path}. Remove it or set pack-dir to a directory without a "
@@ -462,7 +505,7 @@ def _with_charm_symlink(
     return target, True
 
 
-def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
+def _build_rock(rock: RockArtifact, root: Path, attributed: set[str]) -> GeneratedRock:
     yaml_path = (root / rock.rockcraft_yaml).resolve()
     if not yaml_path.is_file():
         msg = f"rockcraft-yaml not found: {rock.rockcraft_yaml}"
@@ -478,12 +521,13 @@ def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
     try:
         run_command([*_PACK_COMMANDS["rock"]], cwd=str(pack_dir), env=_ROCKCRAFT_ENV)
     finally:
-        if symlink_created and symlink_path and symlink_path.exists():
+        if symlink_created and symlink_path and symlink_path.is_symlink():
             symlink_path.unlink()
 
     after = _snapshot_outputs(pack_dir, "rock")
-    new_output = _pick_new_output(before, after, "rock", pack_dir)
+    new_output = _pick_new_output(before, after, "rock", pack_dir, attributed)
     output_file = _relative_to_root(new_output, root)
+    attributed.add(new_output)
     return GeneratedRock(
         name=rock.name,
         **{"rockcraft-yaml": rock.rockcraft_yaml},
@@ -494,6 +538,7 @@ def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
 def _build_charm(
     charm: CharmArtifact,
     root: Path,
+    attributed: set[str],
 ) -> GeneratedCharm:
     yaml_path = (root / charm.charmcraft_yaml).resolve()
     if not yaml_path.is_file():
@@ -509,10 +554,11 @@ def _build_charm(
     try:
         run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
     finally:
-        if symlink_created and symlink_path and symlink_path.exists():
+        if symlink_created and symlink_path and symlink_path.is_symlink():
             symlink_path.unlink()
     after = _snapshot_outputs(pack_dir, "charm")
-    new_outputs = _pick_new_charm_outputs(before, after, pack_dir)
+    new_outputs = _pick_new_charm_outputs(before, after, pack_dir, attributed)
+    attributed.update(new_outputs)
     arch = _current_arch()
     charm_outputs = [
         CharmOutput(
@@ -538,7 +584,7 @@ def _build_charm(
     )
 
 
-def _build_snap(snap: SnapArtifact, root: Path) -> GeneratedSnap:
+def _build_snap(snap: SnapArtifact, root: Path, attributed: set[str]) -> GeneratedSnap:
     yaml_path = (root / snap.snapcraft_yaml).resolve()
     if not yaml_path.is_file():
         msg = f"snapcraft-yaml not found: {snap.snapcraft_yaml}"
@@ -551,8 +597,9 @@ def _build_snap(snap: SnapArtifact, root: Path) -> GeneratedSnap:
     before = _snapshot_outputs(pack_dir, "snap")
     run_command([*_PACK_COMMANDS["snap"]], cwd=str(pack_dir))
     after = _snapshot_outputs(pack_dir, "snap")
-    new_output = _pick_new_output(before, after, "snap", pack_dir)
+    new_output = _pick_new_output(before, after, "snap", pack_dir, attributed)
     output_file = _relative_to_root(new_output, root)
+    attributed.add(new_output)
     return GeneratedSnap(
         name=snap.name,
         **{"snapcraft-yaml": snap.snapcraft_yaml},
@@ -600,9 +647,12 @@ def artifacts_build(
     charms_to_build = _filter_by_name(plan.charms, charm_names, "charm")
     snaps_to_build = _filter_by_name(plan.snaps, snap_names, "snap")
 
-    gen_rocks = [_build_rock(r, root) for r in rocks_to_build]
-    gen_charms = [_build_charm(c, root) for c in charms_to_build]
-    gen_snaps = [_build_snap(s, root) for s in snaps_to_build]
+    # Track absolute output paths attributed to each artifact so far, to detect
+    # collisions when multiple artifacts share a pack-dir.
+    attributed: set[str] = set()
+    gen_rocks = [_build_rock(r, root, attributed) for r in rocks_to_build]
+    gen_charms = [_build_charm(c, root, attributed) for c in charms_to_build]
+    gen_snaps = [_build_snap(s, root, attributed) for s in snaps_to_build]
 
     # In GitHub Actions, rewrite outputs to CI-format references.
     ci = _get_ci_context()
