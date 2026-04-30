@@ -87,7 +87,7 @@ jobs:
   # Provisioning runs in parallel with the build.  The spread _CI_PREPARE script
   # waits for and downloads the build artifacts before executing tests.
   test:
-    name: "${{ matrix.name }}"
+    name: "${{ matrix.name }} (${{ matrix.arch }})"
     needs: [test-plan]
     runs-on: ${{ fromJSON(matrix.runs-on) }}
     permissions:

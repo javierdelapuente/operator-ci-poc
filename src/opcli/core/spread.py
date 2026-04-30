@@ -796,6 +796,24 @@ def spread_run(
 _DEFAULT_RUNNER = "ubuntu-latest"
 
 
+def _arch_from_runner(runner_json: str) -> str:
+    """Derive a display architecture string from a JSON-encoded runner label.
+
+    Checks for ``arm64`` in the runner labels; falls back to ``amd64``.
+    """
+    try:
+        labels = json.loads(runner_json)
+    except json.JSONDecodeError:
+        return "amd64"
+    if isinstance(labels, str):
+        labels = [labels]
+    if isinstance(labels, list) and any(
+        "arm64" in str(lbl).lower() for lbl in labels
+    ):
+        return "arm64"
+    return "amd64"
+
+
 def _runner_by_system(raw: dict[str, object]) -> dict[str, str]:
     """Extract {system_name: runner_label_json} from the raw spread.yaml.
 
@@ -938,6 +956,11 @@ def _collect_suite_entries(  # noqa: PLR0913
                         selector = f"{backend_name}:{system_name}:{task_path}"
                         name = task_dir
                     entries.append(
-                        {"name": name, "selector": selector, "runs-on": runner}
+                        {
+                            "name": name,
+                            "selector": selector,
+                            "runs-on": runner,
+                            "arch": _arch_from_runner(runner),
+                        }
                     )
     return entries
