@@ -80,6 +80,7 @@ jobs:
         run: |
           matrix=$(opcli spread tasks)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Test matrix: $matrix"
 
   # ── Job 3: run each spread task ─────────────────────────────────────────────
   # Starts as soon as test-plan finishes — does NOT wait for the build job.
