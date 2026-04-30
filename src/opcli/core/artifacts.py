@@ -422,6 +422,46 @@ def _with_rock_symlink(
     return target, True
 
 
+def _with_charm_symlink(
+    yaml_path: Path,
+    pack_dir: Path,
+) -> tuple[Path | None, bool]:
+    """Prepare a ``charmcraft.yaml`` symlink in *pack_dir* if needed.
+
+    Charmcraft always looks for a file literally named ``charmcraft.yaml`` in
+    the working directory.  This function creates
+    ``<pack_dir>/charmcraft.yaml → <relative-path>`` when the source file is
+    not already named ``charmcraft.yaml`` and located in *pack_dir*.
+
+    The symlink target is always **relative** so that it remains valid if
+    charmcraft copies the directory into a managed container.
+
+    Returns ``(symlink_path, created)`` where *created* is ``True`` when this
+    call created the symlink (and the caller must remove it afterwards).
+
+    Raises:
+        ConfigurationError: If a real (non-symlink) ``charmcraft.yaml`` already
+            exists in *pack_dir* and points to a different file than *yaml_path*.
+            This prevents silently building the wrong charm.
+    """
+    target = pack_dir / "charmcraft.yaml"
+    if target.resolve() == yaml_path.resolve():
+        # Already the right file — no symlink needed.
+        return None, False
+
+    if target.exists() and not target.is_symlink():
+        msg = (
+            f"A regular file already exists at {target} and it differs from "
+            f"{yaml_path}. Remove it or set pack-dir to a directory without a "
+            "charmcraft.yaml."
+        )
+        raise ConfigurationError(msg)
+    if target.is_symlink():
+        target.unlink()
+    target.symlink_to(os.path.relpath(yaml_path, pack_dir))
+    return target, True
+
+
 def _build_rock(rock: RockArtifact, root: Path) -> GeneratedRock:
     yaml_path = (root / rock.rockcraft_yaml).resolve()
     if not yaml_path.is_file():
@@ -465,7 +505,12 @@ def _build_charm(
         raise ConfigurationError(msg)
 
     before = _snapshot_outputs(pack_dir, "charm")
-    run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
+    symlink_path, symlink_created = _with_charm_symlink(yaml_path, pack_dir)
+    try:
+        run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
+    finally:
+        if symlink_created and symlink_path and symlink_path.exists():
+            symlink_path.unlink()
     after = _snapshot_outputs(pack_dir, "charm")
     new_outputs = _pick_new_charm_outputs(before, after, pack_dir)
     arch = _current_arch()
@@ -801,6 +846,58 @@ def _find_local_file(
     return "./" + str(Path(matches[0]).relative_to(root))
 
 
+def _find_charm_files_in_dir(
+    search_dir: Path, root: Path, arch: str | None = None
+) -> list[tuple[str, str | None]]:
+    """Find all ``.charm`` files under *search_dir*.
+
+    Returns (root-relative path, base) pairs.  Unlike
+    :func:`_find_local_charm_files`, this function does not filter by charm
+    name — it returns every ``.charm`` file found.  This is the correct
+    approach when searching an artifact-specific subdirectory
+    (e.g. ``root/built-charm-my-charm-amd64/``) because the internal charm
+    name baked into the filename may differ from the opcli artifact name.
+
+    When *arch* is given, only files whose parsed arch matches (or whose arch
+    cannot be determined) are returned.  Paths are returned relative to *root*.
+    """
+    pattern = str(search_dir / "**" / "*.charm")
+    matches = sorted(globmod.glob(pattern, recursive=True))
+    if arch is not None:
+        matches = [m for m in matches if _parse_arch_from_charm_path(m) in (arch, None)]
+    return [
+        (
+            "./" + str(Path(m).relative_to(root)),
+            _parse_base_from_charm_path(m),
+        )
+        for m in matches
+    ]
+
+
+def _find_snap_file_in_dir(
+    search_dir: Path, root: Path, arch: str | None = None
+) -> str | None:
+    """Find a single ``.snap`` file under *search_dir*.
+
+    Like :func:`_find_charm_files_in_dir`, this searches by extension only —
+    not by snap name — so it works correctly when the artifact directory name
+    differs from the internal snap name.  Returns a path relative to *root*.
+    """
+    pattern = str(search_dir / "**" / "*.snap")
+    matches = sorted(globmod.glob(pattern, recursive=True))
+    if arch is not None:
+        matches = [m for m in matches if _parse_arch_from_snap_path(m) in (arch, None)]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        logger.warning(
+            "Multiple .snap files found in '%s'; using %s.",
+            search_dir,
+            matches[0],
+        )
+    return "./" + str(Path(matches[0]).relative_to(root))
+
+
 def _find_local_charm_files(
     root: Path, name: str, arch: str | None = None
 ) -> list[tuple[str, str | None]]:
@@ -840,7 +937,11 @@ def _localize_charm(
     for idx, build in enumerate(charm.output):
         if build.path or not build.artifact:
             continue
-        charm_files = _find_local_charm_files(root, charm.name, build.arch)
+        artifact_dir = root / build.artifact
+        if artifact_dir.is_dir():
+            charm_files = _find_charm_files_in_dir(artifact_dir, root, build.arch)
+        else:
+            charm_files = _find_local_charm_files(root, charm.name, build.arch)
         if not charm_files:
             missing.append(f"{charm.name} ({build.arch})")
             logger.error(
@@ -913,7 +1014,11 @@ def artifacts_localize(root: Path) -> int:
         for snap_build in snap.output:
             if snap_build.file or not snap_build.artifact:
                 continue
-            rel = _find_local_file(root, snap.name, "snap", snap_build.arch)
+            artifact_dir = root / snap_build.artifact
+            if artifact_dir.is_dir():
+                rel = _find_snap_file_in_dir(artifact_dir, root, snap_build.arch)
+            else:
+                rel = _find_local_file(root, snap.name, "snap", snap_build.arch)
             if rel is None:
                 missing.append(f"{snap.name} ({snap_build.arch})")
                 logger.error(
@@ -1055,9 +1160,10 @@ def _gh_download_with_wait(
                 return
             last_exc = exc
             logger.info(
-                "Artifact not yet available (attempt %d/%d), retrying in %ds...",
+                "Artifact not yet available (attempt %d/%d): %s — retrying in %ds...",
                 attempt,
                 _WAIT_MAX_ATTEMPTS,
+                exc.stderr.strip(),
                 _WAIT_SLEEP_SECONDS,
             )
             time.sleep(_WAIT_SLEEP_SECONDS)
@@ -1153,6 +1259,9 @@ def artifacts_fetch(
                 seen_artifacts.add(snap_build.artifact)
 
     for name in sorted(seen_artifacts):
+        artifact_dir = root / name
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Downloading artifact '%s' into '%s'...", name, artifact_dir)
         run_command(
             [
                 "gh",
@@ -1164,7 +1273,7 @@ def artifacts_fetch(
                 "--name",
                 name,
                 "--dir",
-                str(root),
+                str(artifact_dir),
             ],
             cwd=str(root),
         )

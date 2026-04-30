@@ -67,6 +67,7 @@ jobs:
         run: |
           matrix=$(opcli artifacts matrix)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Build matrix: $matrix"
 
   # ── Job 2: build each artifact in parallel ─────────────────────────────────
   build:

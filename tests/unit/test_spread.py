@@ -12,6 +12,7 @@ from ruamel.yaml import YAML
 
 from opcli.core.exceptions import ConfigurationError, SubprocessError, ValidationError
 from opcli.core.spread import (
+    _arch_from_runner,
     _runner_by_system,
     spread_expand,
     spread_init,
@@ -1225,6 +1226,25 @@ class TestRunnerBySystem:
         assert result == {}
 
 
+class TestArchFromRunner:
+    """Tests for _arch_from_runner()."""
+
+    def test_ubuntu_latest_returns_amd64(self) -> None:
+        assert _arch_from_runner('"ubuntu-latest"') == "amd64"
+
+    def test_arm64_label_in_list_returns_arm64(self) -> None:
+        assert _arch_from_runner(json.dumps(["self-hosted", "arm64"])) == "arm64"
+
+    def test_arm64_string_returns_arm64(self) -> None:
+        assert _arch_from_runner('"arm64"') == "arm64"
+
+    def test_non_arm64_list_returns_amd64(self) -> None:
+        assert _arch_from_runner(json.dumps(["self-hosted", "ubuntu-24.04"])) == "amd64"
+
+    def test_invalid_json_returns_amd64(self) -> None:
+        assert _arch_from_runner("not-json") == "amd64"
+
+
 class TestSpreadTasks:
     """Tests for spread_tasks()."""
 
@@ -1330,3 +1350,38 @@ suites:
                 for _sys_name, sys_props in system_entry.items():
                     if isinstance(sys_props, dict):
                         assert "runner" not in sys_props
+
+    def test_arch_field_amd64_default(self, tmp_path: Path) -> None:
+        """Entries without arm64 runner label get arch=amd64."""
+        _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
+        self._make_task_dir(tmp_path, "tests/integration/run")
+
+        entries = spread_tasks(tmp_path)
+
+        assert all(e["arch"] == "amd64" for e in entries)
+
+    def test_arch_field_arm64_from_runner(self, tmp_path: Path) -> None:
+        """Entries whose runner label contains arm64 get arch=arm64."""
+        spread_arm = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, arm64]
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+    environment:
+      MODULE/test_charm: test_charm
+"""
+        _write(tmp_path / "spread.yaml", spread_arm)
+        self._make_task_dir(tmp_path, "tests/integration/run")
+
+        entries = spread_tasks(tmp_path)
+
+        assert all(e["arch"] == "arm64" for e in entries)
