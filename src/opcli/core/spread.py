@@ -807,9 +807,7 @@ def _arch_from_runner(runner_json: str) -> str:
         return "amd64"
     if isinstance(labels, str):
         labels = [labels]
-    if isinstance(labels, list) and any(
-        "arm64" in str(lbl).lower() for lbl in labels
-    ):
+    if isinstance(labels, list) and any("arm64" in str(lbl).lower() for lbl in labels):
         return "arm64"
     return "amd64"
 
