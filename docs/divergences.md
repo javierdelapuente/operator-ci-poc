@@ -572,8 +572,8 @@ suitable for use as a GitHub Actions `strategy.matrix`:
 
 ```json
 {"include": [
-  {"name": "test_charm", "selector": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm", "runs-on": ["self-hosted", "noble"]},
-  {"name": "test_actions", "selector": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_actions", "runs-on": ["self-hosted", "noble"]}
+  {"name": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm", "selector": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm", "runs-on": ["self-hosted", "noble"]},
+  {"name": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_actions", "selector": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_actions", "runs-on": ["self-hosted", "noble"]}
 ]}
 ```
 
@@ -682,7 +682,7 @@ opcli spread run -- integration-test-ci:ubuntu-24.04:tests/integration/run:test_
 And `opcli spread tasks` produces entries like:
 
 ```json
-{"name": "test_charm", "selector": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm", "runs-on": ["self-hosted", "noble"]}
+{"name": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm", "selector": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm", "runs-on": ["self-hosted", "noble"]}
 ```
 
 The naming convention makes the origin of each backend immediately visible in selector strings and spread output, and avoids clashing with user-defined backends named `local` or `ci`.
