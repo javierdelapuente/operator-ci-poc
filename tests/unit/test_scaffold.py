@@ -183,9 +183,11 @@ class TestSubprocessWrapper:
 
             run_command(["echo", "hello"], stream=False)
 
-        captured = capsys.readouterr().out
-        assert "$ echo hello" in captured
-        assert "cwd:" not in captured
+        captured = capsys.readouterr()
+        # Captured mode logs to stderr so stdout stays clean for programmatic use
+        assert "$ echo hello" in captured.err
+        assert "$ echo hello" not in captured.out
+        assert "cwd:" not in captured.err
 
     # --- Interactive mode ---
 
