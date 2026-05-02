@@ -1206,31 +1206,32 @@ class TestVirtualRunnerMap:
     def test_string_runner_label(self) -> None:
         """Runner string label is JSON-encoded in result."""
         raw = _yaml.load(StringIO(_SPREAD_WITH_RUNNER))
-        runner_map, _ = _virtual_runner_map(raw)
+        runner_map, _, _ = _virtual_runner_map(raw)
         assert runner_map["ubuntu-22.04"] == '"ubuntu-22.04-runner"'
 
     def test_list_runner_label(self) -> None:
         """Runner list is JSON-encoded when system uses a list."""
         raw = _yaml.load(StringIO(_SPREAD_WITH_RUNNER))
-        runner_map, _ = _virtual_runner_map(raw)
+        runner_map, _, _ = _virtual_runner_map(raw)
         assert runner_map["ubuntu-24.04"] == json.dumps(["self-hosted", "ubuntu-24.04"])
 
     def test_no_runner_defaults_to_ubuntu_latest(self) -> None:
         """Systems without runner: default to JSON-encoded ubuntu-latest."""
         raw = _yaml.load(StringIO(_SPREAD_NO_RUNNER))
-        runner_map, _ = _virtual_runner_map(raw)
+        runner_map, _, _ = _virtual_runner_map(raw)
         assert runner_map.get("ubuntu-24.04") == '"ubuntu-latest"'
 
     def test_empty_backends(self) -> None:
         """No backends → empty runner map and no CI names."""
-        runner_map, ci_names = _virtual_runner_map({})
+        runner_map, arch_map, ci_names = _virtual_runner_map({})
         assert runner_map == {}
+        assert arch_map == {}
         assert ci_names == []
 
     def test_ci_backend_names_derived(self) -> None:
         """CI backend names are {virtual_name}-ci for each virtual backend."""
         raw = _yaml.load(StringIO(_SPREAD_WITH_RUNNER))
-        _, ci_names = _virtual_runner_map(raw)
+        _, _, ci_names = _virtual_runner_map(raw)
         assert ci_names == ["integration-test-ci"]
 
     def test_non_virtual_backend_ignored(self) -> None:
@@ -1248,10 +1249,61 @@ backends:
           runner: some-runner
 """)
         )
-        runner_map, ci_names = _virtual_runner_map(raw)
+        runner_map, _, ci_names = _virtual_runner_map(raw)
         assert "ubuntu-24.04" in runner_map
         assert "ubuntu-22.04" not in runner_map
         assert ci_names == ["integration-test-ci"]
+
+    def test_explicit_arch_returned(self) -> None:
+        """Explicit arch: field on a system entry is captured in arch_map."""
+        raw = _yaml.load(
+            StringIO("""\
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04-arm64:
+          runner: ["ubuntu-24.04-arm"]
+          arch: arm64
+""")
+        )
+        _, arch_map, _ = _virtual_runner_map(raw)
+        assert arch_map.get("ubuntu-24.04-arm64") == "arm64"
+
+    def test_no_arch_field_returns_none(self) -> None:
+        """Systems without an arch: field have None in arch_map."""
+        raw = _yaml.load(StringIO(_SPREAD_NO_RUNNER))
+        _, arch_map, _ = _virtual_runner_map(raw)
+        assert arch_map.get("ubuntu-24.04") is None
+
+    def test_non_string_arch_falls_back_to_none(self) -> None:
+        """Non-string arch values (e.g. integers) are ignored; arch_map gets None."""
+        raw = _yaml.load(
+            StringIO("""\
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04:
+          arch: 123
+""")
+        )
+        _, arch_map, _ = _virtual_runner_map(raw)
+        assert arch_map.get("ubuntu-24.04") is None
+
+    def test_string_system_entry_arch_map_is_none(self) -> None:
+        """String-format system entries (no props) get None in arch_map."""
+        raw = _yaml.load(
+            StringIO("""\
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+""")
+        )
+        _, arch_map, _ = _virtual_runner_map(raw)
+        assert arch_map.get("ubuntu-24.04") is None
 
 
 class TestArchFromRunner:
@@ -1430,7 +1482,68 @@ suites:
                     if isinstance(sys_props, dict):
                         assert "runner" not in sys_props
 
-    def test_arch_field_amd64_default(self, tmp_path: Path) -> None:
+    def test_ci_backend_strips_arch_field(self, tmp_path: Path) -> None:
+        """Expanded CI backend does not contain arch: key in systems."""
+        spread_with_arch = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04-arm64:
+          runner: ["ubuntu-24.04-arm"]
+          arch: arm64
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+"""
+        _write(tmp_path / "spread.yaml", spread_with_arch)
+
+        result = spread_expand(tmp_path, ci=True)
+        parsed = _yaml.load(StringIO(result))
+
+        ci_backend = parsed["backends"].get("integration-test-ci")
+        assert ci_backend is not None
+        for system_entry in ci_backend.get("systems", []):
+            if isinstance(system_entry, dict):
+                for _sys_name, sys_props in system_entry.items():
+                    if isinstance(sys_props, dict):
+                        assert "arch" not in sys_props
+
+    def test_arch_field_explicit_overrides_runner_label(self, tmp_path: Path) -> None:
+        """An explicit arch: field takes precedence over deriving arch from runner."""
+        spread_arm = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04-arm64:
+          runner: ["ubuntu-24.04-arm"]
+          arch: arm64
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+"""
+        _write(tmp_path / "spread.yaml", spread_arm)
+
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(
+                "integration-test-ci:ubuntu-24.04-arm64:tests/integration/run:test_charm\n"
+            ),
+        ):
+            entries = spread_tasks(tmp_path)
+
+        assert len(entries) == 1
+        assert entries[0]["arch"] == "arm64"
+
         """Entries without arm64 runner label get arch=amd64."""
         _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
 

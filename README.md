@@ -260,6 +260,7 @@ backends:
     systems:
       - ubuntu-24.04:
           runner: [self-hosted, noble]   # GitHub Actions runner labels (CI only)
+          arch: arm64                    # explicit arch override (CI only, optional)
           cpu: 4                         # LXD VM vCPUs (local only, default 4)
           memory: 8                      # LXD VM RAM in GiB (local only, default 8)
           disk: 20                       # LXD VM disk in GiB (local only, default 20)
@@ -270,6 +271,7 @@ backends:
 | Field | Local backend | CI backend |
 |---|---|---|
 | `runner` | Stripped (not applicable to LXD) | Preserved for GitHub runner selection |
+| `arch` | Stripped (not applicable to LXD) | Used directly in the matrix `arch` field; when absent, arch is derived from the `runner` label |
 | `cpu` / `memory` / `disk` | Used in LXD `lxc launch --vm` arguments, then stripped | Stripped (not applicable to cloud runners) |
 
 Resource values are injected as per-system defaults in the allocate script using `${CPU:-N}` semantics so that an explicit environment variable override (e.g. `CPU=2 opcli spread run`) still takes precedence.
