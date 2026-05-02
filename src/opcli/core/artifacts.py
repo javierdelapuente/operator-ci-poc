@@ -49,7 +49,7 @@ _ARTIFACTS_YAML = "artifacts.yaml"
 _ARTIFACTS_GENERATED_YAML = "artifacts-generated.yaml"
 
 _PACK_COMMANDS: dict[str, list[str]] = {
-    "charm": ["charmcraft", "pack"],
+    "charm": ["charmcraft", "pack", "--verbose"],
     "rock": ["rockcraft", "pack"],
     "snap": ["snapcraft", "pack"],
 }
