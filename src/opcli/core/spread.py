@@ -384,8 +384,10 @@ _BACKEND_CONFIGS: dict[str, tuple[str, str]] = {
 # passing to spread.  ``runner`` is a GitHub Actions runner-label field only
 # meaningful to the CI backend; resource fields are used by the local allocate
 # script and have no meaning in spread's own backend model.
-_LOCAL_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk", "runner"})
-_CI_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk", "runner"})
+_LOCAL_STRIP_KEYS: frozenset[str] = frozenset(
+    {"cpu", "memory", "disk", "runner", "arch"}
+)
+_CI_STRIP_KEYS: frozenset[str] = frozenset({"cpu", "memory", "disk", "runner", "arch"})
 
 # Names of resource fields and their corresponding shell variable names.
 _RESOURCE_FIELDS: dict[str, str] = {"cpu": "CPU", "memory": "MEM", "disk": "DISK"}
@@ -814,26 +816,30 @@ def _arch_from_runner(runner_json: str) -> str:
 
 def _virtual_runner_map(
     raw: dict[str, object],
-) -> tuple[dict[str, str], list[str]]:
-    """Extract runner labels and CI backend names from virtual backends only.
+) -> tuple[dict[str, str], dict[str, str | None], list[str]]:
+    """Extract runner labels, explicit arches and CI backend names from virtual backends.
 
     Reads only the virtual backend sections (those whose ``type:`` is a
-    recognised virtual type).  The ``runner:`` field is opcli-owned and is
-    stripped before spread ever sees the YAML.
+    recognised virtual type).  The ``runner:`` and ``arch:`` fields are
+    opcli-owned and are stripped before spread ever sees the YAML.
 
     Returns:
         Tuple of:
         - system_runner_map: ``{system_name: runner_json}`` built from virtual
           backend system entries.  The runner value is JSON-encoded so that
           the workflow can use ``fromJSON(matrix.runs-on)``.
+        - system_arch_map: ``{system_name: arch}`` for systems that declare an
+          explicit ``arch:`` field.  Value is ``None`` when no explicit arch is
+          set; callers should fall back to ``_arch_from_runner`` in that case.
         - ci_backend_names: concrete CI names derived from the virtual backend
           names (e.g. ``["integration-test-ci"]``).
     """
     runner_map: dict[str, str] = {}
+    arch_map: dict[str, str | None] = {}
     ci_names: list[str] = []
     raw_backends = raw.get("backends") or {}
     if not isinstance(raw_backends, dict):
-        return runner_map, ci_names
+        return runner_map, arch_map, ci_names
     for backend_name, backend_cfg in raw_backends.items():
         if not isinstance(backend_cfg, dict):
             continue
@@ -845,13 +851,19 @@ def _virtual_runner_map(
         for system_entry in backend_cfg.get("systems") or []:
             if isinstance(system_entry, str):
                 runner_map.setdefault(system_entry, json.dumps(_DEFAULT_RUNNER))
+                arch_map.setdefault(system_entry, None)
             elif isinstance(system_entry, dict):
                 for sys_name, sys_props in system_entry.items():
                     raw_runner: object = _DEFAULT_RUNNER
+                    explicit_arch: str | None = None
                     if isinstance(sys_props, dict):
                         raw_runner = sys_props.get("runner", _DEFAULT_RUNNER)
+                        raw_arch = sys_props.get("arch")
+                        if isinstance(raw_arch, str):
+                            explicit_arch = raw_arch
                     runner_map.setdefault(str(sys_name), json.dumps(raw_runner))
-    return runner_map, ci_names
+                    arch_map.setdefault(str(sys_name), explicit_arch)
+    return runner_map, arch_map, ci_names
 
 
 def spread_tasks(root: Path) -> list[dict[str, str]]:
@@ -868,7 +880,8 @@ def spread_tasks(root: Path) -> list[dict[str, str]]:
     - ``selector``: full spread selector as returned by ``spread -list``.
     - ``runs-on``: GitHub Actions runner label (JSON-encoded, from the
       ``runner:`` field on the system entry, or ``"ubuntu-latest"`` if absent).
-    - ``arch``: architecture string derived from the runner label.
+    - ``arch``: architecture string — taken from the explicit ``arch:`` field
+      on the system entry when present, otherwise derived from the runner label.
 
     Raises:
         ConfigurationError: If ``spread.yaml`` is missing, malformed, or
@@ -876,7 +889,7 @@ def spread_tasks(root: Path) -> list[dict[str, str]]:
         SubprocessError: If ``spread -list`` fails.
     """
     raw = _load_spread_yaml(root)
-    runner_map, ci_backend_names = _virtual_runner_map(raw)
+    runner_map, arch_map, ci_backend_names = _virtual_runner_map(raw)
 
     # _expand_backend raises ConfigurationError when no virtual backends are found.
     expanded = _expand_backend(raw, ci=True)
@@ -906,6 +919,12 @@ def spread_tasks(root: Path) -> list[dict[str, str]]:
                 continue
             system = parts[1]
             runner = runner_map.get(system, json.dumps(_DEFAULT_RUNNER))
+            explicit_arch = arch_map.get(system)
+            arch = (
+                explicit_arch
+                if explicit_arch is not None
+                else _arch_from_runner(runner)
+            )
             name = (
                 parts[-1]
                 if len(parts) >= _VARIANT_PARTS
@@ -916,7 +935,7 @@ def spread_tasks(root: Path) -> list[dict[str, str]]:
                     "name": name,
                     "selector": line,
                     "runs-on": runner,
-                    "arch": _arch_from_runner(runner),
+                    "arch": arch,
                 }
             )
 
