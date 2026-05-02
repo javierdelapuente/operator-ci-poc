@@ -226,6 +226,14 @@ charms:
 
 - Same expansion logic as `spread run`, but prints the fully expanded `spread.yaml` to stdout without running spread. Useful for debugging.
 
+### `opcli spread tasks`
+
+- Generates the GitHub Actions CI matrix by calling `spread -list <backend-ci>:` on the expanded (CI-mode) `spread.yaml`.
+- Selectors are taken **verbatim** from `spread -list` output — opcli never constructs them by parsing suite environments or task directories.
+- The **only** fields read from `spread.yaml` are opcli-owned ones inside virtual backend sections: `type:` (to identify virtual backends) and `runner:` on system entries (to populate `runs-on` and `arch`). Nothing else in `spread.yaml` or any `task.yaml` is read.
+- Like `spread run`, expands to a temp dir with `reroot: ..` before invoking spread.
+- The workflow that calls `opcli spread tasks` must have `spread` installed.
+
 ### `opcli pytest expand`
 
 - Reads `artifacts-generated.yaml` and prints the full assembled tox command to stdout (does not run it).
@@ -237,6 +245,8 @@ charms:
 ## Subprocess rule
 
 All calls to external binaries (`charmcraft`, `rockcraft`, `snapcraft`, `spread`, `concierge`, `juju`, `tox`) **must** go through `core/subprocess.py:run_command`. Never call `subprocess.run` or `subprocess.Popen` directly outside that module. This is the mock boundary in unit tests.
+
+When a command's stdout is consumed programmatically (e.g. the result is captured by a shell `$(...)` substitution or parsed by the caller), use `stream=False`. In this mode `_log_command` writes to **stderr** so the diagnostic lines do not pollute stdout.
 
 ---
 
