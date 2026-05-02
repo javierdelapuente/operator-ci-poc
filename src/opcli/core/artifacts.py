@@ -1145,6 +1145,58 @@ _AUTH_ERROR_KEYWORDS = (
 # Keywords that indicate the destination file already exists; we delete it and retry.
 _FILE_EXISTS_KEYWORDS = ("file exists",)
 
+# Job name (or substring) that uploads the merged artifacts-generated artifact.
+# In reusable-workflow runs the API prefixes this with the caller job name
+# (e.g. "build / Collect artifacts"), so we use a substring match.
+_COLLECT_JOB_NAME = "Collect artifacts"
+
+# Conclusions that mean the artifact will never arrive — bail immediately.
+_BAIL_CONCLUSIONS: frozenset[str] = frozenset({"skipped", "failure", "cancelled"})
+
+
+def _check_collect_job_conclusion(run_id: str, repo: str) -> str | None:
+    """Return the conclusion of the ``Collect artifacts`` job, or ``None``.
+
+    Queries ``gh run view --json jobs`` and searches for any job whose name
+    contains :data:`_COLLECT_JOB_NAME` (a substring match handles the
+    ``"build / Collect artifacts"`` prefix that GitHub prepends in
+    reusable-workflow runs).
+
+    Returns the conclusion string (e.g. ``"success"``, ``"skipped"``,
+    ``"failure"``, ``"cancelled"``) when found and the job has finished, or
+    ``None`` when the job is still running (``conclusion`` is ``null``), the
+    job is not yet listed, or the API call fails for any reason.  The caller
+    should treat ``None`` as "don't know yet — keep retrying".
+    """
+    try:
+        result = run_command(
+            ["gh", "run", "view", run_id, "--repo", repo, "--json", "jobs"],
+            stream=False,
+        )
+    except Exception:
+        return None
+
+    try:
+        data: object = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+    jobs = data.get("jobs")
+    if not isinstance(jobs, list):
+        return None
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        name = job.get("name")
+        if not isinstance(name, str):
+            continue
+        if _COLLECT_JOB_NAME in name:
+            conclusion = job.get("conclusion")
+            return conclusion if isinstance(conclusion, str) else None
+    return None
+
 
 def _gh_download(cmd: list[str], cwd: str, dest: Path | None = None) -> None:
     """Run ``gh run download``, raising :class:`SubprocessError` on failure.
@@ -1166,26 +1218,31 @@ def _gh_download(cmd: list[str], cwd: str, dest: Path | None = None) -> None:
 
 
 def _gh_download_with_wait(
-    cmd: list[str], cwd: str, run_id: str, dest: Path | None = None
+    cmd: list[str], cwd: str, run_id: str, repo: str, dest: Path | None = None
 ) -> None:
     """Run ``gh run download``, retrying until the artifact appears.
 
     Retries up to :data:`_WAIT_MAX_ATTEMPTS` times with
     :data:`_WAIT_SLEEP_SECONDS` between each attempt.  Fails immediately if
-    the error looks like an authentication/permission problem or a
-    deterministic failure (e.g. "file exists", handled via delete-and-retry).
+    the error looks like an authentication/permission problem, a deterministic
+    failure (e.g. "file exists", handled via delete-and-retry), or if the
+    ``Collect artifacts`` job is known to have been skipped, failed, or
+    cancelled (meaning the artifact will never arrive).
 
     Args:
         cmd: Full ``gh run download ...`` command list.
         cwd: Working directory for the subprocess.
-        run_id: Run ID used only for log messages.
+        run_id: GitHub Actions run ID.
+        repo: GitHub repository in ``owner/name`` format, used to query job
+            status on each retry.
         dest: Path of the expected output file.  When provided and ``gh``
             reports "file exists", the file is deleted and the download is
             retried once before giving up.
 
     Raises:
-        ConfigurationError: On auth/permission errors or when the timeout
-            is exceeded (includes the last error message).
+        ConfigurationError: On auth/permission errors, when the
+            ``Collect artifacts`` job has a terminal failure conclusion, or
+            when the timeout is exceeded (includes the last error message).
         SubprocessError: Propagated for unexpected non-retryable failures.
     """
     last_exc: SubprocessError | None = None
@@ -1209,6 +1266,14 @@ def _gh_download_with_wait(
                 run_command(cmd, cwd=cwd)
                 return
             last_exc = exc
+            conclusion = _check_collect_job_conclusion(run_id, repo)
+            if conclusion in _BAIL_CONCLUSIONS:
+                msg = (
+                    f"Build artifacts were not collected — the "
+                    f"'{_COLLECT_JOB_NAME}' job {conclusion}. "
+                    f"Check the build job logs."
+                )
+                raise ConfigurationError(msg) from exc
             logger.info(
                 "Artifact not yet available (attempt %d/%d): %s — retrying in %ds...",
                 attempt,
@@ -1284,7 +1349,7 @@ def artifacts_fetch(
     ]
     gen_path = root / _ARTIFACTS_GENERATED_YAML
     if wait:
-        _gh_download_with_wait(generated_cmd, str(root), run_id, dest=gen_path)
+        _gh_download_with_wait(generated_cmd, str(root), run_id, repo, dest=gen_path)
     else:
         _gh_download(generated_cmd, str(root), dest=gen_path)
 

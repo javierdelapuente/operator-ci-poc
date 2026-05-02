@@ -1664,6 +1664,9 @@ class TestArtifactsFetch:
         results = [not_ready, gh, gh, gh, gh]
         with (
             patch("opcli.core.artifacts.run_command", side_effect=results),
+            patch(
+                "opcli.core.artifacts._check_collect_job_conclusion", return_value=None
+            ),
             patch("opcli.core.artifacts.time.sleep"),
         ):
             artifacts_fetch(
@@ -1782,6 +1785,10 @@ class TestArtifactsFetch:
             _artifacts_mod._WAIT_MAX_ATTEMPTS = 2  # speed up the test
             with (
                 patch("opcli.core.artifacts.run_command", side_effect=not_ready),
+                patch(
+                    "opcli.core.artifacts._check_collect_job_conclusion",
+                    return_value=None,
+                ),
                 patch("opcli.core.artifacts.time.sleep"),
                 pytest.raises(ConfigurationError, match="Timed out"),
             ):
@@ -1790,3 +1797,122 @@ class TestArtifactsFetch:
                 )
         finally:
             _artifacts_mod._WAIT_MAX_ATTEMPTS = _orig
+
+    @pytest.mark.parametrize("conclusion", ["skipped", "failure", "cancelled"])
+    def test_wait_fails_fast_on_terminal_collect_conclusion(
+        self, tmp_path: Path, conclusion: str
+    ) -> None:
+        """With wait=True, bails immediately on a terminal collect job conclusion."""
+        not_ready = SubprocessError(["gh"], 1, "artifact not found")
+        with (
+            patch("opcli.core.artifacts.run_command", side_effect=not_ready),
+            patch(
+                "opcli.core.artifacts._check_collect_job_conclusion",
+                return_value=conclusion,
+            ),
+            patch("opcli.core.artifacts.time.sleep") as mock_sleep,
+            pytest.raises(ConfigurationError, match=conclusion),
+        ):
+            artifacts_fetch(
+                tmp_path, run_id="99887766", repo="owner/my-repo", wait=True
+            )
+
+        mock_sleep.assert_not_called()
+
+    def test_wait_continues_when_collect_job_still_running(
+        self, tmp_path: Path
+    ) -> None:
+        """With wait=True, keeps retrying when collect job conclusion is None."""
+        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        self._make_charm_files(tmp_path)
+        self._make_snap_files(tmp_path)
+
+        not_ready = SubprocessError(["gh"], 1, "artifact not found")
+        gh = self._GH_RESULT
+        with (
+            patch(
+                "opcli.core.artifacts.run_command",
+                side_effect=[not_ready, gh, gh, gh, gh],
+            ),
+            patch(
+                "opcli.core.artifacts._check_collect_job_conclusion",
+                return_value=None,
+            ),
+            patch("opcli.core.artifacts.time.sleep"),
+        ):
+            artifacts_fetch(
+                tmp_path, run_id="99887766", repo="owner/my-repo", wait=True
+            )
+
+
+class TestCheckCollectJobConclusion:
+    """Unit tests for _check_collect_job_conclusion."""
+
+    _GH_JOBS_RESPONSE = json.dumps(
+        {
+            "jobs": [
+                {"name": "Build charm my-charm (amd64)", "conclusion": "success"},
+                {"name": "Collect artifacts", "conclusion": "skipped"},
+            ]
+        }
+    )
+
+    def _gh_result(self, stdout: str) -> SubprocessResult:
+        return SubprocessResult(stdout=stdout, stderr="", returncode=0)
+
+    def test_returns_conclusion_when_job_found(self) -> None:
+        result = SubprocessResult(
+            stdout=self._GH_JOBS_RESPONSE, stderr="", returncode=0
+        )
+        with patch("opcli.core.artifacts.run_command", return_value=result):
+            conclusion = _artifacts_mod._check_collect_job_conclusion(
+                "123", "owner/repo"
+            )
+        assert conclusion == "skipped"
+
+    def test_matches_with_reusable_workflow_prefix(self) -> None:
+        """Job name 'build / Collect artifacts' is matched as a substring."""
+        data = json.dumps(
+            {"jobs": [{"name": "build / Collect artifacts", "conclusion": "failure"}]}
+        )
+        result = SubprocessResult(stdout=data, stderr="", returncode=0)
+        with patch("opcli.core.artifacts.run_command", return_value=result):
+            conclusion = _artifacts_mod._check_collect_job_conclusion(
+                "123", "owner/repo"
+            )
+        assert conclusion == "failure"
+
+    def test_returns_none_when_job_not_found(self) -> None:
+        data = json.dumps({"jobs": [{"name": "Build charm", "conclusion": "success"}]})
+        result = SubprocessResult(stdout=data, stderr="", returncode=0)
+        with patch("opcli.core.artifacts.run_command", return_value=result):
+            conclusion = _artifacts_mod._check_collect_job_conclusion(
+                "123", "owner/repo"
+            )
+        assert conclusion is None
+
+    def test_returns_none_when_conclusion_is_null(self) -> None:
+        """Job still running — conclusion is null in JSON."""
+        data = json.dumps({"jobs": [{"name": "Collect artifacts", "conclusion": None}]})
+        result = SubprocessResult(stdout=data, stderr="", returncode=0)
+        with patch("opcli.core.artifacts.run_command", return_value=result):
+            conclusion = _artifacts_mod._check_collect_job_conclusion(
+                "123", "owner/repo"
+            )
+        assert conclusion is None
+
+    def test_returns_none_when_gh_command_fails(self) -> None:
+        error = SubprocessError(["gh"], 1, "API error")
+        with patch("opcli.core.artifacts.run_command", side_effect=error):
+            conclusion = _artifacts_mod._check_collect_job_conclusion(
+                "123", "owner/repo"
+            )
+        assert conclusion is None
+
+    def test_returns_none_on_invalid_json(self) -> None:
+        result = SubprocessResult(stdout="not-json", stderr="", returncode=0)
+        with patch("opcli.core.artifacts.run_command", return_value=result):
+            conclusion = _artifacts_mod._check_collect_job_conclusion(
+                "123", "owner/repo"
+            )
+        assert conclusion is None
