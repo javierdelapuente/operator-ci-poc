@@ -116,11 +116,11 @@ def run_command(  # noqa: PLR0913
     )
 
 
-def _log_command(cmd: list[str], cwd: str | None) -> None:
+def _log_command(cmd: list[str], cwd: str | None, *, err: bool = False) -> None:
     """Print the command and working directory for reproducibility."""
-    typer.echo(f"$ {shlex.join(cmd)}")
+    typer.echo(f"$ {shlex.join(cmd)}", err=err)
     if cwd:
-        typer.echo(f"  cwd: {cwd}")
+        typer.echo(f"  cwd: {cwd}", err=err)
 
 
 def _run_interactive(
@@ -258,7 +258,7 @@ def _run_captured(  # noqa: PLR0913
     env: dict[str, str] | None = None,
 ) -> SubprocessResult:
     """Run *cmd* with fully buffered output (no terminal echo)."""
-    _log_command(cmd, cwd)
+    _log_command(cmd, cwd, err=True)
     try:
         proc = subprocess.run(
             cmd,
