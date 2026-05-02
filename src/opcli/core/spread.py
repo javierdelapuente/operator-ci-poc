@@ -875,8 +875,8 @@ def spread_tasks(root: Path) -> list[dict[str, str]]:
 
     Each entry has:
 
-    - ``name``: display name — the variant component of the selector if present,
-      otherwise the last path component of the task path.
+    - ``name``: display name — the full spread selector as returned by
+      ``spread -list``.
     - ``selector``: full spread selector as returned by ``spread -list``.
     - ``runs-on``: GitHub Actions runner label (JSON-encoded, from the
       ``runner:`` field on the system entry, or ``"ubuntu-latest"`` if absent).
@@ -914,7 +914,6 @@ def spread_tasks(root: Path) -> list[dict[str, str]]:
                 continue
             parts = line.split(":")
             _MIN_PARTS = 3
-            _VARIANT_PARTS = 4
             if len(parts) < _MIN_PARTS:
                 continue
             system = parts[1]
@@ -925,14 +924,9 @@ def spread_tasks(root: Path) -> list[dict[str, str]]:
                 if explicit_arch is not None
                 else _arch_from_runner(runner)
             )
-            name = (
-                parts[-1]
-                if len(parts) >= _VARIANT_PARTS
-                else parts[2].rsplit("/", 1)[-1]
-            )
             entries.append(
                 {
-                    "name": name,
+                    "name": line,
                     "selector": line,
                     "runs-on": runner,
                     "arch": arch,

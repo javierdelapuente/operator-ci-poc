@@ -1353,8 +1353,12 @@ class TestSpreadTasks:
             entries = spread_tasks(tmp_path)
 
         names = [e["name"] for e in entries]
-        assert "test_charm" in names
-        assert "test_other" in names
+        assert (
+            "integration-test-ci:ubuntu-22.04:tests/integration/run:test_charm" in names
+        )
+        assert (
+            "integration-test-ci:ubuntu-22.04:tests/integration/run:test_other" in names
+        )
 
     def test_selector_format(self, tmp_path: Path) -> None:
         """Selector is taken verbatim from spread -list output."""
@@ -1385,8 +1389,8 @@ class TestSpreadTasks:
         ubuntu_22_entries = [e for e in entries if "ubuntu-22.04" in e["selector"]]
         assert all(e["runs-on"] == '"ubuntu-22.04-runner"' for e in ubuntu_22_entries)
 
-    def test_no_variants_uses_last_path_component(self, tmp_path: Path) -> None:
-        """When spread -list returns no variant, name is the last path component."""
+    def test_no_variants_name_is_full_selector(self, tmp_path: Path) -> None:
+        """When spread -list returns no variant, name is the full selector."""
         _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
 
         with patch(
@@ -1396,7 +1400,10 @@ class TestSpreadTasks:
             entries = spread_tasks(tmp_path)
 
         assert len(entries) == 1
-        assert entries[0]["name"] == "run"
+        assert (
+            entries[0]["name"]
+            == "integration-test-ci:ubuntu-24.04:tests/integration/run"
+        )
 
     def test_missing_spread_yaml_raises(self, tmp_path: Path) -> None:
         """Raises ConfigurationError when spread.yaml is missing."""
@@ -1603,8 +1610,13 @@ suites:
         selectors = [e["selector"] for e in entries]
         names = [e["name"] for e in entries]
         assert len(set(selectors)) == len(entries)
-        assert "test_charm" in names
-        assert "test_charm_k8s" in names
+        assert (
+            "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm" in names
+        )
+        assert (
+            "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm_k8s"
+            in names
+        )
 
     def test_temp_dir_cleaned_up_after_tasks(self, tmp_path: Path) -> None:
         """Temporary spread.yaml directory is removed after spread_tasks returns."""
