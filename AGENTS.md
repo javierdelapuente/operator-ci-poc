@@ -94,20 +94,34 @@ docs/
 
 ---
 
-## The `CI` environment variable
+## CI detection
 
-This is the single most important branching point in the tool.
+Two environment variables gate CI behaviour — they are set independently by different subsystems:
 
-| `CI` value | Behaviour |
-|---|---|
-| **unset / falsy** | Local mode: builds output local file paths; spread provisions an LXD VM |
-| **truthy** | CI mode: build outputs reference GitHub artifacts/GHCR images; spread runs on the current runner |
+| Variable | Checked by | Meaning when set |
+|---|---|---|
+| `CI` | `spread.py` (`_is_ci()`) | Expand virtual backends to `{name}-ci` instead of `{name}-local` |
+| `GITHUB_ACTIONS=true` | `artifacts.py` (`_get_ci_context()`) | Produce CI-format artifact references (GitHub artifact names + run-id) instead of local file paths |
 
-Every `artifacts build`, `spread run`, `spread expand`, and `provision run` must respect this.
+In practice both are set inside a GitHub Actions job, so they agree. On a developer machine neither is set.
+
+Every `artifacts build`, `spread run`, `spread expand`, and `provision run` must respect their respective variable.
 
 ---
 
 ## Data model overview
+
+### Which files use Pydantic vs ruamel.yaml
+
+| File | Ownership | Approach | Notes |
+|---|---|---|---|
+| `artifacts.yaml` | opcli-generated, user-editable | **Pydantic V2 model** | Strongly validated at load time |
+| `artifacts-generated.yaml` | opcli-generated, machine-consumed | **Pydantic V2 model** | Strongly validated at load time |
+| `spread.yaml` | User-owned, opcli-expanded | **ruamel.yaml dict** | Preserve unknown keys, comments, custom backends; opcli only transforms virtual backends |
+| `concierge.yaml` | User-owned, opcli-patched in CI | **ruamel.yaml dict** | Additive merge for CI patches — preserve everything else |
+| `tests/integration/run/task.yaml` | opcli-generated, user-editable | **ruamel.yaml dict** | Simple template, not worth a model |
+
+**Critical:** when transforming `spread.yaml`, never rewrite the original file. Always produce a transformed copy in a temp file.
 
 ### `artifacts.yaml` (user-edited, Pydantic-validated)
 
@@ -318,6 +332,15 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 - **Internal-only models**: use `ConfigDict(strict=True)`.
 - No `Any` type anywhere. Use specific types or `object` if truly dynamic.
 - Field aliases use `alias=` (hyphenated YAML keys map to underscore Python names, e.g. `charmcraft-yaml` → `charmcraft_yaml`). Use `populate_by_name=True` so both forms work.
+
+---
+
+## Type safety
+
+- No `Any` anywhere in the codebase. Use specific types or `object` if truly dynamic.
+- All function signatures have full type annotations.
+- Use `typing.Annotated` for all Typer CLI parameters.
+- `mypy --strict` must pass with zero errors before merging.
 
 ---
 
