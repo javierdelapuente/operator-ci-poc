@@ -75,6 +75,12 @@ jobs:
             uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ steps.workflow-version.outputs.sha }}"
           fi
 
+      - name: Install spread
+        run: |
+          sudo snap install go --classic
+          go install github.com/canonical/spread/cmd/spread@latest
+          sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
+
       - name: Generate spread task matrix
         id: tasks
         run: |
