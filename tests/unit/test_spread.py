@@ -13,12 +13,13 @@ from ruamel.yaml import YAML
 from opcli.core.exceptions import ConfigurationError, SubprocessError, ValidationError
 from opcli.core.spread import (
     _arch_from_runner,
-    _runner_by_system,
+    _virtual_runner_map,
     spread_expand,
     spread_init,
     spread_run,
     spread_tasks,
 )
+from opcli.core.subprocess import SubprocessResult
 
 _yaml = YAML()
 
@@ -1199,31 +1200,58 @@ suites:
 """
 
 
-class TestRunnerBySystem:
-    """Tests for _runner_by_system()."""
+class TestVirtualRunnerMap:
+    """Tests for _virtual_runner_map()."""
 
     def test_string_runner_label(self) -> None:
         """Runner string label is JSON-encoded in result."""
         raw = _yaml.load(StringIO(_SPREAD_WITH_RUNNER))
-        result = _runner_by_system(raw)
-        assert result["ubuntu-22.04"] == '"ubuntu-22.04-runner"'
+        runner_map, _ = _virtual_runner_map(raw)
+        assert runner_map["ubuntu-22.04"] == '"ubuntu-22.04-runner"'
 
     def test_list_runner_label(self) -> None:
         """Runner list is JSON-encoded when system uses a list."""
         raw = _yaml.load(StringIO(_SPREAD_WITH_RUNNER))
-        result = _runner_by_system(raw)
-        assert result["ubuntu-24.04"] == json.dumps(["self-hosted", "ubuntu-24.04"])
+        runner_map, _ = _virtual_runner_map(raw)
+        assert runner_map["ubuntu-24.04"] == json.dumps(["self-hosted", "ubuntu-24.04"])
 
     def test_no_runner_defaults_to_ubuntu_latest(self) -> None:
         """Systems without runner: default to JSON-encoded ubuntu-latest."""
         raw = _yaml.load(StringIO(_SPREAD_NO_RUNNER))
-        result = _runner_by_system(raw)
-        assert result.get("ubuntu-24.04") == '"ubuntu-latest"'
+        runner_map, _ = _virtual_runner_map(raw)
+        assert runner_map.get("ubuntu-24.04") == '"ubuntu-latest"'
 
     def test_empty_backends(self) -> None:
-        """No backends → empty result."""
-        result = _runner_by_system({})
-        assert result == {}
+        """No backends → empty runner map and no CI names."""
+        runner_map, ci_names = _virtual_runner_map({})
+        assert runner_map == {}
+        assert ci_names == []
+
+    def test_ci_backend_names_derived(self) -> None:
+        """CI backend names are {virtual_name}-ci for each virtual backend."""
+        raw = _yaml.load(StringIO(_SPREAD_WITH_RUNNER))
+        _, ci_names = _virtual_runner_map(raw)
+        assert ci_names == ["integration-test-ci"]
+
+    def test_non_virtual_backend_ignored(self) -> None:
+        """Backends without a recognised virtual type are excluded."""
+        raw = _yaml.load(
+            StringIO("""\
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+  lxd:
+    systems:
+      - ubuntu-22.04:
+          runner: some-runner
+""")
+        )
+        runner_map, ci_names = _virtual_runner_map(raw)
+        assert "ubuntu-24.04" in runner_map
+        assert "ubuntu-22.04" not in runner_map
+        assert ci_names == ["integration-test-ci"]
 
 
 class TestArchFromRunner:
@@ -1248,67 +1276,72 @@ class TestArchFromRunner:
 class TestSpreadTasks:
     """Tests for spread_tasks()."""
 
-    def _make_task_dir(self, root: Path, path: str) -> None:
-        task_path = root / path / "task.yaml"
-        task_path.parent.mkdir(parents=True, exist_ok=True)
-        task_path.write_text("summary: test task\n")
+    _SPREAD_LIST_TWO_VARIANTS = (
+        "integration-test-ci:ubuntu-22.04:tests/integration/run:test_charm\n"
+        "integration-test-ci:ubuntu-22.04:tests/integration/run:test_other\n"
+        "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm\n"
+        "integration-test-ci:ubuntu-24.04:tests/integration/run:test_other\n"
+    )
+    _SPREAD_LIST_ONE_VARIANT = (
+        "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm\n"
+    )
+    _SPREAD_LIST_NO_VARIANT = "integration-test-ci:ubuntu-24.04:tests/integration/run\n"
+
+    def _mock_list(self, stdout: str) -> SubprocessResult:
+        return SubprocessResult(stdout=stdout, stderr="", returncode=0)
 
     def test_returns_selectors_for_each_variant(self, tmp_path: Path) -> None:
         """Returns one entry per (system, task_dir, variant) combination."""
         _write(tmp_path / "spread.yaml", _SPREAD_WITH_RUNNER)
-        self._make_task_dir(tmp_path, "tests/integration/run")
 
-        entries = spread_tasks(tmp_path)
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(self._SPREAD_LIST_TWO_VARIANTS),
+        ):
+            entries = spread_tasks(tmp_path)
 
         names = [e["name"] for e in entries]
         assert "test_charm" in names
         assert "test_other" in names
 
     def test_selector_format(self, tmp_path: Path) -> None:
-        """Selector includes backend:system:suite/task:variant."""
+        """Selector is taken verbatim from spread -list output."""
         _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
-        self._make_task_dir(tmp_path, "tests/integration/run")
+        raw_selector = (
+            "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm"
+        )
 
-        entries = spread_tasks(tmp_path)
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(raw_selector + "\n"),
+        ):
+            entries = spread_tasks(tmp_path)
 
         assert len(entries) == 1
-        entry = entries[0]
-        assert entry["selector"].startswith("integration-test-ci:")
-        assert "ubuntu-24.04" in entry["selector"]
-        assert ":test_charm" in entry["selector"]
+        assert entries[0]["selector"] == raw_selector
 
     def test_runs_on_from_runner_field(self, tmp_path: Path) -> None:
         """runs-on matches the system's runner: label (JSON-encoded)."""
         _write(tmp_path / "spread.yaml", _SPREAD_WITH_RUNNER)
-        self._make_task_dir(tmp_path, "tests/integration/run")
 
-        entries = spread_tasks(tmp_path)
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(self._SPREAD_LIST_TWO_VARIANTS),
+        ):
+            entries = spread_tasks(tmp_path)
 
         ubuntu_22_entries = [e for e in entries if "ubuntu-22.04" in e["selector"]]
         assert all(e["runs-on"] == '"ubuntu-22.04-runner"' for e in ubuntu_22_entries)
 
-    def test_no_variants_uses_task_dir_name(self, tmp_path: Path) -> None:
-        """When no MODULE/ variants, name is the task directory name."""
-        spread_no_variants = """\
-project: test-project
-path: /home/ubuntu/proj
-backends:
-  integration-test:
-    type: integration-test
-    systems:
-      - ubuntu-24.04
-environment:
-  CONCIERGE: concierge.yaml
-suites:
-  tests/integration/:
-    summary: integration tests
-    backends:
-      - integration-test
-"""
-        _write(tmp_path / "spread.yaml", spread_no_variants)
-        self._make_task_dir(tmp_path, "tests/integration/run")
+    def test_no_variants_uses_last_path_component(self, tmp_path: Path) -> None:
+        """When spread -list returns no variant, name is the last path component."""
+        _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
 
-        entries = spread_tasks(tmp_path)
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(self._SPREAD_LIST_NO_VARIANT),
+        ):
+            entries = spread_tasks(tmp_path)
 
         assert len(entries) == 1
         assert entries[0]["name"] == "run"
@@ -1317,6 +1350,52 @@ suites:
         """Raises ConfigurationError when spread.yaml is missing."""
         with pytest.raises(ConfigurationError):
             spread_tasks(tmp_path)
+
+    def test_spread_list_called_with_ci_backend_selectors(self, tmp_path: Path) -> None:
+        """spread -list is invoked with one selector per virtual backend."""
+        _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
+
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(self._SPREAD_LIST_ONE_VARIANT),
+        ) as mock_run:
+            spread_tasks(tmp_path)
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "spread"
+        assert cmd[1] == "-list"
+        assert "integration-test-ci:" in cmd
+
+    def test_spread_list_excludes_non_virtual_backends(self, tmp_path: Path) -> None:
+        """Non-virtual backends are not passed as selectors to spread -list."""
+        spread_mixed = """\
+project: test-project
+path: /home/ubuntu/proj
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+  lxd:
+    systems:
+      - ubuntu-22.04
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+      - integration-test
+"""
+        _write(tmp_path / "spread.yaml", spread_mixed)
+
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(self._SPREAD_LIST_ONE_VARIANT),
+        ) as mock_run:
+            spread_tasks(tmp_path)
+
+        cmd = mock_run.call_args[0][0]
+        assert "integration-test-ci:" in cmd
+        assert not any("lxd" in arg for arg in cmd)
 
     def test_ci_backend_has_username_root(self, tmp_path: Path) -> None:
         """Expanded CI backend sets username: root per system for SSH."""
@@ -1354,9 +1433,12 @@ suites:
     def test_arch_field_amd64_default(self, tmp_path: Path) -> None:
         """Entries without arm64 runner label get arch=amd64."""
         _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
-        self._make_task_dir(tmp_path, "tests/integration/run")
 
-        entries = spread_tasks(tmp_path)
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(self._SPREAD_LIST_ONE_VARIANT),
+        ):
+            entries = spread_tasks(tmp_path)
 
         assert all(e["arch"] == "amd64" for e in entries)
 
@@ -1376,12 +1458,50 @@ suites:
     summary: integration tests
     backends:
       - integration-test
-    environment:
-      MODULE/test_charm: test_charm
 """
         _write(tmp_path / "spread.yaml", spread_arm)
-        self._make_task_dir(tmp_path, "tests/integration/run")
 
-        entries = spread_tasks(tmp_path)
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(
+                "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm\n"
+            ),
+        ):
+            entries = spread_tasks(tmp_path)
 
         assert all(e["arch"] == "arm64" for e in entries)
+
+    def test_duplicate_variant_keys_produce_distinct_selectors(
+        self, tmp_path: Path
+    ) -> None:
+        """Key != value in MODULE/* produces distinct selectors (the original bug)."""
+        _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
+        list_output = (
+            "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm\n"
+            "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm_k8s\n"
+        )
+
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(list_output),
+        ):
+            entries = spread_tasks(tmp_path)
+
+        selectors = [e["selector"] for e in entries]
+        names = [e["name"] for e in entries]
+        assert len(set(selectors)) == len(entries)
+        assert "test_charm" in names
+        assert "test_charm_k8s" in names
+
+    def test_temp_dir_cleaned_up_after_tasks(self, tmp_path: Path) -> None:
+        """Temporary spread.yaml directory is removed after spread_tasks returns."""
+        _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
+
+        with patch(
+            "opcli.core.spread.run_command",
+            return_value=self._mock_list(self._SPREAD_LIST_ONE_VARIANT),
+        ):
+            spread_tasks(tmp_path)
+
+        leftover = list(tmp_path.glob(".spread-tasks-*"))
+        assert leftover == []
