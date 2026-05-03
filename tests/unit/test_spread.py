@@ -71,6 +71,7 @@ class TestSpreadInit:
         parsed = _yaml.load(StringIO(spread_path.read_text()))
         assert parsed["path"] == "/home/ubuntu/proj"
         assert parsed["kill-timeout"] == "60m"
+        assert parsed["warn-timeout"] == "1m"
         assert "summary" in parsed["suites"]["tests/integration/"]
 
     def test_generates_exclude_list(self, tmp_path: Path) -> None:
