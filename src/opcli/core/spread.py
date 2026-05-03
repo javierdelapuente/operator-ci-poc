@@ -106,6 +106,7 @@ def _generate_spread_yaml(
         "project": project_name,
         "path": "/home/ubuntu/proj",
         "kill-timeout": "60m",
+        "warn-timeout": "1m",
         "backends": {
             _VIRTUAL_BACKEND: {
                 "type": _VIRTUAL_BACKEND,
@@ -133,7 +134,7 @@ _TASK_YAML_CONTENT = (
     "execute: |\n"
     '    cd "${SPREAD_PATH}"\n'
     '    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}"'
-    ' -- -k "$MODULE") || exit 1\n'
+    ' -- --model testing --keep-models -k "$MODULE") || exit 1\n'
     '    runuser -l "${SUDO_USER}" -c'
     ' "cd \\"${SPREAD_PATH}\\" && $PYTEST_CMD"\n'
 )
