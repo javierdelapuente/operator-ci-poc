@@ -146,7 +146,13 @@ jobs:
 
       - name: Juju status (on failure)
         if: failure()
-        run: sudo -u ubuntu juju status --relations --storage
+        run: |
+          sudo -u ubuntu bash -c '
+            for model in $(juju models --format json | jq -r ".models[].\"short-name\""); do
+              echo "=== juju status for model: $model ==="
+              juju status -m "$model" --relations --storage || true
+            done
+          '
 
       - name: Juju debug-log (on failure)
         if: failure()
