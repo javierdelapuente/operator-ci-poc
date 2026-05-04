@@ -310,6 +310,9 @@ _CI_PREPARE = """\
 loginctl enable-linger ubuntu
 echo "ubuntu ALL=(ALL) NOPASSWD:ALL" | install -m 0440 /dev/stdin /etc/sudoers.d/ubuntu
 echo "DEBUG: SPREAD_PATH=${SPREAD_PATH}"
+echo "DEBUG: SPREAD_PATH owner: $(stat -c '%U:%G' "${SPREAD_PATH}" 2>&1)"
+echo "DEBUG: ls -la $(dirname "${SPREAD_PATH}")"
+ls -la "$(dirname "${SPREAD_PATH}")" 2>&1 || true
 snap install astral-uv --classic || true
 export UV_TOOL_BIN_DIR=/usr/local/bin
 if [ -n "${GITHUB_WORKSPACE:-}" ] && grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
@@ -339,6 +342,7 @@ if [ -n "${GITHUB_RUN_ID:-}" ]; then
     --wait
 fi
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
+echo "DEBUG: SPREAD_PATH owner after chown: $(stat -c '%U:%G' "${SPREAD_PATH}" 2>&1)"
 """
 
 _CI_ALLOCATE = """\
