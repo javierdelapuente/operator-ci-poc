@@ -304,7 +304,7 @@ The overwrite-in-place fallback (`after == before`, i.e. `after - before` is emp
 
 1. Create a feature branch
 2. Open a PR
-3. Wait for CI to pass (both `CI` and `Test Integration` workflows)
+3. **Wait for CI to pass** (both `CI` and `Test Integration` workflows) — **NEVER merge a PR before CI is green. No exceptions.**
 4. Run a code review with a sub-agent when making non-trivial changes
 5. Squash-merge
 
@@ -313,10 +313,16 @@ git checkout -b fix/my-fix
 # ... make changes ...
 git push --set-upstream origin fix/my-fix
 gh pr create --title "..." --body "..."
-# wait for CI
+# Wait for CI — check with: gh pr checks <number> --watch
+# Do NOT proceed to merge until all checks pass
 gh pr merge <number> --squash
 git checkout main && git pull
 ```
+
+> **CI must be green before merging.** Use `gh pr checks <number> --watch` to
+> monitor. If checks are still running, wait. If they fail, fix the issue and
+> push again. Merging with failing or pending CI is not acceptable under any
+> circumstances.
 
 When creating git commits, always include the trailer:
 
