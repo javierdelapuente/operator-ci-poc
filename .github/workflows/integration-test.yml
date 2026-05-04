@@ -148,7 +148,7 @@ jobs:
         if: failure()
         run: |
           sudo -u ubuntu bash -c '
-            for model in $(juju models --format json | jq -r ".models[].\"short-name\""); do
+            juju models --format json | jq -r ".models[].\"short-name\"" | while IFS= read -r model; do
               echo "=== juju status for model: $model ==="
               juju status -m "$model" --relations --storage || true
             done
