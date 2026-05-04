@@ -309,6 +309,7 @@ chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 _CI_PREPARE = """\
 loginctl enable-linger ubuntu
 echo "ubuntu ALL=(ALL) NOPASSWD:ALL" | install -m 0440 /dev/stdin /etc/sudoers.d/ubuntu
+chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 snap install astral-uv --classic || true
 export UV_TOOL_BIN_DIR=/usr/local/bin
 if [ -n "${GITHUB_WORKSPACE:-}" ] && grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
@@ -336,8 +337,8 @@ if [ -n "${GITHUB_RUN_ID:-}" ]; then
     --run-id "${GITHUB_RUN_ID}" \
     --repo "${GITHUB_REPOSITORY}" \
     --wait
+  chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 fi
-chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
 _CI_ALLOCATE = """\
