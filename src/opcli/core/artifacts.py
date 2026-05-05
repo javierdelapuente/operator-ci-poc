@@ -26,6 +26,7 @@ from opcli.core.yaml_io import (
     dump_artifacts_plan,
     load_artifacts_generated,
     load_artifacts_plan,
+    load_yaml,
 )
 from opcli.models.artifacts import (
     CharmArtifact,
@@ -371,42 +372,57 @@ def _parse_arch_from_snap_path(path: str) -> str | None:
     return m.group("arch") if m else None
 
 
+def _read_charm_name(yaml_path: Path) -> str:
+    """Return the ``name:`` field from a charmcraft YAML file."""
+    data = load_yaml(yaml_path)
+    name = data.get("name")
+    if not isinstance(name, str) or not name:
+        msg = f"Could not read 'name' from {yaml_path}"
+        raise ConfigurationError(msg)
+    return name
+
+
 def _pick_new_charm_outputs(
-    before: set[str],
     after: set[str],
     pack_dir: Path,
+    charm_name: str,
     attributed: set[str] | None = None,
 ) -> list[str]:
-    """Return the charm files produced by this pack invocation.
+    """Return the charm files for *charm_name* from the pack output.
 
-    *attributed* is the set of paths already claimed by previous charm builds
-    in this session.  If the overwrite-in-place fallback would return paths that
-    are all already attributed, a collision is detected and an error is raised.
+    Charmcraft names consist of lowercase letters, digits, and hyphens only
+    (no underscores).  Packed filenames follow ``{name}_{suffix}.charm`` so
+    filtering by the prefix ``{charm_name}_`` gives an exact name match —
+    no other charm name can be a prefix of ``{charm_name}_``.
 
-    Cases:
-    1. New files appeared (``after - before`` non-empty) — return those.
-    2. No change (overwrite-in-place rebuild) — return all files in ``after``,
-       unless they are all already attributed to a previous artifact (collision).
-    3. No files at all after pack — raise error.
+    After name-filtering, already-attributed files are removed.  If all
+    matches are already attributed, two artifacts share the same internal
+    charmcraft name (collision) and an error is raised.
     """
     if not after:
         msg = f"No *.charm found in {pack_dir} after pack"
         raise OpcliError(msg)
 
-    new = after - before
-    if new:
-        return sorted(new)
-
-    # Overwrite-in-place: charmcraft rebuilt the same files (before == after).
-    if attributed and after.issubset(attributed):
+    prefix = f"{charm_name}_"
+    matching = {p for p in after if Path(p).name.startswith(prefix)}
+    if not matching:
         msg = (
-            f"Output files {sorted(after)} were already produced by another "
+            f"No *.charm files for charm '{charm_name}' found in {pack_dir}. "
+            "Ensure the 'name' field in the charmcraft YAML matches the packed output."
+        )
+        raise OpcliError(msg)
+
+    unclaimed = matching - (attributed or set())
+    if not unclaimed:
+        msg = (
+            f"Output files {sorted(matching)} were already produced by another "
             "artifact. Two artifacts cannot share the same output filenames in "
             "the same pack-dir. Use separate pack-dirs or ensure each charm "
             "produces unique filenames."
         )
         raise OpcliError(msg)
-    return sorted(after)
+
+    return sorted(unclaimed)
 
 
 def _resolve_pack_dir(yaml_path: Path, pack_dir_str: str | None, root: Path) -> Path:
@@ -549,7 +565,6 @@ def _build_charm(
         msg = f"pack-dir not found: {charm.pack_dir}"
         raise ConfigurationError(msg)
 
-    before = _snapshot_outputs(pack_dir, "charm")
     symlink_path, symlink_created = _with_charm_symlink(yaml_path, pack_dir)
     try:
         run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
@@ -557,7 +572,8 @@ def _build_charm(
         if symlink_created and symlink_path and symlink_path.is_symlink():
             symlink_path.unlink()
     after = _snapshot_outputs(pack_dir, "charm")
-    new_outputs = _pick_new_charm_outputs(before, after, pack_dir, attributed)
+    charm_name = _read_charm_name(yaml_path)
+    new_outputs = _pick_new_charm_outputs(after, pack_dir, charm_name, attributed)
     attributed.update(new_outputs)
     arch = _current_arch()
     charm_outputs = [
