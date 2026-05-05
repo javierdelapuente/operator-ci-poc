@@ -84,7 +84,7 @@ class TestArtifactsBuild:
         )
         _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
         # Simulate charmcraft pack producing a .charm file
-        _write(tmp_path / "mycharm_amd64.charm", "fake charm")
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "fake charm")
 
         with patch("opcli.core.artifacts.run_command") as mock_run:
             result = artifacts_build(tmp_path)
@@ -222,7 +222,7 @@ class TestArtifactsBuild:
         )
         (tmp_path / "a").mkdir()
         _write(tmp_path / "a" / "charmcraft.yaml", "name: charm-a\n")
-        _write(tmp_path / "a" / "charm-a.charm", "fake")
+        _write(tmp_path / "a" / "charm-a_ubuntu-22.04-amd64.charm", "fake")
 
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path, charm_names=["charm-a"])
@@ -241,7 +241,7 @@ class TestArtifactsBuild:
         )
         (tmp_path / "charm_dir").mkdir()
         _write(tmp_path / "charm_dir" / "charmcraft.yaml", "name: mycharm\n")
-        _write(tmp_path / "charm_dir" / "mycharm.charm", "fake")
+        _write(tmp_path / "charm_dir" / "mycharm_ubuntu-22.04-amd64.charm", "fake")
 
         with patch("opcli.core.artifacts.run_command") as mock_run:
             artifacts_build(tmp_path, charm_names=["mycharm"])
@@ -286,7 +286,7 @@ class TestArtifactsBuild:
         _write(tmp_path / "rock_dir" / "rockcraft.yaml", "name: myrock\n")
         _write(tmp_path / "rock_dir" / "myrock.rock", "fake")
         _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
-        _write(tmp_path / "mycharm.charm", "fake")
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "fake")
 
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path)
@@ -310,7 +310,7 @@ class TestArtifactsBuild:
         _write(tmp_path / "rock_dir" / "rockcraft.yaml", "name: myrock\n")
         _write(tmp_path / "rock_dir" / "myrock_1.0_amd64.rock", "fake")
         _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
-        _write(tmp_path / "mycharm_amd64.charm", "fake")
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "fake")
 
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path)
@@ -335,7 +335,7 @@ class TestArtifactsBuild:
             "      rock: nonexistent-rock\n",
         )
         _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
-        _write(tmp_path / "mycharm_amd64.charm", "fake")
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "fake")
 
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path)
