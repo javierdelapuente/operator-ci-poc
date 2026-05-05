@@ -171,9 +171,10 @@ class TestSubprocessWrapper:
 
             run_command(["charmcraft", "pack"], cwd="/some/dir")
 
-        captured = capsys.readouterr().out
-        assert "$ charmcraft pack" in captured
-        assert "cwd: /some/dir" in captured
+        captured = capsys.readouterr()
+        assert "$ charmcraft pack" in captured.err
+        assert "cwd: /some/dir" in captured.err
+        assert "$ charmcraft pack" not in captured.out
 
     def test_logs_command_without_cwd(self, capsys: pytest.CaptureFixture[str]) -> None:
         with patch("opcli.core.subprocess.subprocess.run") as mock_run:
