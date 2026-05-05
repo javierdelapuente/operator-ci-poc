@@ -131,7 +131,7 @@ def _run_interactive(
     env: dict[str, str] | None = None,
 ) -> SubprocessResult:
     """Run *cmd* with inherited stdin/stdout/stderr for full TTY access."""
-    _log_command(cmd, cwd)
+    _log_command(cmd, cwd, err=True)
     try:
         proc = subprocess.run(cmd, cwd=cwd, check=False, env=env)
     except OSError as exc:
@@ -163,7 +163,7 @@ def _run_streaming(  # noqa: PLR0913
     env: dict[str, str] | None = None,
 ) -> SubprocessResult:
     """Run *cmd* with real-time output to the terminal."""
-    _log_command(cmd, cwd)
+    _log_command(cmd, cwd, err=True)
     try:
         proc = subprocess.Popen(
             cmd,
