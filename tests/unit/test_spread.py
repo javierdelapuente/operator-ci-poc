@@ -114,7 +114,7 @@ class TestSpreadInit:
         suite_env = parsed["suites"]["tests/integration/"]["environment"]
         assert suite_env["MODULE/test_charm"] == "test_charm"
         assert suite_env["MODULE/test_actions"] == "test_actions"
-        assert suite_env["TOX_ENV"] == ""
+        assert "TOX_ENV" not in suite_env
         # Also not in root environment
         assert "MODULE/test_charm" not in parsed["environment"]
         assert "TOX_ENV" not in parsed["environment"]

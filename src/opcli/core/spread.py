@@ -88,14 +88,13 @@ def _generate_spread_yaml(
         "OPCLI_GIT_REF": '$(HOST: echo "${OPCLI_GIT_REF:-main}")',
     }
 
-    # Suite environment: MODULE variants + TOX_ENV (scoped to this suite)
+    # Suite environment: MODULE variants (scoped to this suite)
     suite_env: dict[str, str] = {}
     if modules:
         for mod in modules:
             suite_env[f"MODULE/{mod}"] = mod
     else:
         suite_env["MODULE/tests"] = "tests"
-    suite_env["TOX_ENV"] = ""
 
     data: dict[str, object] = {
         "project": project_name,
