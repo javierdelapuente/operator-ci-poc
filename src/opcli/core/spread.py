@@ -308,7 +308,6 @@ chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 
 _CI_PREPARE = """\
 loginctl enable-linger ubuntu
-echo "ubuntu ALL=(ALL) NOPASSWD:ALL" | install -m 0440 /dev/stdin /etc/sudoers.d/ubuntu
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 snap install astral-uv --classic || true
 export UV_TOOL_BIN_DIR=/usr/local/bin
@@ -343,6 +342,7 @@ fi
 
 _CI_ALLOCATE = """\
 id ubuntu &>/dev/null || sudo useradd -m -s /bin/bash ubuntu
+echo "ubuntu ALL=(ALL) NOPASSWD:ALL" | sudo install -m 0440 /dev/stdin /etc/sudoers.d/ubuntu
 sudo sed -i 's/^[[:space:]]*#\\?[[:space:]]*\\(PermitRootLogin\\|PasswordAuthentication\\).*/\\1 yes/' \
     /etc/ssh/sshd_config
 if [ -d /etc/ssh/sshd_config.d ]; then

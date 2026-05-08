@@ -1,0 +1,72 @@
+project: examples
+path: /home/ubuntu/proj
+kill-timeout: 60m
+backends:
+  integration-test-ci:
+    systems:
+    - ubuntu-24.04:
+        username: root
+    type: adhoc
+    allocate: |
+      id ubuntu &>/dev/null || sudo useradd -m -s /bin/bash ubuntu
+      echo "ubuntu ALL=(ALL) NOPASSWD:ALL" | sudo install -m 0440 /dev/stdin /etc/sudoers.d/ubuntu
+      sudo sed -i 's/^[[:space:]]*#\?[[:space:]]*\(PermitRootLogin\|PasswordAuthentication\).*/\1 yes/'     /etc/ssh/sshd_config
+      if [ -d /etc/ssh/sshd_config.d ]; then
+        printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' |       sudo tee /etc/ssh/sshd_config.d/00-spread.conf > /dev/null
+      fi
+      sudo systemctl restart ssh
+      echo "root:${SPREAD_PASSWORD}" | sudo chpasswd
+
+      ADDRESS localhost
+    prepare: |
+      loginctl enable-linger ubuntu
+      chown -R ubuntu:ubuntu "${SPREAD_PATH}"
+      snap install astral-uv --classic || true
+      export UV_TOOL_BIN_DIR=/usr/local/bin
+      if [ -n "${GITHUB_WORKSPACE:-}" ] && grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
+        uv tool install "${GITHUB_WORKSPACE}" --quiet
+      elif grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
+        uv tool install "${SPREAD_PATH}" --quiet
+      else
+        uv tool install       "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}"       --quiet
+      fi
+      if ! command -v spread >/dev/null 2>&1; then
+        snap install go --classic
+        go install github.com/canonical/spread/cmd/spread@latest
+        ln -sf ~/go/bin/spread /usr/local/bin/spread
+      fi
+      runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
+      if [ -f "$CONCIERGE" ]; then
+        snap install concierge --classic || true
+        concierge prepare -c "$CONCIERGE"
+      fi
+      if [ -n "${GITHUB_RUN_ID:-}" ]; then
+        export GH_TOKEN="${GITHUB_TOKEN}"
+        cd "${SPREAD_PATH}" && opcli artifacts fetch     --run-id "${GITHUB_RUN_ID}"     --repo "${GITHUB_REPOSITORY}"     --wait
+        chown -R ubuntu:ubuntu "${SPREAD_PATH}"
+      fi
+    environment:
+      GITHUB_TOKEN: '$(HOST: echo "${GITHUB_TOKEN:-}")'
+      GITHUB_RUN_ID: '$(HOST: echo "${GITHUB_RUN_ID:-}")'
+      GITHUB_REPOSITORY: '$(HOST: echo "${GITHUB_REPOSITORY:-}")'
+      GITHUB_WORKSPACE: '$(HOST: echo "${GITHUB_WORKSPACE:-}")'
+environment:
+  SUDO_USER: ubuntu
+  LANG: C.UTF-8
+  LANGUAGE: en
+  CONCIERGE: '$(HOST: echo "${CONCIERGE:-concierge.yaml}")'
+  OPCLI_GIT_REF: '$(HOST: echo "${OPCLI_GIT_REF:-main}")'
+exclude:
+- .git
+- .tox
+- .venv
+- .*_cache
+suites:
+  tests/integration/:
+    summary: integration tests
+    backends:
+    - integration-test-ci
+    environment:
+      MODULE/test_k8s_charm: test_k8s_charm
+      MODULE/test_machine_charm: test_machine_charm
+      TOX_ENV: ''
