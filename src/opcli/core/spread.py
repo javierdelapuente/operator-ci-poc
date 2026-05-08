@@ -82,9 +82,6 @@ def _generate_spread_yaml(
 
     # Root environment: project-wide vars (CONCIERGE, standard vars)
     root_env: dict[str, str] = {
-        # Default to "ubuntu" (local LXD VM user); CI backends override this
-        # with $(HOST: id -un) so concierge and runuser target the right user.
-        "SUDO_USER": "ubuntu",
         "LANG": "C.UTF-8",
         "LANGUAGE": "en",
         "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
@@ -135,7 +132,7 @@ _TASK_YAML_CONTENT = (
     '    cd "${SPREAD_PATH}"\n'
     '    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}"'
     ' -- --model testing --keep-models -k "$MODULE") || exit 1\n'
-    '    runuser -l "${SUDO_USER}" -c'
+    "    runuser -l ubuntu -c"
     ' "cd \\"${SPREAD_PATH}\\" && $PYTEST_CMD"\n'
 )
 
@@ -143,7 +140,7 @@ _TUTORIAL_TASK_YAML_CONTENT = (
     "summary: tutorial test\n"
     "\n"
     "execute: |\n"
-    '    runuser -l "${SUDO_USER}" -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'
+    '    runuser -l ubuntu -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'
 )
 
 
