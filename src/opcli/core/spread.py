@@ -82,8 +82,6 @@ def _generate_spread_yaml(
 
     # Root environment: project-wide vars (CONCIERGE, standard vars)
     root_env: dict[str, str] = {
-        "LANG": "C.UTF-8",
-        "LANGUAGE": "en",
         "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
         # Defaults to "main"; override on the host with OPCLI_GIT_REF=<branch>
         # before running spread to install opcli from a specific branch.

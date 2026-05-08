@@ -91,8 +91,8 @@ class TestSpreadInit:
         env = parsed["environment"]
         assert "SUDO_USER" not in env
         assert "SUDO_UID" not in env
-        assert env["LANG"] == "C.UTF-8"
-        assert env["LANGUAGE"] == "en"
+        assert "LANG" not in env
+        assert "LANGUAGE" not in env
         assert "CONCIERGE" in env
         # GitHub Actions vars belong only in the expanded CI backend, not root
         assert "GITHUB_TOKEN" not in env
