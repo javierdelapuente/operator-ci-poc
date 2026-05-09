@@ -270,7 +270,7 @@ fi
 
 _LOCAL_PREPARE = """\
 loginctl enable-linger ubuntu
-snap install astral-uv --classic || true
+snap install astral-uv --classic
 export UV_TOOL_BIN_DIR=/usr/local/bin
 export UV_TOOL_DIR=/usr/local/share/uv-tools
 if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
@@ -302,7 +302,7 @@ chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 _CI_PREPARE = """\
 loginctl enable-linger ubuntu
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
-snap install astral-uv --classic || true
+snap install astral-uv --classic
 export UV_TOOL_BIN_DIR=/usr/local/bin
 if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
   uv tool install "${GITHUB_WORKSPACE}" --quiet
@@ -349,7 +349,7 @@ ADDRESS localhost
 # Tutorial backend: install uv then opcli so that ``opcli tutorial expand``
 # is available inside the VM.
 _TUTORIAL_LOCAL_PREPARE = """\
-sudo snap install astral-uv --classic || true
+snap install astral-uv --classic
 export UV_TOOL_BIN_DIR=/usr/local/bin
 if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
   uv tool install "${SPREAD_PATH}" --quiet
