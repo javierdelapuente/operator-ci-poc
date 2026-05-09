@@ -102,7 +102,9 @@ backends:
       UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/usr/local/share/uv-tools uv tool install tox --with tox-uv --quiet
       if [ -f "$CONCIERGE" ]; then
         sudo snap install concierge --classic || true
-        concierge prepare -c "$CONCIERGE"
+        # SUDO_USER=ubuntu makes juju store controller data in the ubuntu user's
+        # home directory so tests running as ubuntu can find the credentials.
+        SUDO_USER=ubuntu concierge prepare -c "$CONCIERGE"
         runuser -l ubuntu -c     "cd \"${SPREAD_PATH}\" && opcli provision registry -c \"$CONCIERGE\""
       fi
       if [ -f "${SPREAD_PATH}/artifacts-generated.yaml" ] &&     curl -sf --max-time 5 http://localhost:32000/v2/ > /dev/null 2>&1; then
