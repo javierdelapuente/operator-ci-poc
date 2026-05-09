@@ -7,9 +7,6 @@ backends:
     systems:
     - ubuntu-24.04
 environment:
-  SUDO_USER: ubuntu
-  LANG: C.UTF-8
-  LANGUAGE: en
   CONCIERGE: '$(HOST: echo "${CONCIERGE:-concierge.yaml}")'
   OPCLI_GIT_REF: '$(HOST: echo "${OPCLI_GIT_REF:-main}")'
 exclude:
@@ -25,4 +22,4 @@ suites:
     environment:
       MODULE/test_k8s_charm: test_k8s_charm
       MODULE/test_machine_charm: test_machine_charm
-      TOX_ENV: ''
+

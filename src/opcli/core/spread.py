@@ -82,25 +82,19 @@ def _generate_spread_yaml(
 
     # Root environment: project-wide vars (CONCIERGE, standard vars)
     root_env: dict[str, str] = {
-        # Default to "ubuntu" (local LXD VM user); CI backends override this
-        # with $(HOST: id -un) so concierge and runuser target the right user.
-        "SUDO_USER": "ubuntu",
-        "LANG": "C.UTF-8",
-        "LANGUAGE": "en",
         "CONCIERGE": '$(HOST: echo "${CONCIERGE:-concierge.yaml}")',
         # Defaults to "main"; override on the host with OPCLI_GIT_REF=<branch>
         # before running spread to install opcli from a specific branch.
         "OPCLI_GIT_REF": '$(HOST: echo "${OPCLI_GIT_REF:-main}")',
     }
 
-    # Suite environment: MODULE variants + TOX_ENV (scoped to this suite)
+    # Suite environment: MODULE variants (scoped to this suite)
     suite_env: dict[str, str] = {}
     if modules:
         for mod in modules:
             suite_env[f"MODULE/{mod}"] = mod
     else:
         suite_env["MODULE/tests"] = "tests"
-    suite_env["TOX_ENV"] = ""
 
     data: dict[str, object] = {
         "project": project_name,
@@ -135,15 +129,14 @@ _TASK_YAML_CONTENT = (
     '    cd "${SPREAD_PATH}"\n'
     '    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}"'
     ' -- --model testing --keep-models -k "$MODULE") || exit 1\n'
-    '    runuser -l "${SUDO_USER}" -c'
-    ' "cd \\"${SPREAD_PATH}\\" && $PYTEST_CMD"\n'
+    "    runuser -l ubuntu -c \"cd '${SPREAD_PATH}' && ${PYTEST_CMD}\"\n"
 )
 
 _TUTORIAL_TASK_YAML_CONTENT = (
     "summary: tutorial test\n"
     "\n"
     "execute: |\n"
-    '    runuser -l "${SUDO_USER}" -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'
+    '    runuser -l ubuntu -s /bin/bash -c \'set -ex; . <(opcli tutorial expand -- "$1")\' _ "${SPREAD_PATH}${TUTORIAL}"\n'
 )
 
 
@@ -277,7 +270,7 @@ fi
 
 _LOCAL_PREPARE = """\
 loginctl enable-linger ubuntu
-sudo snap install astral-uv --classic || true
+snap install astral-uv --classic
 export UV_TOOL_BIN_DIR=/usr/local/bin
 export UV_TOOL_DIR=/usr/local/share/uv-tools
 if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
@@ -288,13 +281,13 @@ else
       --quiet
 fi
 if ! command -v spread >/dev/null 2>&1; then
-  sudo snap install go --classic
+  snap install go --classic
   go install github.com/canonical/spread/cmd/spread@latest
-  sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
+  ln -sf ~/go/bin/spread /usr/local/bin/spread
 fi
 UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/usr/local/share/uv-tools uv tool install tox --with tox-uv --quiet
 if [ -f "$CONCIERGE" ]; then
-  sudo snap install concierge --classic || true
+  snap install concierge --classic || true
   concierge prepare -c "$CONCIERGE"
   runuser -l ubuntu -c \
     "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
@@ -308,14 +301,11 @@ chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 
 _CI_PREPARE = """\
 loginctl enable-linger ubuntu
-echo "ubuntu ALL=(ALL) NOPASSWD:ALL" | install -m 0440 /dev/stdin /etc/sudoers.d/ubuntu
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
-snap install astral-uv --classic || true
+snap install astral-uv --classic
 export UV_TOOL_BIN_DIR=/usr/local/bin
-if [ -n "${GITHUB_WORKSPACE:-}" ] && grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
+if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
   uv tool install "${GITHUB_WORKSPACE}" --quiet
-elif grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
-  uv tool install "${SPREAD_PATH}" --quiet
 else
   uv tool install \
       "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
@@ -343,6 +333,7 @@ fi
 
 _CI_ALLOCATE = """\
 id ubuntu &>/dev/null || sudo useradd -m -s /bin/bash ubuntu
+echo "ubuntu ALL=(ALL) NOPASSWD:ALL" | sudo install -m 0440 /dev/stdin /etc/sudoers.d/ubuntu
 sudo sed -i 's/^[[:space:]]*#\\?[[:space:]]*\\(PermitRootLogin\\|PasswordAuthentication\\).*/\\1 yes/' \
     /etc/ssh/sshd_config
 if [ -d /etc/ssh/sshd_config.d ]; then
@@ -358,7 +349,7 @@ ADDRESS localhost
 # Tutorial backend: install uv then opcli so that ``opcli tutorial expand``
 # is available inside the VM.
 _TUTORIAL_LOCAL_PREPARE = """\
-sudo snap install astral-uv --classic || true
+snap install astral-uv --classic
 export UV_TOOL_BIN_DIR=/usr/local/bin
 if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
   uv tool install "${SPREAD_PATH}" --quiet
@@ -542,11 +533,18 @@ def _build_concrete_backend(
         # GitHub Actions vars are only needed for the CI backend so that
         # _CI_PREPARE can authenticate and download build artifacts via gh.
         # Scoping them here keeps the root spread.yaml clean for local runs.
+        existing_env = backend_def.get("environment")
+        existing_env = dict(existing_env) if isinstance(existing_env, dict) else {}
         backend_def["environment"] = {
+            # SUDO_USER=ubuntu makes juju store controller data in the ubuntu
+            # user's home directory so tests running as ubuntu can find the
+            # credentials.
+            "SUDO_USER": "ubuntu",
             "GITHUB_TOKEN": '$(HOST: echo "${GITHUB_TOKEN:-}")',
             "GITHUB_RUN_ID": '$(HOST: echo "${GITHUB_RUN_ID:-}")',
             "GITHUB_REPOSITORY": '$(HOST: echo "${GITHUB_REPOSITORY:-}")',
             "GITHUB_WORKSPACE": '$(HOST: echo "${GITHUB_WORKSPACE:-}")',
+            **existing_env,
         }
         if isinstance(systems, list):
             backend_def["systems"] = _transform_systems(
@@ -561,6 +559,15 @@ def _build_concrete_backend(
         preamble = _make_resource_preamble(resources)
         backend_def["allocate"] = preamble + _LOCAL_ALLOCATE
         backend_def["discard"] = _LOCAL_DISCARD
+        existing_env = backend_def.get("environment")
+        existing_env = dict(existing_env) if isinstance(existing_env, dict) else {}
+        backend_def["environment"] = {
+            # SUDO_USER=ubuntu makes juju store controller data in the ubuntu
+            # user's home directory so tests running as ubuntu can find the
+            # credentials.
+            "SUDO_USER": "ubuntu",
+            **existing_env,
+        }
         if local_prepare:
             backend_def["prepare"] = local_prepare
 

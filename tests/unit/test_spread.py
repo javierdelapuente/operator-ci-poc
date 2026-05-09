@@ -89,10 +89,10 @@ class TestSpreadInit:
 
         parsed = _yaml.load(StringIO(spread_path.read_text()))
         env = parsed["environment"]
-        assert env["SUDO_USER"] == "ubuntu"
+        assert "SUDO_USER" not in env
         assert "SUDO_UID" not in env
-        assert env["LANG"] == "C.UTF-8"
-        assert env["LANGUAGE"] == "en"
+        assert "LANG" not in env
+        assert "LANGUAGE" not in env
         assert "CONCIERGE" in env
         # GitHub Actions vars belong only in the expanded CI backend, not root
         assert "GITHUB_TOKEN" not in env
@@ -114,7 +114,7 @@ class TestSpreadInit:
         suite_env = parsed["suites"]["tests/integration/"]["environment"]
         assert suite_env["MODULE/test_charm"] == "test_charm"
         assert suite_env["MODULE/test_actions"] == "test_actions"
-        assert suite_env["TOX_ENV"] == ""
+        assert "TOX_ENV" not in suite_env
         # Also not in root environment
         assert "MODULE/test_charm" not in parsed["environment"]
         assert "TOX_ENV" not in parsed["environment"]
@@ -242,7 +242,8 @@ class TestSpreadExpand:
         assert "GITHUB_REPOSITORY" in ci_env
         assert "GITHUB_WORKSPACE" in ci_env
         # CI backend does NOT override SUDO_USER; ubuntu is created in allocate
-        assert "SUDO_USER" not in ci_env
+        assert "SUDO_USER" in ci_env
+        assert ci_env["SUDO_USER"] == "ubuntu"
         assert "useradd" in ci["allocate"]
         assert "pipx install" not in ci["prepare"]
         # uv installed in CI prepare (idempotent: already on runner but re-ensures)
@@ -296,7 +297,7 @@ suites:
         parsed = _yaml.load(StringIO(result))
         local = parsed["backends"]["integration-test-local"]
 
-        assert local["environment"] == {"EXTRA_VAR": "hello"}
+        assert local["environment"] == {"SUDO_USER": "ubuntu", "EXTRA_VAR": "hello"}
         assert "extra setup" in local["prepare-each"]
         assert local["kill-timeout"] == "30m"
         # Systems get username injected for local backend
