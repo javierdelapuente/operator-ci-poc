@@ -60,12 +60,7 @@ jobs:
         run: sudo snap install astral-uv --classic
 
       - name: Install opcli
-        run: |
-          if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
-            uv tool install "${GITHUB_WORKSPACE}"
-          else
-            uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@main"
-          fi
+        run: uv tool install "${GITHUB_WORKSPACE}"
 
       - name: Install spread
         run: |
