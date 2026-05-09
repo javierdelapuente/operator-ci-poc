@@ -242,7 +242,8 @@ class TestSpreadExpand:
         assert "GITHUB_REPOSITORY" in ci_env
         assert "GITHUB_WORKSPACE" in ci_env
         # CI backend does NOT override SUDO_USER; ubuntu is created in allocate
-        assert "SUDO_USER" not in ci_env
+        assert "SUDO_USER" in ci_env
+        assert ci_env["SUDO_USER"] == "ubuntu"
         assert "useradd" in ci["allocate"]
         assert "pipx install" not in ci["prepare"]
         # uv installed in CI prepare (idempotent: already on runner but re-ensures)
@@ -296,7 +297,7 @@ suites:
         parsed = _yaml.load(StringIO(result))
         local = parsed["backends"]["integration-test-local"]
 
-        assert local["environment"] == {"EXTRA_VAR": "hello"}
+        assert local["environment"] == {"SUDO_USER": "ubuntu", "EXTRA_VAR": "hello"}
         assert "extra setup" in local["prepare-each"]
         assert local["kill-timeout"] == "30m"
         # Systems get username injected for local backend

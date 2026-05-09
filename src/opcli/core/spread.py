@@ -288,9 +288,7 @@ fi
 UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/usr/local/share/uv-tools uv tool install tox --with tox-uv --quiet
 if [ -f "$CONCIERGE" ]; then
   sudo snap install concierge --classic || true
-  # SUDO_USER=ubuntu makes juju store controller data in the ubuntu user's
-  # home directory so tests running as ubuntu can find the credentials.
-  SUDO_USER=ubuntu concierge prepare -c "$CONCIERGE"
+  concierge prepare -c "$CONCIERGE"
   runuser -l ubuntu -c \
     "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
 fi
@@ -323,9 +321,7 @@ fi
 runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
 if [ -f "$CONCIERGE" ]; then
   snap install concierge --classic || true
-  # SUDO_USER=ubuntu makes juju store controller data in the ubuntu user's
-  # home directory so tests running as ubuntu can find the credentials.
-  SUDO_USER=ubuntu concierge prepare -c "$CONCIERGE"
+  concierge prepare -c "$CONCIERGE"
 fi
 if [ -n "${GITHUB_RUN_ID:-}" ]; then
   export GH_TOKEN="${GITHUB_TOKEN}"
@@ -539,11 +535,18 @@ def _build_concrete_backend(
         # GitHub Actions vars are only needed for the CI backend so that
         # _CI_PREPARE can authenticate and download build artifacts via gh.
         # Scoping them here keeps the root spread.yaml clean for local runs.
+        existing_env = backend_def.get("environment")
+        existing_env = dict(existing_env) if isinstance(existing_env, dict) else {}
         backend_def["environment"] = {
+            # SUDO_USER=ubuntu makes juju store controller data in the ubuntu
+            # user's home directory so tests running as ubuntu can find the
+            # credentials.
+            "SUDO_USER": "ubuntu",
             "GITHUB_TOKEN": '$(HOST: echo "${GITHUB_TOKEN:-}")',
             "GITHUB_RUN_ID": '$(HOST: echo "${GITHUB_RUN_ID:-}")',
             "GITHUB_REPOSITORY": '$(HOST: echo "${GITHUB_REPOSITORY:-}")',
             "GITHUB_WORKSPACE": '$(HOST: echo "${GITHUB_WORKSPACE:-}")',
+            **existing_env,
         }
         if isinstance(systems, list):
             backend_def["systems"] = _transform_systems(
@@ -558,6 +561,15 @@ def _build_concrete_backend(
         preamble = _make_resource_preamble(resources)
         backend_def["allocate"] = preamble + _LOCAL_ALLOCATE
         backend_def["discard"] = _LOCAL_DISCARD
+        existing_env = backend_def.get("environment")
+        existing_env = dict(existing_env) if isinstance(existing_env, dict) else {}
+        backend_def["environment"] = {
+            # SUDO_USER=ubuntu makes juju store controller data in the ubuntu
+            # user's home directory so tests running as ubuntu can find the
+            # credentials.
+            "SUDO_USER": "ubuntu",
+            **existing_env,
+        }
         if local_prepare:
             backend_def["prepare"] = local_prepare
 
