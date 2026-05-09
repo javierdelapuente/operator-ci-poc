@@ -270,7 +270,7 @@ fi
 
 _LOCAL_PREPARE = """\
 loginctl enable-linger ubuntu
-sudo snap install astral-uv --classic || true
+snap install astral-uv --classic || true
 export UV_TOOL_BIN_DIR=/usr/local/bin
 export UV_TOOL_DIR=/usr/local/share/uv-tools
 if grep -q 'name = "opcli"' "${SPREAD_PATH}/pyproject.toml" 2>/dev/null; then
@@ -281,13 +281,13 @@ else
       --quiet
 fi
 if ! command -v spread >/dev/null 2>&1; then
-  sudo snap install go --classic
+  snap install go --classic
   go install github.com/canonical/spread/cmd/spread@latest
-  sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
+  ln -sf ~/go/bin/spread /usr/local/bin/spread
 fi
 UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/usr/local/share/uv-tools uv tool install tox --with tox-uv --quiet
 if [ -f "$CONCIERGE" ]; then
-  sudo snap install concierge --classic || true
+  snap install concierge --classic || true
   concierge prepare -c "$CONCIERGE"
   runuser -l ubuntu -c \
     "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
