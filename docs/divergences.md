@@ -42,24 +42,24 @@ execute: |
 ```
 
 **Implementation:** The generated `task.yaml` captures the command from
-`opcli pytest expand` and runs it under `runuser -l ubuntu`:
+`opcli pytest expand` and runs it under `runuser -l ubuntu`. The flags
+`--model testing --keep-models` are appended so each test module runs in
+its own Juju model and models are preserved on failure for debugging:
 
 ```yaml
 execute: |
-    loginctl enable-linger ubuntu
     cd "${SPREAD_PATH}"
-    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}" -- -k "$MODULE") || exit 1
-    runuser -l ubuntu -c "cd \"${SPREAD_PATH}\" && $PYTEST_CMD"
+    PYTEST_CMD=$(opcli pytest expand -e "${TOX_ENV:-integration}" -- --model testing --keep-models -k "$MODULE") || exit 1
+    runuser -l ubuntu -c "cd '${SPREAD_PATH}' && ${PYTEST_CMD}"
 ```
 
 **Rationale:** Spread rsyncs the project directory as `root`, so the spread
 task runs as root by default. Tests and tox need write access under the
 project tree (`.tox/`, etc.) and must run as a normal user. The `ubuntu` user
 is the standard non-root user available in the LXD VM and GitHub runner.
-`loginctl enable-linger ubuntu` in the execute block ensures ubuntu's systemd
-user manager is running before `runuser -l ubuntu` starts the tox session.
-(The same call appears in `_CI_PREPARE` before concierge for a related but
-distinct reason — see divergence 21.)
+`loginctl enable-linger ubuntu` is called in `_CI_PREPARE` (not in the
+execute block) to ensure ubuntu's systemd user manager is running before
+`runuser -l ubuntu` starts the tox session — see divergence 21.
 
 ---
 
@@ -188,10 +188,12 @@ backends:
 ```
 
 These fields are stripped before the YAML is passed to spread — they are
-opcli-only metadata. During local expansion, they are injected into the
-`allocate` script as per-system `case` arms using `${VAR:-N}` semantics
-so that explicit env-var overrides still take precedence. During CI expansion,
-`runner` is kept (real spread field) while `cpu`/`memory`/`disk` are stripped.
+opcli-only metadata. `runner` and `arch` are consumed by `opcli spread tasks`
+from the raw (unexpanded) `spread.yaml` to build the CI matrix, then stripped
+in both local and CI expansion. During local expansion, `cpu`/`memory`/`disk`
+are injected into the `allocate` script as per-system `case` arms using
+`${VAR:-N}` semantics so that explicit env-var overrides still take precedence.
+All five fields are absent from the YAML that spread finally receives.
 
 **Rationale:** Declaring VM size alongside the system name keeps all
 per-system configuration in one place, avoids managing separate env vars, and

@@ -105,10 +105,10 @@ opcli pytest expand -- -k test_charm
 |---|---|
 | `opcli artifacts init` | Discover charms/rocks/snaps and generate `artifacts.yaml`. Use `--force` to overwrite. |
 | `opcli artifacts build` | Build all artifacts and produce `artifacts-generated.yaml`. Filter with `--charm <name>`, `--rock <name>`, `--snap <name>`. |
-| `opcli artifacts matrix` | Read `artifacts.yaml` and print a JSON build matrix for GitHub Actions (one entry per artifact). |
+| `opcli artifacts matrix` | Read `artifacts.yaml` and print a JSON build matrix for GitHub Actions (one entry per artifact/arch build target pair). |
 | `opcli artifacts collect <partial>...` | Merge partial `artifacts-generated.yaml` files from parallel build jobs into a single output file. |
 | `opcli artifacts fetch` | Download `artifacts-generated.yaml` and all charm/snap archives from a CI run, then rewrite paths to local files so `opcli pytest expand` and `opcli spread run` work without a local build. Rock artifacts are GHCR images and need no download. Use `--run-id`, `--repo`, and `--wait` (retries until the artifact appears). |
-| `opcli artifacts localize` | Rewrite `artifacts-generated.yaml` to replace CI artifact references with local `.charm` file paths after charm archives have been manually downloaded. (Prefer `opcli artifacts fetch` for the full workflow.) |
+| `opcli artifacts localize` | Rewrite `artifacts-generated.yaml` to replace CI artifact references with local `.charm`/`.snap` file paths after charm and snap archives have been manually downloaded. (Prefer `opcli artifacts fetch` for the full workflow.) |
 
 ### `opcli provision`
 
@@ -116,7 +116,7 @@ opcli pytest expand -- -k test_charm
 |---|---|
 | `opcli provision run` | Run `concierge prepare` to provision the test environment. |
 | `opcli provision load` | Push locally-built rock images to a container registry and update each arch build entry's `image` field in `artifacts-generated.yaml`. Use `-r` to set registry (default: `localhost:32000`). Images are tagged `{registry}/{name}:{arch}` (e.g. `localhost:32000/my-rock:amd64`). |
-| `opcli provision registry` | Deploy a local OCI registry at `localhost:32000`. Reads `concierge.yaml` to detect whether MicroK8s or canonical k8s is enabled and deploys accordingly. No-op if the registry is already running. Use `-c` to specify a custom concierge file path. |
+| `opcli provision registry` | Deploy a local OCI registry at `localhost:32000`. Reads `concierge.yaml` to detect whether MicroK8s or canonical k8s is enabled and applies the same embedded `registry:2` manifest via the provider's own `kubectl`. No-op if the registry is already running, if no k8s provider is configured, or if there are no rocks to push. Raises an error if both providers are enabled simultaneously. Use `-c` to specify a custom concierge file path. |
 
 ### `opcli spread`
 
@@ -125,7 +125,7 @@ opcli pytest expand -- -k test_charm
 | `opcli spread init` | Discover integration tests and generate `spread.yaml` + `tests/integration/run/task.yaml`. Use `--force` to overwrite. |
 | `opcli spread expand` | Print the fully expanded `spread.yaml` to stdout. |
 | `opcli spread run` | Expand the virtual backend and run spread. Extra args after `--` are forwarded verbatim to spread (e.g. `opcli spread run -- -list`). |
-| `opcli spread tasks` | List the spread tasks/variants discovered in `spread.yaml`. |
+| `opcli spread tasks` | Generate the GitHub Actions CI matrix as JSON. Calls `spread -list` on the CI-mode expanded `spread.yaml` and emits one entry per spread task with `name`, `selector`, `runs-on`, and `arch` fields. |
 
 ### `opcli pytest`
 
@@ -181,7 +181,7 @@ rocks:
     builds:
       - arch: amd64
       - arch: arm64
-        runner: '["self-hosted", "arm64"]'
+        runner: [self-hosted, arm64]
 charms:
   - name: my-charm
     charmcraft-yaml: charmcraft.yaml
@@ -195,12 +195,17 @@ snaps:
     pack-dir: .        # run snapcraft pack from the repo root
 ```
 
-The `runner` field in each `builds:` entry is a JSON-encoded string containing
-GitHub Actions runner labels (e.g. `'["ubuntu-latest"]'`). It is used by
+The `runner` field in each `builds:` entry is a YAML list of GitHub Actions runner
+labels (e.g. `[ubuntu-latest]` or `[self-hosted, arm64]`). It is used by
 `opcli artifacts matrix` and the reusable build workflow to select the correct
-runner for each arch. If omitted, it defaults to `["ubuntu-latest"]`.
+runner for each arch. If omitted, it defaults to `[ubuntu-latest]`.
 
-### `pack-dir` (rocks and snaps)
+When `opcli artifacts matrix` serialises the matrix for GitHub Actions it
+JSON-encodes the runner list into a string so that
+`${{ fromJSON(matrix.runner) }}` produces the correct runner label array at
+job execution time.
+
+### `pack-dir` (charms, rocks, and snaps)
 
 By default `opcli artifacts build` runs the pack tool from the directory that contains
 the craft YAML file. Set `pack-dir` to run from a different directory. This is required
@@ -217,7 +222,8 @@ rocks:
 When `pack-dir` differs from the directory containing the craft YAML, opcli creates a
 temporary symlink `<pack-dir>/rockcraft.yaml → <rockcraft-yaml>` before running
 `rockcraft pack`, then removes it afterwards. If a real (non-symlink) file already
-exists at that path, the build fails with an error.
+exists at that path with **different content**, the build fails with an error. If a
+real file exists with identical byte content it is accepted and no symlink is created.
 
 ## `artifacts-generated.yaml` schema — local format
 
@@ -252,7 +258,7 @@ charms:
 
 `opcli pytest expand` emits one `--charm-file=<path>` flag per entry matching the current machine's arch.
 
-System entries under the virtual `integration-test` (or `tutorial-test`) backend accept opcli-specific fields alongside standard spread fields:
+System entries under the virtual `integration-test` (or `tutorial`) backend accept opcli-specific fields alongside standard spread fields:
 
 ```yaml
 backends:
@@ -270,8 +276,8 @@ backends:
 
 | Field | Local backend | CI backend |
 |---|---|---|
-| `runner` | Stripped (not applicable to LXD) | Preserved for GitHub runner selection |
-| `arch` | Stripped (not applicable to LXD) | Used directly in the matrix `arch` field; when absent, arch is derived from the `runner` label |
+| `runner` | Stripped | Read by `opcli spread tasks` to populate `runs-on` in the matrix, then stripped |
+| `arch` | Stripped | Read by `opcli spread tasks` to populate `arch` in the matrix (derived from runner labels when absent), then stripped |
 | `cpu` / `memory` / `disk` | Used in LXD `lxc launch --vm` arguments, then stripped | Stripped (not applicable to cloud runners) |
 
 Resource values are injected as per-system defaults in the allocate script using `${CPU:-N}` semantics so that an explicit environment variable override (e.g. `CPU=2 opcli spread run`) still takes precedence.
@@ -359,12 +365,14 @@ jobs:
     permissions:
       contents: read
       packages: write   # required for GHCR rock pushes
+      actions: read     # required for get-workflow-version-action
     with:
       working-directory: .  # directory containing artifacts.yaml (default: .)
 ```
 
 Pinning to a SHA or tag (e.g. `@abc1234`, `@v1.2`) automatically installs the
-matching `opcli` version — no separate version input is needed.
+matching `opcli` version — the SHA is resolved via
+`canonical/get-workflow-version-action`, so no separate version input is needed.
 
 ### Workflow jobs
 
@@ -374,32 +382,21 @@ matching `opcli` version — no separate version input is needed.
 | **build** (parallel) | Builds each artifact; pushes rocks to GHCR; uploads partial `artifacts-generated.yaml` |
 | **collect** | Merges all partials via `opcli artifacts collect`; uploads final `artifacts-generated` artifact |
 
-### `opcli-ref` input
-
-Leave empty (the default) for all normal usage — the workflow auto-derives the
-opcli ref from `github.workflow_ref`. Override only when the auto-derived ref
-is not directly fetchable, such as when testing a pull request from a fork
-(where `github.sha` is a synthetic merge commit):
-
-```yaml
-with:
-  opcli-ref: ${{ github.event.pull_request.head.sha }}
-```
-
 ## Local OCI registry
 
 When running integration tests locally with k8s or MicroK8s, rock images need to be available in a registry that the cluster can pull from.
 
 `opcli provision registry` deploys a local OCI registry at `localhost:32000` by inspecting `concierge.yaml`:
 
-- **MicroK8s**: runs `microk8s enable registry`, which deploys the registry pod and configures containerd to trust `localhost:32000` as an insecure registry.
-- **Canonical k8s**: applies an embedded Kubernetes manifest (a `registry:2` Deployment + NodePort 32000 Service). **Note:** for workloads to pull from `localhost:32000` you may also need to configure containerd's insecure-registries setting for canonical k8s separately.
+- **MicroK8s or canonical k8s**: applies an embedded `registry:2` Deployment + NodePort 32000 Service manifest via the provider's own `kubectl` (`microk8s kubectl` or `k8s kubectl`). The same manifest is used for both providers.
 - **Neither enabled**: logs a message and skips — no action taken.
 - **Already running**: detects an existing listener on port 32000 and skips without modifying anything.
+- **No rocks in `artifacts-generated.yaml`**: skips — the registry is only needed to serve locally-built rock images.
+- **Both providers enabled simultaneously**: raises an error.
 
 When using `opcli spread run`, the local prepare script automatically calls `opcli provision registry -c "$CONCIERGE"` after `concierge prepare`, so no manual step is needed in the spread workflow.
 
-> **MicroK8s note:** `opcli provision registry` calls `microk8s enable registry` directly. If you previously had `addons: [registry]` in your `concierge.yaml`, you can remove it — calling the addon twice is harmless but redundant.
+> **Note (canonical k8s):** For workloads to pull images from `localhost:32000`, containerd must treat it as an insecure registry. This may require additional manual configuration for canonical k8s.
 
 ## Development
 
