@@ -772,3 +772,38 @@ backends:
       apt-get install -y postgresql
       systemctl start postgresql
 ```
+
+---
+
+## 26. `opcli install spread` / `opcli install tox` / `opcli concierge prepare` — extracted subcommands
+
+**Spec:** Does not describe how spread, tox, or concierge are installed
+inside the test VM. The spec mentions `concierge prepare` as a provisioning
+step but treats installation details as internal.
+
+**Implementation:** The inline shell logic that previously lived inside the
+`_LOCAL_PREPARE` / `_CI_PREPARE` scripts has been extracted into dedicated
+opcli subcommands:
+
+| Command | Behaviour |
+|---|---|
+| `opcli install spread` | Installs Go via snap and builds spread from source. No-op if `spread` is already on `PATH`. |
+| `opcli install tox` | Installs tox + tox-uv via `uv tool install` into `/usr/local/bin`. |
+| `opcli concierge prepare -c <file>` | Installs the concierge snap and runs `concierge prepare`. No-op if the config file does not exist. |
+
+The generated prepare scripts now call these commands instead of embedding
+the equivalent shell logic:
+
+```bash
+opcli install spread
+opcli install tox
+opcli concierge prepare -c "$CONCIERGE"
+```
+
+Additionally, `opcli provision load` is now a safe no-op when
+`artifacts.build.yaml` is missing or the local registry is unreachable,
+removing the need for shell guards in the prepare scripts.
+
+**Rationale:** Extracting into proper subcommands makes the prepare scripts
+more readable, avoids duplicating shell logic between CI and local modes,
+and allows individual steps to be invoked and tested independently.
