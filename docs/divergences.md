@@ -723,3 +723,52 @@ the host and passes the result into the VM as an environment variable. This
 gives a single, overridable knob for controlling which opcli version runs
 inside the test environment — complementing divergence 22's
 `UV_TOOL_BIN_DIR` mechanism for *where* it is installed.
+
+---
+
+## 25. User-defined `prepare` scripts spliced into generated backend prepare
+
+**Spec:** States that "Spread's `prepare` and `prepare-each` hooks provide
+additional extension points beyond what concierge covers" (§2) but does not
+specify how a user-defined `prepare` on a virtual backend interacts with the
+generated prepare script.
+
+**Implementation:** If the user includes a `prepare` key in their virtual
+backend definition (e.g. under `integration-test:`), opcli splices it into
+the generated prepare at a specific insertion point rather than appending it
+at the end or discarding it.
+
+**Ordering — CI backend:**
+
+1. Tooling install + concierge provisioning
+2. **User's custom prepare** ← runs while build jobs are still in progress
+3. `opcli artifacts fetch --wait` (downloads built artifacts)
+
+**Ordering — Local backend:**
+
+1. Tooling install + concierge provisioning + OCI image loading
+2. **User's custom prepare**
+3. `chown -R ubuntu:ubuntu "${SPREAD_PATH}"`
+
+If no `prepare` key is present on the virtual backend, behavior is unchanged
+(the generated prepare contains only opcli's standard steps).
+
+**Rationale:** In CI, placing the user's prepare before the artifact wait
+means their setup (installing extra tools, configuring services) runs in
+parallel with the build jobs — no wasted time. In local mode, artifacts are
+already built before spread runs, so the user's prepare simply runs after
+provisioning. This is more appropriate than `prepare-each` for one-time
+setup since `prepare-each` runs before every task.
+
+**Example:**
+
+```yaml
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+    prepare: |
+      apt-get install -y postgresql
+      systemctl start postgresql
+```
