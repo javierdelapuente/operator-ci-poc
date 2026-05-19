@@ -306,6 +306,82 @@ suites:
         assert local["type"] == "adhoc"
         assert "lxc launch --vm" in local["allocate"]
 
+    def test_user_prepare_spliced_into_local(self, tmp_path: Path) -> None:
+        """User prepare is inserted after provisioning, before final chown."""
+        spread_with_prepare = """\
+project: test-project
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+    prepare: |
+      echo "user setup step"
+      apt-get install -y custom-pkg
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/integration/: {}
+"""
+        _write(tmp_path / "spread.yaml", spread_with_prepare)
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        local = parsed["backends"]["integration-test-local"]
+        prepare = local["prepare"]
+
+        # User prepare is present
+        assert 'echo "user setup step"' in prepare
+        assert "apt-get install -y custom-pkg" in prepare
+        # User prepare comes after concierge/provisioning
+        assert prepare.index("concierge prepare") < prepare.index("user setup step")
+        # User prepare comes before final chown
+        assert prepare.index("user setup step") < prepare.index(
+            'chown -R ubuntu:ubuntu "${SPREAD_PATH}"'
+        )
+
+    def test_user_prepare_spliced_into_ci(self, tmp_path: Path) -> None:
+        """User prepare is inserted after concierge, before artifact fetch."""
+        spread_with_prepare = """\
+project: test-project
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04
+    prepare: |
+      echo "user ci setup"
+environment:
+  MODULE/test_charm: test_charm
+suites:
+  tests/integration/: {}
+"""
+        _write(tmp_path / "spread.yaml", spread_with_prepare)
+        result = spread_expand(tmp_path, ci=True)
+        parsed = _yaml.load(StringIO(result))
+        ci = parsed["backends"]["integration-test-ci"]
+        prepare = ci["prepare"]
+
+        # User prepare is present
+        assert 'echo "user ci setup"' in prepare
+        # User prepare comes after concierge provisioning
+        assert prepare.index("concierge prepare") < prepare.index("user ci setup")
+        # User prepare comes before artifact fetch
+        assert prepare.index("user ci setup") < prepare.index("opcli artifacts fetch")
+
+    def test_no_user_prepare_unchanged(self, tmp_path: Path) -> None:
+        """Without a user prepare key, generated prepare is unchanged."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+        result = spread_expand(tmp_path, ci=False)
+        parsed = _yaml.load(StringIO(result))
+        local = parsed["backends"]["integration-test-local"]
+        prepare = local["prepare"]
+
+        # Standard parts are present
+        assert "concierge prepare" in prepare
+        assert 'chown -R ubuntu:ubuntu "${SPREAD_PATH}"' in prepare
+        # No doubled newlines from empty user prepare
+        assert "\n\n\n" not in prepare
+
     def test_local_allocate_has_cleanup_trap(self, tmp_path: Path) -> None:
         """The local allocate script must clean up the VM on failure."""
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
