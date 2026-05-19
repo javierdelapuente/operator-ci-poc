@@ -38,7 +38,7 @@ Never use `pip install`. All dependency management goes through `uv` and `pyproj
 src/opcli/
   commands/    # CLI layer ONLY — parses args, calls core/. No business logic.
   core/        # All business logic lives here.
-  models/      # Pydantic V2 models (artifacts.yaml, artifacts-generated.yaml)
+  models/      # Pydantic V2 models (artifacts.yaml, artifacts.build.yaml)
   data/        # Bundled static files (e.g. registry.yaml manifest)
 tests/
   unit/        # Fast tests — mock external processes
@@ -82,7 +82,7 @@ docs/          # Spec + divergences
 
 | File | Approach |
 |---|---|
-| `artifacts.yaml`, `artifacts-generated.yaml` | **Pydantic V2** — validated at load |
+| `artifacts.yaml`, `artifacts.build.yaml` | **Pydantic V2** — validated at load |
 | `spread.yaml`, `concierge.yaml`, `task.yaml` | **ruamel.yaml dict** — preserve comments/unknown keys |
 
 Pydantic conventions:

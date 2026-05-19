@@ -3,7 +3,7 @@ and ``opcli provision registry``.
 
 ``run`` invokes concierge to provision the test environment.
 
-``load`` reads ``artifacts-generated.yaml`` and pushes locally-built rock
+``load`` reads ``artifacts.build.yaml`` and pushes locally-built rock
 OCI images into a container image registry so that Juju / MicroK8s can
 pull them during integration tests.
 
@@ -25,12 +25,12 @@ from ruamel.yaml import YAML
 
 from opcli.core.exceptions import ConfigurationError
 from opcli.core.subprocess import run_command
-from opcli.core.yaml_io import dump_artifacts_generated, load_artifacts_generated
+from opcli.core.yaml_io import dump_artifacts_build, load_artifacts_build
 
 logger = logging.getLogger(__name__)
 
 _CONCIERGE_YAML = "concierge.yaml"
-_ARTIFACTS_GENERATED_YAML = "artifacts-generated.yaml"
+_ARTIFACTS_GENERATED_YAML = "artifacts.build.yaml"
 _DEFAULT_REGISTRY = "localhost:32000"
 _REGISTRY_PORT = 32000
 
@@ -72,7 +72,7 @@ def provision_load(
 ) -> list[str]:
     """Push locally-built rock images to *registry*.
 
-    Reads ``artifacts-generated.yaml`` and for each rock with a local
+    Reads ``artifacts.build.yaml`` and for each rock with a local
     ``file`` output, converts the ``.rock`` archive to an OCI image and
     pushes it to the target registry using ``skopeo``.
 
@@ -80,7 +80,7 @@ def provision_load(
         List of image references that were pushed.
 
     Raises:
-        ConfigurationError: If ``artifacts-generated.yaml`` is missing.
+        ConfigurationError: If ``artifacts.build.yaml`` is missing.
         SubprocessError: If a push command fails.
     """
     gen_path = root / _ARTIFACTS_GENERATED_YAML
@@ -90,7 +90,7 @@ def provision_load(
         )
         raise ConfigurationError(msg)
 
-    generated = load_artifacts_generated(gen_path)
+    generated = load_artifacts_build(gen_path)
     pushed: list[str] = []
 
     for rock in generated.rocks:
@@ -126,7 +126,7 @@ def provision_load(
             logger.info("Pushed %s", image_ref)
 
     if pushed:
-        dump_artifacts_generated(generated, gen_path)
+        dump_artifacts_build(generated, gen_path)
 
     return pushed
 
@@ -171,7 +171,7 @@ def provision_registry(
     # locally-built rock images.
     gen_path = root / _ARTIFACTS_GENERATED_YAML
     if gen_path.exists():
-        generated = load_artifacts_generated(gen_path)
+        generated = load_artifacts_build(gen_path)
         if not generated.rocks:
             logger.info(
                 "No rocks in %s, skipping registry setup.", _ARTIFACTS_GENERATED_YAML

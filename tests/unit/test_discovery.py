@@ -9,13 +9,13 @@ import pytest
 from opcli.core.discovery import discover_artifacts
 from opcli.core.exceptions import DiscoveryError
 from opcli.core.yaml_io import (
-    dump_artifacts_generated,
+    dump_artifacts_build,
     dump_artifacts_plan,
-    load_artifacts_generated,
+    load_artifacts_build,
     load_artifacts_plan,
 )
 from opcli.models.artifacts import ArtifactsPlan
-from opcli.models.artifacts_generated import (
+from opcli.models.artifacts_build import (
     ArtifactsGenerated,
     CharmOutput,
     GeneratedCharm,
@@ -207,7 +207,7 @@ class TestYamlIO:
         loaded = load_artifacts_plan(path)
         assert loaded == plan
 
-    def test_artifacts_generated_round_trip(self, tmp_path: Path) -> None:
+    def test_artifacts_build_round_trip(self, tmp_path: Path) -> None:
         gen = ArtifactsGenerated(
             rocks=[
                 GeneratedRock(
@@ -217,9 +217,9 @@ class TestYamlIO:
                 )
             ],
         )
-        path = tmp_path / "artifacts-generated.yaml"
-        dump_artifacts_generated(gen, path)
-        loaded = load_artifacts_generated(path)
+        path = tmp_path / "artifacts.build.yaml"
+        dump_artifacts_build(gen, path)
+        loaded = load_artifacts_build(path)
         assert loaded == gen
 
     def test_run_id_alias_survives_round_trip(self, tmp_path: Path) -> None:
@@ -233,10 +233,10 @@ class TestYamlIO:
             ],
         )
         path = tmp_path / "gen.yaml"
-        dump_artifacts_generated(gen, path)
+        dump_artifacts_build(gen, path)
         raw = path.read_text()
         assert "run-id" in raw
-        loaded = load_artifacts_generated(path)
+        loaded = load_artifacts_build(path)
         assert loaded.charms[0].output[0].run_id == "42"
 
     def test_load_invalid_yaml_raises(self, tmp_path: Path) -> None:

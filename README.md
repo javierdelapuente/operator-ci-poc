@@ -2,7 +2,7 @@
 
 A **local-first CLI tool** for Canonical operator developers to build charms, rocks, and snaps; manage test environments; and run integration tests — identically on a developer laptop and inside a CI job.
 
-`opcli` replaces the monolithic [`operator-workflows`](https://github.com/canonical/operator-workflows) approach with a modular pipeline based on explicit build plans (`artifacts.yaml`), stable build output (`artifacts-generated.yaml`), and [spread](https://github.com/canonical/spread)-based test execution.
+`opcli` replaces the monolithic [`operator-workflows`](https://github.com/canonical/operator-workflows) approach with a modular pipeline based on explicit build plans (`artifacts.yaml`), stable build output (`artifacts.build.yaml`), and [spread](https://github.com/canonical/spread)-based test execution.
 
 ## Documentation
 
@@ -32,7 +32,7 @@ opcli --help
 
 ```bash
 opcli artifacts init     # discover charms/rocks/snaps → artifacts.yaml
-opcli artifacts build    # build all → artifacts-generated.yaml
+opcli artifacts build    # build all → artifacts.build.yaml
 opcli spread init        # generate spread.yaml + task.yaml
 opcli spread expand      # preview expanded spread config
 opcli spread run         # run integration tests (LXD backend)
@@ -59,9 +59,9 @@ eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
 | Command | Description |
 |---|---|
 | `init` | Discover charms/rocks/snaps and generate `artifacts.yaml`. `--force` to overwrite. |
-| `build` | Build artifacts → `artifacts-generated.yaml`. Filter: `--charm`, `--rock`, `--snap`. |
+| `build` | Build artifacts → `artifacts.build.yaml`. Filter: `--charm`, `--rock`, `--snap`. |
 | `matrix` | Print JSON build matrix for GitHub Actions. |
-| `collect <partial>...` | Merge partial `artifacts-generated.yaml` from parallel jobs. |
+| `collect <partial>...` | Merge partial `artifacts.build.yaml` from parallel jobs. |
 | `fetch` | Download CI artifacts and rewrite to local paths. `--run-id`, `--repo`, `--wait`. |
 | `localize` | Rewrite CI artifact refs to local paths (after manual download). |
 
@@ -70,7 +70,7 @@ eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
 | Command | Description |
 |---|---|
 | `run` | Run `concierge prepare` to provision the test environment. |
-| `load` | Push rock images to registry, update `artifacts-generated.yaml`. `-r` for registry. |
+| `load` | Push rock images to registry, update `artifacts.build.yaml`. `-r` for registry. |
 | `registry` | Deploy local OCI registry at `localhost:32000`. `-c` for concierge path. |
 
 ### `opcli spread`
@@ -136,7 +136,7 @@ Two reusable workflows are available for operator repositories:
 
 | Workflow | Purpose |
 |---|---|
-| `build-artifacts.yml` | Build matrix generation, parallel artifact builds, merged `artifacts-generated.yaml` |
+| `build-artifacts.yml` | Build matrix generation, parallel artifact builds, merged `artifacts.build.yaml` |
 | `integration-test.yml` | Download artifacts, generate spread task matrix, run integration tests |
 
 Example usage:

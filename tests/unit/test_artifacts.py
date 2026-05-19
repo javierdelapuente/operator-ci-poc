@@ -21,7 +21,7 @@ from opcli.core.artifacts import (
 )
 from opcli.core.exceptions import ConfigurationError, OpcliError, SubprocessError
 from opcli.core.subprocess import SubprocessResult
-from opcli.core.yaml_io import load_artifacts_generated, load_artifacts_plan
+from opcli.core.yaml_io import load_artifacts_build, load_artifacts_plan
 
 
 def _write(path: Path, content: str) -> None:
@@ -91,7 +91,7 @@ class TestArtifactsBuild:
 
         mock_run.assert_called_once()
         assert "charmcraft" in mock_run.call_args[0][0]
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "mycharm"
         assert len(gen.charms[0].output) == 1
@@ -113,7 +113,7 @@ class TestArtifactsBuild:
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path)
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         outputs = gen.charms[0].output
         expected_count = 3
         assert len(outputs) == expected_count
@@ -146,7 +146,7 @@ class TestArtifactsBuild:
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path)
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         outputs = gen.charms[0].output
         expected_count = 2
         assert len(outputs) == expected_count
@@ -170,7 +170,7 @@ class TestArtifactsBuild:
 
         mock_run.assert_called_once()
         assert "rockcraft" in mock_run.call_args[0][0]
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert len(gen.rocks) == 1
         assert gen.rocks[0].output[0].file is not None
         assert gen.rocks[0].output[0].file.startswith("./")
@@ -210,7 +210,7 @@ class TestArtifactsBuild:
 
         mock_run.assert_called_once()
         assert "snapcraft" in mock_run.call_args[0][0]
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert len(gen.snaps) == 1
 
     def test_build_filtered_by_charm_name(self, tmp_path: Path) -> None:
@@ -227,7 +227,7 @@ class TestArtifactsBuild:
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path, charm_names=["charm-a"])
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "charm-a"
 
@@ -291,7 +291,7 @@ class TestArtifactsBuild:
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path)
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert len(gen.rocks) == 1
         assert len(gen.charms) == 1
 
@@ -315,7 +315,7 @@ class TestArtifactsBuild:
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path)
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         charm = gen.charms[0]
         assert charm.resources is not None
         assert "myrock-image" in charm.resources
@@ -340,7 +340,7 @@ class TestArtifactsBuild:
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path)
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         charm = gen.charms[0]
         assert charm.resources is not None
         res = charm.resources["myrock-image"]
@@ -349,12 +349,12 @@ class TestArtifactsBuild:
 
     def test_invalid_generated_fields_rejected(self, tmp_path: Path) -> None:
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             "version: 1\ncharms:\n- name: c\n  source: .\n"
             "  output:\n    file: ./c.charm\n",
         )
         with pytest.raises(Exception, match="validation error"):
-            load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+            load_artifacts_build(tmp_path / "artifacts.build.yaml")
 
     def test_build_rock_with_pack_dir_creates_symlink(self, tmp_path: Path) -> None:
         """pack-dir: a temporary rockcraft.yaml symlink is created and removed."""
@@ -385,7 +385,7 @@ class TestArtifactsBuild:
 
         # Symlink must be removed after build
         assert not (tmp_path / "rockcraft.yaml").exists()
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert gen.rocks[0].output[0].file is not None
 
     def test_build_rock_pack_dir_real_file_raises(self, tmp_path: Path) -> None:
@@ -437,7 +437,7 @@ class TestArtifactsBuild:
             result = artifacts_build(tmp_path)
 
         assert symlink_created == [False], "no symlink when content is identical"
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert gen.rocks[0].output[0].file is not None
 
     def test_build_rock_pack_dir_existing_symlink_replaced(
@@ -466,7 +466,7 @@ class TestArtifactsBuild:
 
         # Symlink removed after build
         assert not existing_symlink.exists()
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert gen.rocks[0].output[0].file is not None
 
     def test_build_rock_nonstandard_yaml_name_creates_symlink(
@@ -505,7 +505,7 @@ class TestArtifactsBuild:
             "symlink target must be relative"
         )
         assert not (tmp_path / "rockcraft.yaml").exists(), "symlink removed after build"
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert gen.rocks[0].output[0].file is not None
 
     def test_build_rock_standard_yaml_name_no_symlink(self, tmp_path: Path) -> None:
@@ -712,7 +712,7 @@ class TestArtifactsBuild:
         with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
             result = artifacts_build(tmp_path)
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         charm_a = next(c for c in gen.charms if c.name == "charm-a")
         charm_b = next(c for c in gen.charms if c.name == "charm-b")
 
@@ -750,7 +750,7 @@ class TestArtifactsBuild:
         with patch("opcli.core.artifacts.run_command"):
             result = artifacts_build(tmp_path)
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         outputs = gen.charms[0].output
         expected_count = 2
         assert len(outputs) == expected_count
@@ -911,7 +911,7 @@ class TestArtifactsCollect:
         name: str,
         content: str,
     ) -> Path:
-        p = tmp_path / name / "artifacts-generated.yaml"
+        p = tmp_path / name / "artifacts.build.yaml"
         _write(p, content)
         return p
 
@@ -933,10 +933,10 @@ class TestArtifactsCollect:
             "    base: ubuntu@24.04\n",
         )
 
-        dest = tmp_path / "artifacts-generated.yaml"
+        dest = tmp_path / "artifacts.build.yaml"
         artifacts_collect(tmp_path, [rock_partial, charm_partial])
 
-        gen = load_artifacts_generated(dest)
+        gen = load_artifacts_build(dest)
         assert len(gen.rocks) == 1
         assert len(gen.charms) == 1
         assert gen.rocks[0].name == "my-rock"
@@ -967,7 +967,7 @@ class TestArtifactsCollect:
 
         artifacts_collect(tmp_path, [rock_partial, charm_partial])
 
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         # Image lives on the rock, not on the resource
         assert gen.rocks[0].output[0].file == "./my-rock_1.0_amd64.rock"
         resource = gen.charms[0].resources["my-rock-image"]  # type: ignore[index]
@@ -991,7 +991,7 @@ class TestArtifactsCollect:
 
         artifacts_collect(tmp_path, [rock1, rock2])
 
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         expected_count = 2
         assert len(gen.rocks) == expected_count
         names = {r.name for r in gen.rocks}
@@ -1063,7 +1063,7 @@ class TestArtifactsCollect:
 
         artifacts_collect(tmp_path, [rock_amd64, rock_arm64])
 
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         assert len(gen.rocks) == 1
         assert gen.rocks[0].name == "my-rock"
         expected_arch_count = 2
@@ -1094,7 +1094,7 @@ class TestArtifactsCollect:
 
         artifacts_collect(tmp_path, [charm_amd64, charm_arm64])
 
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "my-charm"
         expected_arch_count = 2
@@ -1121,7 +1121,7 @@ class TestArtifactsCollect:
 
         artifacts_collect(tmp_path, [snap_amd64, snap_arm64])
 
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         assert len(gen.snaps) == 1
         assert gen.snaps[0].name == "my-snap"
         expected_arch_count = 2
@@ -1160,7 +1160,7 @@ class TestArtifactsBuildCIMode:
             mock_run.side_effect = lambda cmd, **_: rock_file.touch()
             result = artifacts_build(tmp_path, rock_names=["my-rock"])
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert len(gen.rocks) == 1
         rock_out = gen.rocks[0].output
         assert rock_out[0].file is None
@@ -1193,7 +1193,7 @@ class TestArtifactsBuildCIMode:
             mock_run.side_effect = lambda cmd, **_: charm_file.touch()
             result = artifacts_build(tmp_path, charm_names=["my-charm"])
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert len(gen.charms) == 1
         charm_out = gen.charms[0].output
         assert charm_out[0].path is None
@@ -1217,7 +1217,7 @@ class TestArtifactsBuildCIMode:
             mock_run.side_effect = lambda cmd, **_: snap_file.touch()
             result = artifacts_build(tmp_path, snap_names=["my-snap"])
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert len(gen.snaps) == 1
         snap_out = gen.snaps[0].output
         assert snap_out[0].file is None
@@ -1243,7 +1243,7 @@ class TestArtifactsBuildCIMode:
             mock_run.side_effect = lambda cmd, **_: charm_file.touch()
             result = artifacts_build(tmp_path, charm_names=["my-charm"])
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         charm_out = gen.charms[0].output
         assert charm_out[0].artifact is None
         assert len(charm_out) == 1
@@ -1296,7 +1296,7 @@ class TestArtifactsBuildCIMode:
             mock_run.side_effect = lambda cmd, **_: rock_file.touch()
             result = artifacts_build(tmp_path, rock_names=["my-rock"])
 
-        gen = load_artifacts_generated(result)
+        gen = load_artifacts_build(result)
         assert gen.rocks[0].output[0].image is not None
         assert "MyOrg" not in gen.rocks[0].output[0].image
         assert "myorg" in gen.rocks[0].output[0].image
@@ -1306,7 +1306,7 @@ class TestArtifactsCollectCIMode:
     """Tests for artifacts_collect() with CI-format (image/artifact) partials."""
 
     def _partial(self, tmp_path: Path, name: str, content: str) -> Path:
-        p = tmp_path / name / "artifacts-generated.yaml"
+        p = tmp_path / name / "artifacts.build.yaml"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         return p
@@ -1338,7 +1338,7 @@ class TestArtifactsCollectCIMode:
 
         artifacts_collect(tmp_path, [rock_partial, charm_partial])
 
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         assert gen.rocks[0].output[0].image == "ghcr.io/myorg/my-repo/my-rock:abc1234"
         resource = gen.charms[0].resources["my-rock-image"]  # type: ignore[index]
         # Resource carries the rock reference; image resolved from rock.output.image
@@ -1365,14 +1365,14 @@ class TestArtifactsLocalize:
     def test_localises_charm_from_downloaded_file(self, tmp_path: Path) -> None:
         """Finds .charm file and updates output.files."""
 
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         charm_file = tmp_path / "my-charm_ubuntu-24.04-amd64.charm"
         charm_file.write_bytes(b"")
 
         count = artifacts_localize(tmp_path)
 
         assert count == 1
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         assert len(gen.charms[0].output) == 1
         path = gen.charms[0].output[0].path
         assert path is not None
@@ -1392,7 +1392,7 @@ class TestArtifactsLocalize:
             "  - arch: amd64\n"
             "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
         )
-        _write(tmp_path / "artifacts-generated.yaml", generated)
+        _write(tmp_path / "artifacts.build.yaml", generated)
         charm_file = tmp_path / "my-charm_new.charm"
         charm_file.write_bytes(b"")
 
@@ -1403,13 +1403,13 @@ class TestArtifactsLocalize:
     def test_raises_when_no_charm_file_found(self, tmp_path: Path) -> None:
         """Raises ConfigurationError when a CI-ref charm has no matching .charm file."""
 
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
 
         with pytest.raises(ConfigurationError, match="my-charm"):
             artifacts_localize(tmp_path)
 
     def test_missing_generated_yaml_raises(self, tmp_path: Path) -> None:
-        """Raises ConfigurationError when artifacts-generated.yaml is missing."""
+        """Raises ConfigurationError when artifacts.build.yaml is missing."""
 
         with pytest.raises(ConfigurationError):
             artifacts_localize(tmp_path)
@@ -1426,7 +1426,7 @@ class TestArtifactsLocalize:
             "  - arch: amd64\n"
             "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
         )
-        _write(tmp_path / "artifacts-generated.yaml", generated)
+        _write(tmp_path / "artifacts.build.yaml", generated)
         # Create a second charm file — should not be picked up since charm
         # already has output.files
         (tmp_path / "my-charm_new.charm").write_bytes(b"")
@@ -1438,7 +1438,7 @@ class TestArtifactsLocalize:
     def test_does_not_match_charm_with_longer_prefix_name(self, tmp_path: Path) -> None:
         """Does not pick up 'my-charm-k8s_*.charm' when localising 'my-charm'."""
 
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         # Only the longer-prefix file exists — pattern must NOT match it
         (tmp_path / "my-charm-k8s_ubuntu-24.04-amd64.charm").write_bytes(b"")
 
@@ -1447,13 +1447,13 @@ class TestArtifactsLocalize:
 
     def test_localises_all_files_for_multi_base_charm(self, tmp_path: Path) -> None:
         """Populates output.files with all per-base .charm files."""
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         (tmp_path / "my-charm_ubuntu-22.04-amd64.charm").write_bytes(b"")
         (tmp_path / "my-charm_ubuntu-24.04-amd64.charm").write_bytes(b"")
 
         artifacts_localize(tmp_path)
 
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         charm = gen.charms[0]
         assert len(charm.output) == 2  # noqa: PLR2004
         paths = {o.path for o in charm.output}
@@ -1520,8 +1520,8 @@ class TestArtifactsFetch:
         (d / "my-snap_amd64.snap").write_bytes(b"")
 
     def test_downloads_generated_and_charm_artifacts(self, tmp_path: Path) -> None:
-        """Downloads artifacts-generated + each charm/snap artifact, then localises."""
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        """Downloads artifacts-build + each charm/snap artifact, then localises."""
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
         self._make_snap_files(tmp_path)
 
@@ -1529,9 +1529,9 @@ class TestArtifactsFetch:
         with patch(patch_target, return_value=self._GH_RESULT) as mock_run:
             result = artifacts_fetch(tmp_path, run_id="99887766", repo="owner/my-repo")
 
-        assert result == tmp_path / "artifacts-generated.yaml"
+        assert result == tmp_path / "artifacts.build.yaml"
         calls = mock_run.call_args_list
-        # First call: download artifacts-generated
+        # First call: download artifacts-build
         assert calls[0] == call(
             [
                 "gh",
@@ -1541,7 +1541,7 @@ class TestArtifactsFetch:
                 "--repo",
                 "owner/my-repo",
                 "--name",
-                "artifacts-generated",
+                "artifacts-build",
                 "--dir",
                 str(tmp_path),
             ],
@@ -1557,11 +1557,11 @@ class TestArtifactsFetch:
 
     def test_skips_rocks_no_download(self, tmp_path: Path) -> None:
         """Rock OCI images are not downloaded — only the initial yaml + charms/snaps."""
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
         self._make_snap_files(tmp_path)
 
-        # 1 artifacts-generated + 2 charms + 1 snap = 4; no rock download
+        # 1 artifacts-build + 2 charms + 1 snap = 4; no rock download
         _EXPECTED_CALLS = 4
         patch_target = "opcli.core.artifacts.run_command"
         with patch(patch_target, return_value=self._GH_RESULT) as mock_run:
@@ -1571,11 +1571,11 @@ class TestArtifactsFetch:
 
     def test_infers_repo_from_git_remote(self, tmp_path: Path) -> None:
         """Infers owner/repo from git remote when --repo is not given."""
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
         self._make_snap_files(tmp_path)
 
-        # git + artifacts-generated + 2 charms + 1 snap = 5 calls
+        # git + artifacts-build + 2 charms + 1 snap = 5 calls
         gh = self._GH_RESULT
         results = [self._GIT_RESULT, gh, gh, gh, gh]
         patch_target = "opcli.core.artifacts.run_command"
@@ -1592,7 +1592,7 @@ class TestArtifactsFetch:
 
     def test_infers_repo_from_ssh_remote(self, tmp_path: Path) -> None:
         """Parses SSH-format git remote URLs (git@github.com:owner/repo.git)."""
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
         self._make_snap_files(tmp_path)
 
@@ -1606,7 +1606,7 @@ class TestArtifactsFetch:
 
     def test_infers_repo_strips_trailing_slash(self, tmp_path: Path) -> None:
         """Strips trailing slash from git remote URLs like https://github.com/o/r/."""
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
         self._make_snap_files(tmp_path)
 
@@ -1635,15 +1635,15 @@ class TestArtifactsFetch:
             artifacts_fetch(tmp_path, run_id="99887766")
 
     def test_localises_after_download(self, tmp_path: Path) -> None:
-        """artifacts-generated.yaml is updated with local file paths after fetch."""
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        """artifacts.build.yaml is updated with local file paths after fetch."""
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
         self._make_snap_files(tmp_path)
 
         with patch("opcli.core.artifacts.run_command", return_value=self._GH_RESULT):
             artifacts_fetch(tmp_path, run_id="99887766", repo="owner/my-repo")
 
-        gen = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         for charm in gen.charms:
             charm_paths = [o.path for o in charm.output if o.path]
             assert charm_paths, f"Charm '{charm.name}' was not localised"
@@ -1654,7 +1654,7 @@ class TestArtifactsFetch:
 
     def test_wait_retries_until_artifact_appears(self, tmp_path: Path) -> None:
         """With wait=True, retries the initial download and succeeds on 2nd attempt."""
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
         self._make_snap_files(tmp_path)
 
@@ -1713,11 +1713,11 @@ class TestArtifactsFetch:
             "  - arch: amd64\n"
             "    image: ghcr.io/owner/repo/my-rock:abc1234\n"
         )
-        _write(tmp_path / "artifacts-generated.yaml", rocks_only)
+        _write(tmp_path / "artifacts.build.yaml", rocks_only)
         file_exists_error = SubprocessError(
             ["gh"],
             1,
-            'error extracting "artifacts-generated.yaml": open ...: file exists',
+            'error extracting "artifacts.build.yaml": open ...: file exists',
         )
         gh = self._GH_RESULT
         call_count = 0
@@ -1727,13 +1727,13 @@ class TestArtifactsFetch:
             call_count += 1
             if call_count == 1:
                 raise file_exists_error
-            _write(tmp_path / "artifacts-generated.yaml", rocks_only)
+            _write(tmp_path / "artifacts.build.yaml", rocks_only)
             return gh
 
         with patch("opcli.core.artifacts.run_command", side_effect=side_effect):
             result = artifacts_fetch(tmp_path, run_id="99887766", repo="owner/my-repo")
 
-        assert result == tmp_path / "artifacts-generated.yaml"
+        assert result == tmp_path / "artifacts.build.yaml"
         _EXPECTED_CALLS = 2
         assert call_count == _EXPECTED_CALLS
 
@@ -1748,11 +1748,11 @@ class TestArtifactsFetch:
             "  - arch: amd64\n"
             "    image: ghcr.io/owner/repo/my-rock:abc1234\n"
         )
-        _write(tmp_path / "artifacts-generated.yaml", rocks_only)
+        _write(tmp_path / "artifacts.build.yaml", rocks_only)
         file_exists_error = SubprocessError(
             ["gh"],
             1,
-            'error extracting "artifacts-generated.yaml": open ...: file exists',
+            'error extracting "artifacts.build.yaml": open ...: file exists',
         )
         gh = self._GH_RESULT
         call_count = 0
@@ -1762,7 +1762,7 @@ class TestArtifactsFetch:
             call_count += 1
             if call_count == 1:
                 raise file_exists_error
-            _write(tmp_path / "artifacts-generated.yaml", rocks_only)
+            _write(tmp_path / "artifacts.build.yaml", rocks_only)
             return gh
 
         with (
@@ -1823,7 +1823,7 @@ class TestArtifactsFetch:
         self, tmp_path: Path
     ) -> None:
         """With wait=True, keeps retrying when collect job conclusion is None."""
-        _write(tmp_path / "artifacts-generated.yaml", self._GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", self._GENERATED_CI)
         self._make_charm_files(tmp_path)
         self._make_snap_files(tmp_path)
 

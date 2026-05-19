@@ -1,7 +1,7 @@
 name: Build Artifacts
 
 # Reusable workflow that builds all charms, rocks, and snaps declared in
-# artifacts.yaml and publishes a merged artifacts-generated.yaml as a
+# artifacts.yaml and publishes a merged artifacts.build.yaml as a
 # GitHub artifact.
 #
 # Call from your operator repository:
@@ -142,14 +142,14 @@ jobs:
           path: ${{ inputs.working-directory }}/**/*.${{ matrix.type }}
           if-no-files-found: error
 
-      - name: Upload partial artifacts-generated.yaml
+      - name: Upload partial artifacts.build.yaml
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-generated-${{ matrix.type }}-${{ matrix.name }}-${{ matrix.arch }}
-          path: ${{ inputs.working-directory }}/artifacts-generated.yaml
+          name: artifacts-build-${{ matrix.type }}-${{ matrix.name }}-${{ matrix.arch }}
+          path: ${{ inputs.working-directory }}/artifacts.build.yaml
           if-no-files-found: error
 
-  # ── Job 3: merge all partials into the final artifacts-generated.yaml ───────
+  # ── Job 3: merge all partials into the final artifacts.build.yaml ───────
   collect:
     name: Collect artifacts
     needs: [build-matrix, build]
@@ -171,20 +171,20 @@ jobs:
             uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.build-matrix.outputs.opcli-sha }}"
           fi
 
-      - name: Download all partial artifacts-generated.yaml files
+      - name: Download all partial artifacts.build.yaml files
         uses: actions/download-artifact@v4
         with:
-          pattern: artifacts-generated-*
+          pattern: artifacts-build-*
           path: ${{ inputs.working-directory }}/partial-artifacts/
 
       - name: Merge partials
         run: |
           opcli artifacts collect \
-            $(find ./partial-artifacts -name "artifacts-generated.yaml" | sort | tr '\n' ' ')
+            $(find ./partial-artifacts -name "artifacts.build.yaml" | sort | tr '\n' ' ')
 
-      - name: Upload merged artifacts-generated.yaml
+      - name: Upload merged artifacts.build.yaml
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-generated
-          path: ${{ inputs.working-directory }}/artifacts-generated.yaml
+          name: artifacts-build
+          path: ${{ inputs.working-directory }}/artifacts.build.yaml
           if-no-files-found: error

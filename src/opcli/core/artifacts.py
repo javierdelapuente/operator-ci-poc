@@ -2,7 +2,7 @@
 
 ``init`` discovers artifacts and writes ``artifacts.yaml``.
 ``build`` reads the plan, invokes pack tools, and writes
-``artifacts-generated.yaml``.
+``artifacts.build.yaml``.
 ``fetch`` downloads a completed CI run's artifacts so tests can run locally.
 """
 
@@ -22,9 +22,9 @@ from opcli.core.discovery import discover_artifacts
 from opcli.core.exceptions import ConfigurationError, OpcliError, SubprocessError
 from opcli.core.subprocess import run_command
 from opcli.core.yaml_io import (
-    dump_artifacts_generated,
+    dump_artifacts_build,
     dump_artifacts_plan,
-    load_artifacts_generated,
+    load_artifacts_build,
     load_artifacts_plan,
     load_yaml,
 )
@@ -33,7 +33,7 @@ from opcli.models.artifacts import (
     RockArtifact,
     SnapArtifact,
 )
-from opcli.models.artifacts_generated import (
+from opcli.models.artifacts_build import (
     ArtifactsGenerated,
     CharmOutput,
     GeneratedCharm,
@@ -47,7 +47,7 @@ from opcli.models.artifacts_generated import (
 logger = logging.getLogger(__name__)
 
 _ARTIFACTS_YAML = "artifacts.yaml"
-_ARTIFACTS_GENERATED_YAML = "artifacts-generated.yaml"
+_ARTIFACTS_GENERATED_YAML = "artifacts.build.yaml"
 
 _PACK_COMMANDS: dict[str, list[str]] = {
     "charm": ["charmcraft", "pack", "--verbose"],
@@ -630,7 +630,7 @@ def artifacts_build(
     rock_names: list[str] | None = None,
     snap_names: list[str] | None = None,
 ) -> Path:
-    """Build artifacts and write ``artifacts-generated.yaml``.
+    """Build artifacts and write ``artifacts.build.yaml``.
 
     If *charm_names*, *rock_names*, or *snap_names* are given, only
     those artifacts are built.  Otherwise all declared artifacts are built.
@@ -684,7 +684,7 @@ def artifacts_build(
     )
 
     dest = root / _ARTIFACTS_GENERATED_YAML
-    dump_artifacts_generated(generated, dest)
+    dump_artifacts_build(generated, dest)
     logger.info("Wrote %s", dest)
     return dest
 
@@ -799,17 +799,17 @@ def _merge_artifact_outputs[T: (GeneratedRock, GeneratedCharm, GeneratedSnap)](
 
 
 def artifacts_collect(root: Path, partial_paths: list[Path]) -> Path:
-    """Merge partial ``artifacts-generated.yaml`` files into one.
+    """Merge partial ``artifacts.build.yaml`` files into one.
 
     In CI, each matrix build job produces a partial file containing only the
     artifact it built.  This function merges all partials into a single
-    ``artifacts-generated.yaml`` and re-fills charm resource ``file``/``image``
+    ``artifacts.build.yaml`` and re-fills charm resource ``file``/``image``
     references from the merged rock outputs (rocks and charms build in parallel
     so charm partials have ``null`` resource refs at build time).
 
     Args:
         root: Repository root; the merged file is written here.
-        partial_paths: Paths to the partial ``artifacts-generated.yaml`` files.
+        partial_paths: Paths to the partial ``artifacts.build.yaml`` files.
 
     Returns:
         The path to the written merged file.
@@ -818,12 +818,12 @@ def artifacts_collect(root: Path, partial_paths: list[Path]) -> Path:
         ConfigurationError: If *partial_paths* is empty or a path does not exist.
     """
     if not partial_paths:
-        msg = "No partial artifacts-generated.yaml files provided to collect."
+        msg = "No partial artifacts.build.yaml files provided to collect."
         raise ConfigurationError(msg)
 
     for p in partial_paths:
         if not p.exists():
-            msg = f"Partial artifacts-generated.yaml not found: {p}"
+            msg = f"Partial artifacts.build.yaml not found: {p}"
             raise ConfigurationError(msg)
 
     all_rocks: list[GeneratedRock] = []
@@ -831,7 +831,7 @@ def artifacts_collect(root: Path, partial_paths: list[Path]) -> Path:
     all_snaps: list[GeneratedSnap] = []
 
     for p in partial_paths:
-        partial = load_artifacts_generated(p)
+        partial = load_artifacts_build(p)
         all_rocks.extend(partial.rocks)
         all_charms.extend(partial.charms)
         all_snaps.extend(partial.snaps)
@@ -860,7 +860,7 @@ def artifacts_collect(root: Path, partial_paths: list[Path]) -> Path:
         snaps=merged_snaps,
     )
     dest = root / _ARTIFACTS_GENERATED_YAML
-    dump_artifacts_generated(generated, dest)
+    dump_artifacts_build(generated, dest)
     logger.info("Wrote merged %s", dest)
     return dest
 
@@ -1047,20 +1047,20 @@ def _localize_charm(
 
 
 def artifacts_localize(root: Path) -> int:
-    """Update ``artifacts-generated.yaml`` with local artifact file paths.
+    """Update ``artifacts.build.yaml`` with local artifact file paths.
 
     In CI, charm and snap outputs are recorded as ``artifact + run-id``
     references.  Before running integration tests, the workflow downloads
     the artifacts to the working directory.  This command scans the project
     tree for ``.charm`` / ``.snap`` files and rewrites
-    ``artifacts-generated.yaml`` so that each :class:`CharmOutput` with only
+    ``artifacts.build.yaml`` so that each :class:`CharmOutput` with only
     a CI artifact reference gets a ``path`` entry pointing to the discovered
     local file, and each :class:`SnapOutput` gets a ``file`` entry.
 
     Returns the total number of arch-builds that were localised.
 
     Raises:
-        ConfigurationError: If ``artifacts-generated.yaml`` is not found or
+        ConfigurationError: If ``artifacts.build.yaml`` is not found or
             if any artifact with a CI reference has no matching local file.
     """
     gen_path = root / _ARTIFACTS_GENERATED_YAML
@@ -1068,7 +1068,7 @@ def artifacts_localize(root: Path) -> int:
         msg = f"{_ARTIFACTS_GENERATED_YAML} not found."
         raise ConfigurationError(msg)
 
-    generated = load_artifacts_generated(gen_path)
+    generated = load_artifacts_build(gen_path)
 
     updated = 0
     missing: list[str] = []
@@ -1107,7 +1107,7 @@ def artifacts_localize(root: Path) -> int:
         raise ConfigurationError(msg)
 
     if updated:
-        dump_artifacts_generated(generated, gen_path)
+        dump_artifacts_build(generated, gen_path)
         logger.info("Updated %s with %d localised artifact(s).", gen_path, updated)
 
     return updated
@@ -1161,7 +1161,7 @@ _AUTH_ERROR_KEYWORDS = (
 # Keywords that indicate the destination file already exists; we delete it and retry.
 _FILE_EXISTS_KEYWORDS = ("file exists",)
 
-# Job name (or substring) that uploads the merged artifacts-generated artifact.
+# Job name (or substring) that uploads the merged artifacts-build artifact.
 # In reusable-workflow runs the API prefixes this with the caller job name
 # (e.g. "build / Collect artifacts"), so we use a substring match.
 _COLLECT_JOB_NAME = "Collect artifacts"
@@ -1301,7 +1301,7 @@ def _gh_download_with_wait(
 
     last_msg = last_exc.stderr.strip() if last_exc else ""
     msg = (
-        f"Timed out waiting for artifacts-generated artifact from run "
+        f"Timed out waiting for artifacts-build artifact from run "
         f"{run_id!r} after {_WAIT_MAX_ATTEMPTS * _WAIT_SLEEP_SECONDS}s. "
         f"Last error: {last_msg}"
     )
@@ -1319,13 +1319,13 @@ def artifacts_fetch(
 
     Steps:
     1. Infer ``owner/repo`` from the local git remote if *repo* is not given.
-    2. Download ``artifacts-generated.yaml`` from the named GitHub Actions
+    2. Download ``artifacts.build.yaml`` from the named GitHub Actions
        artifact.  When *wait* is ``True``, retries up to
        :data:`_WAIT_MAX_ATTEMPTS` times until the artifact appears (useful
        when the test job starts before the build completes).
     3. For every charm/snap that carries a CI artifact reference, download the
        corresponding artifact archive.
-    4. Call :func:`artifacts_localize` to rewrite ``artifacts-generated.yaml``
+    4. Call :func:`artifacts_localize` to rewrite ``artifacts.build.yaml``
        with the local ``.charm`` / ``.snap`` file paths.
 
     Rock artifacts are OCI images on GHCR and need no download — their
@@ -1336,12 +1336,12 @@ def artifacts_fetch(
         run_id: GitHub Actions workflow run ID.
         repo: GitHub repository in ``owner/name`` format.  Inferred from the
             local git remote when ``None``.
-        wait: When ``True``, retry the initial ``artifacts-generated``
+        wait: When ``True``, retry the initial ``artifacts-build``
             download until it succeeds.  Fails immediately on
             authentication/permission errors.
 
     Returns:
-        Path to the updated ``artifacts-generated.yaml``.
+        Path to the updated ``artifacts.build.yaml``.
 
     Raises:
         ConfigurationError: If the repo cannot be inferred, the yaml is
@@ -1359,7 +1359,7 @@ def artifacts_fetch(
         "--repo",
         repo,
         "--name",
-        "artifacts-generated",
+        "artifacts-build",
         "--dir",
         str(root),
     ]
@@ -1376,7 +1376,7 @@ def artifacts_fetch(
         )
         raise ConfigurationError(msg)
 
-    generated = load_artifacts_generated(gen_path)
+    generated = load_artifacts_build(gen_path)
 
     # Download each charm / snap artifact archive (deduplicated)
     seen_artifacts: set[str] = set()

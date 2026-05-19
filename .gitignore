@@ -215,4 +215,4 @@ __marimo__/
 .spread-reuse.*.yaml
 
 # Generated artifacts
-artifacts-generated.yaml
+artifacts.build.yaml

@@ -292,7 +292,7 @@ if [ -f "$CONCIERGE" ]; then
   runuser -l ubuntu -c \
     "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
 fi
-if [ -f "${SPREAD_PATH}/artifacts-generated.yaml" ] && \
+if [ -f "${SPREAD_PATH}/artifacts.build.yaml" ] && \
     curl -sf --max-time 5 http://localhost:32000/v2/ > /dev/null 2>&1; then
   opcli provision load
 fi

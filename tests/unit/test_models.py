@@ -1,4 +1,4 @@
-"""Tests for Pydantic models (artifacts.yaml and artifacts-generated.yaml)."""
+"""Tests for Pydantic models (artifacts.yaml and artifacts.build.yaml)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from opcli.models.artifacts import (
     CharmArtifact,
     RockArtifact,
 )
-from opcli.models.artifacts_generated import (
+from opcli.models.artifacts_build import (
     ArtifactsGenerated,
     CharmOutput,
     GeneratedCharm,
@@ -143,7 +143,7 @@ class TestArtifactsPlan:
 
 
 class TestArtifactsGenerated:
-    """Validation tests for artifacts-generated.yaml models."""
+    """Validation tests for artifacts.build.yaml models."""
 
     def test_local_output(self) -> None:
         out = RockOutput(arch="amd64", file="./myrock.rock")

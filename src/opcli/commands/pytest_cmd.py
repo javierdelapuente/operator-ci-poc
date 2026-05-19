@@ -21,7 +21,7 @@ def expand(
     *,
     tox_env: str = typer.Option("integration", "-e", help="Tox environment name."),
 ) -> None:
-    """Print the full tox command assembled from artifacts-generated.yaml.
+    """Print the full tox command assembled from artifacts.build.yaml.
 
     Extra args after -- are forwarded into the printed command.
     """

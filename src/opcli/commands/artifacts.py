@@ -46,7 +46,7 @@ def build(
         [], "--snap", help="Build only this snap. Repeatable."
     ),
 ) -> None:
-    """Build artifacts and produce artifacts-generated.yaml."""
+    """Build artifacts and produce artifacts.build.yaml."""
     path = artifacts_build(
         Path.cwd(),
         charm_names=charm or None,
@@ -71,13 +71,13 @@ def matrix() -> None:
 def collect(
     partials: Annotated[
         list[Path],
-        typer.Argument(help="Partial artifacts-generated.yaml files to merge."),
+        typer.Argument(help="Partial artifacts.build.yaml files to merge."),
     ],
 ) -> None:
-    """Merge partial artifacts-generated.yaml files into one.
+    """Merge partial artifacts.build.yaml files into one.
 
     Downloads from each parallel CI build job produce a partial
-    artifacts-generated.yaml.  This command merges them and re-fills charm
+    artifacts.build.yaml.  This command merges them and re-fills charm
     resource references from the merged rock outputs.
     """
     path = artifacts_collect(Path.cwd(), partials)
@@ -103,16 +103,16 @@ def fetch(
         bool,
         typer.Option(
             "--wait/--no-wait",
-            help="Retry until artifacts-generated appears (use when the build "
+            help="Retry until artifacts-build appears (use when the build "
             "job may still be running).",
         ),
     ] = False,
 ) -> None:
     """Download artifacts from a CI run and prepare for local testing.
 
-    Downloads artifacts-generated.yaml, then downloads all charm/snap artifact
+    Downloads artifacts.build.yaml, then downloads all charm/snap artifact
     archives. Rock artifacts are GHCR images and require no download.
-    Finally rewrites artifacts-generated.yaml with local file paths so that
+    Finally rewrites artifacts.build.yaml with local file paths so that
     ``opcli pytest run`` and ``opcli spread run`` work without a local build.
     """
     path = artifacts_fetch(Path.cwd(), run_id=run_id, repo=repo, wait=wait)
@@ -121,17 +121,15 @@ def fetch(
 
 @app.command()
 def localize() -> None:
-    """Update artifacts-generated.yaml with downloaded local charm file paths.
+    """Update artifacts.build.yaml with downloaded local charm file paths.
 
     In CI, charm outputs are CI artifact references (artifact + run-id).
     After the workflow downloads the built charm files, run this command to
-    rewrite artifacts-generated.yaml so each charm points to the local
+    rewrite artifacts.build.yaml so each charm points to the local
     ``.charm`` file instead of the CI reference.
     """
     updated = artifacts_localize(Path.cwd())
     if updated:
-        typer.echo(f"Localised {updated} charm(s) in artifacts-generated.yaml.")
+        typer.echo(f"Localised {updated} charm(s) in artifacts.build.yaml.")
     else:
-        typer.echo(
-            "No CI artifact references found; artifacts-generated.yaml unchanged."
-        )
+        typer.echo("No CI artifact references found; artifacts.build.yaml unchanged.")

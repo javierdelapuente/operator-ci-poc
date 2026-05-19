@@ -12,7 +12,7 @@ from typing import Any
 from ruamel.yaml import YAML
 
 from opcli.models.artifacts import ArtifactsPlan
-from opcli.models.artifacts_generated import ArtifactsGenerated
+from opcli.models.artifacts_build import ArtifactsGenerated
 
 _yaml = YAML()
 _yaml.default_flow_style = False
@@ -46,12 +46,12 @@ def dump_artifacts_plan(plan: ArtifactsPlan, path: Path) -> None:
     dump_yaml(plan.model_dump(exclude_none=True, by_alias=True), path)
 
 
-def load_artifacts_generated(path: Path) -> ArtifactsGenerated:
-    """Load and validate ``artifacts-generated.yaml``."""
+def load_artifacts_build(path: Path) -> ArtifactsGenerated:
+    """Load and validate ``artifacts.build.yaml``."""
     raw = load_yaml(path)
     return ArtifactsGenerated.model_validate(raw)
 
 
-def dump_artifacts_generated(gen: ArtifactsGenerated, path: Path) -> None:
+def dump_artifacts_build(gen: ArtifactsGenerated, path: Path) -> None:
     """Serialize an :class:`ArtifactsGenerated` to YAML."""
     dump_yaml(gen.model_dump(exclude_none=True, by_alias=True), path)
