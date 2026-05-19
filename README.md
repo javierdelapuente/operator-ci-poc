@@ -155,6 +155,53 @@ jobs:
 
 Pinning to a SHA or tag automatically installs the matching `opcli` version via `canonical/get-workflow-version-action`.
 
+## Secrets for integration tests
+
+Integration tests often need secrets (cloud credentials, API tokens, etc.).
+opcli supports this identically locally and in CI.
+
+### Locally: `.secrets.env`
+
+Create a `.secrets.env` file in your repo root (gitignored) with plain `KEY=VALUE` pairs:
+
+```env
+# .secrets.env — never commit this file
+S3_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE
+DATABASE_URL=postgres://user:pass@host/db
+```
+
+opcli auto-loads this file before running spread (local mode only), so no manual `export` is needed.
+
+### In `spread.yaml`
+
+Declare the secrets as spread environment variables using the `$(HOST: echo ...)` pattern:
+
+```yaml
+environment:
+  S3_ACCESS_KEY: '$(HOST: echo "${S3_ACCESS_KEY:-}")'
+  DATABASE_URL: '$(HOST: echo "${DATABASE_URL:-}")'
+```
+
+This self-documents what secrets your test suite requires.
+
+### In CI: workflow inputs
+
+Pass secret names to the reusable workflow via `test-secret-{1..5}-name` inputs:
+
+```yaml
+jobs:
+  integration-test:
+    uses: javierdelapuente/operator-ci-poc/.github/workflows/integration-test.yml@main
+    secrets: inherit
+    with:
+      test-secret-1-name: S3_ACCESS_KEY
+      test-secret-2-name: DATABASE_URL
+```
+
+The workflow resolves values from your repository's GitHub Secrets, masks them with `::add-mask::`, and exports them to the environment before spread runs.
+
+> **Note:** Running `opcli spread run -- -vv` locally will print secret values to the terminal (spread's verbose mode). This is acceptable for a local dev environment. In CI, GitHub Actions log masking covers all output.
+
 ## Development
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
