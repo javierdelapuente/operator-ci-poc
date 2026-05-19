@@ -1,6 +1,6 @@
 """Core logic for ``opcli pytest expand``.
 
-Reads ``artifacts-generated.yaml`` (schema v1) and assembles the flags that
+Reads ``artifacts.build.yaml`` (schema v1) and assembles the flags that
 tox/pytest need to locate built charms and their OCI-image resources.
 
 Convention (matching operator-workflows):
@@ -31,8 +31,8 @@ from pathlib import Path
 from typing import overload
 
 from opcli.core.exceptions import ConfigurationError
-from opcli.core.yaml_io import load_artifacts_generated
-from opcli.models.artifacts_generated import (
+from opcli.core.yaml_io import load_artifacts_build
+from opcli.models.artifacts_build import (
     CharmOutput,
     RockOutput,
     SnapOutput,
@@ -40,7 +40,7 @@ from opcli.models.artifacts_generated import (
 
 logger = logging.getLogger(__name__)
 
-_ARTIFACTS_GENERATED_YAML = "artifacts-generated.yaml"
+_ARTIFACTS_GENERATED_YAML = "artifacts.build.yaml"
 
 
 def _current_arch() -> str:
@@ -106,7 +106,7 @@ def assemble_pytest_args(
         ``["--charm-file=path.charm", "--img=path.rock"]``.
 
     Raises:
-        ConfigurationError: If ``artifacts-generated.yaml`` is missing.
+        ConfigurationError: If ``artifacts.build.yaml`` is missing.
     """
     gen_path = root / _ARTIFACTS_GENERATED_YAML
     if not gen_path.exists():
@@ -115,7 +115,7 @@ def assemble_pytest_args(
         )
         raise ConfigurationError(msg)
 
-    generated = load_artifacts_generated(gen_path)
+    generated = load_artifacts_build(gen_path)
     arch = _current_arch()
 
     args: list[str] = []

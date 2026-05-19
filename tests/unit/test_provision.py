@@ -10,7 +10,7 @@ import pytest
 
 from opcli.core.exceptions import ConfigurationError
 from opcli.core.provision import provision_load, provision_registry, provision_run
-from opcli.core.yaml_io import load_artifacts_generated
+from opcli.core.yaml_io import load_artifacts_build
 
 
 def _write(path: Path, content: str) -> None:
@@ -107,7 +107,7 @@ class TestProvisionLoad:
             provision_load(tmp_path)
 
     def test_pushes_local_rocks(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_WITH_ROCKS)
+        _write(tmp_path / "artifacts.build.yaml", _GENERATED_WITH_ROCKS)
 
         with patch("opcli.core.provision.run_command") as mock_run:
             pushed = provision_load(tmp_path)
@@ -120,7 +120,7 @@ class TestProvisionLoad:
         assert mock_run.call_count == 1
 
     def test_custom_registry(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_WITH_ROCKS)
+        _write(tmp_path / "artifacts.build.yaml", _GENERATED_WITH_ROCKS)
 
         with patch("opcli.core.provision.run_command") as mock_run:
             pushed = provision_load(tmp_path, registry="myregistry:5000")
@@ -132,7 +132,7 @@ class TestProvisionLoad:
 
     def test_no_local_rocks_returns_empty(self, tmp_path: Path) -> None:
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             "version: 1\n"
             "rocks:\n- name: r1\n  rockcraft-yaml: rd/rockcraft.yaml\n"
             "  output:\n  - arch: amd64\n    image: ghcr.io/r1:v1\n",
@@ -145,7 +145,7 @@ class TestProvisionLoad:
         mock_run.assert_not_called()
 
     def test_empty_generated_returns_empty(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
+        _write(tmp_path / "artifacts.build.yaml", "version: 1\n")
 
         with patch("opcli.core.provision.run_command") as mock_run:
             pushed = provision_load(tmp_path)
@@ -154,7 +154,7 @@ class TestProvisionLoad:
         mock_run.assert_not_called()
 
     def test_skopeo_commands_correct(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_WITH_ROCKS)
+        _write(tmp_path / "artifacts.build.yaml", _GENERATED_WITH_ROCKS)
 
         with patch("opcli.core.provision.run_command") as mock_run:
             provision_load(tmp_path)
@@ -168,14 +168,14 @@ class TestProvisionLoad:
         assert not any("docker-daemon:" in arg for arg in cmd)
         assert "--dest-tls-verify=false" in cmd
 
-    def test_updates_artifacts_generated_with_image_ref(self, tmp_path: Path) -> None:
+    def test_updates_artifacts_build_with_image_ref(self, tmp_path: Path) -> None:
         """After pushing, rock.output.image is set and file is preserved."""
-        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_WITH_ROCKS)
+        _write(tmp_path / "artifacts.build.yaml", _GENERATED_WITH_ROCKS)
 
         with patch("opcli.core.provision.run_command"):
             provision_load(tmp_path)
 
-        updated = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        updated = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         myrock = next(r for r in updated.rocks if r.name == "myrock")
         assert myrock.output[0].image == "localhost:32000/myrock:amd64"
         assert myrock.output[0].file == "./rock_dir/myrock.rock"
@@ -183,14 +183,14 @@ class TestProvisionLoad:
     def test_updates_charm_resources_for_pushed_rock(self, tmp_path: Path) -> None:
         """provision_load pushes rocks; charm resources reference via rock: field."""
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             _GENERATED_WITH_ROCKS_AND_RESOURCES,
         )
 
         with patch("opcli.core.provision.run_command"):
             provision_load(tmp_path)
 
-        updated = load_artifacts_generated(tmp_path / "artifacts-generated.yaml")
+        updated = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         # Rock output.image is updated after push
         myrock = next(r for r in updated.rocks if r.name == "myrock")
         assert myrock.output[0].image == "localhost:32000/myrock:amd64"
@@ -203,7 +203,7 @@ class TestProvisionLoad:
     def test_idempotent_skips_already_loaded_rock(self, tmp_path: Path) -> None:
         """Rock with image already set to the target ref is skipped."""
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             "version: 1\n"
             "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
             "  output:\n  - arch: amd64\n    file: ./rock_dir/myrock.rock\n"
@@ -217,14 +217,14 @@ class TestProvisionLoad:
         mock_run.assert_not_called()
 
     def test_no_writeback_when_nothing_pushed(self, tmp_path: Path) -> None:
-        """artifacts-generated.yaml is not written when no rocks are pushed."""
-        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
-        mtime_before = (tmp_path / "artifacts-generated.yaml").stat().st_mtime
+        """artifacts.build.yaml is not written when no rocks are pushed."""
+        _write(tmp_path / "artifacts.build.yaml", "version: 1\n")
+        mtime_before = (tmp_path / "artifacts.build.yaml").stat().st_mtime
 
         with patch("opcli.core.provision.run_command"):
             provision_load(tmp_path)
 
-        mtime_after = (tmp_path / "artifacts-generated.yaml").stat().st_mtime
+        mtime_after = (tmp_path / "artifacts.build.yaml").stat().st_mtime
         assert mtime_before == mtime_after
 
 

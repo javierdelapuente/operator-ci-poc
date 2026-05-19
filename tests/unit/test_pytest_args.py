@@ -85,7 +85,7 @@ class TestAssemblePytestArgs:
 
     def test_invalid_generated_fields_raises(self, tmp_path: Path) -> None:
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             "version: 1\ncharms:\n- name: c\n  source: .\n"
             "  output:\n  - arch: amd64\n    path: ./c.charm\n",
         )
@@ -93,7 +93,7 @@ class TestAssemblePytestArgs:
             assemble_pytest_args(tmp_path)
 
     def test_local_charm_with_embedded_rock_resource(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_LOCAL)
+        _write(tmp_path / "artifacts.build.yaml", _GENERATED_LOCAL)
 
         args = assemble_pytest_args(tmp_path)
 
@@ -101,8 +101,8 @@ class TestAssemblePytestArgs:
         assert "--myrock-image=./rock_dir/myrock.rock" in args
 
     def test_ci_scenario_only_generated_file(self, tmp_path: Path) -> None:
-        """pytest expand works with only artifacts-generated.yaml (no repo checkout)."""
-        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_CI)
+        """pytest expand works with only artifacts.build.yaml (no repo checkout)."""
+        _write(tmp_path / "artifacts.build.yaml", _GENERATED_CI)
         # Intentionally no artifacts.yaml present
 
         args = assemble_pytest_args(tmp_path)
@@ -116,7 +116,7 @@ class TestAssemblePytestArgs:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """CI-format charm (artifact output only) emits a warning, no --charm-file."""
-        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_CI)
+        _write(tmp_path / "artifacts.build.yaml", _GENERATED_CI)
 
         with caplog.at_level(logging.WARNING, logger="opcli.core.pytest_args"):
             args = assemble_pytest_args(tmp_path)
@@ -127,7 +127,7 @@ class TestAssemblePytestArgs:
         )
 
     def test_charm_without_resources(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_NO_RESOURCES)
+        _write(tmp_path / "artifacts.build.yaml", _GENERATED_NO_RESOURCES)
 
         args = assemble_pytest_args(tmp_path)
 
@@ -138,7 +138,7 @@ class TestAssemblePytestArgs:
     ) -> None:
         """Multi-base charm produces one --charm-file per output entry."""
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             "version: 1\ncharms:\n- name: aproxy\n"
             "  charmcraft-yaml: charmcraft.yaml\n"
             "  output:\n"
@@ -158,7 +158,7 @@ class TestAssemblePytestArgs:
         assert args.count("--charm-file=./aproxy_ubuntu-22.04-amd64.charm") == 1
 
     def test_empty_generated(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
+        _write(tmp_path / "artifacts.build.yaml", "version: 1\n")
 
         args = assemble_pytest_args(tmp_path)
         assert args == []
@@ -166,7 +166,7 @@ class TestAssemblePytestArgs:
     def test_unresolved_resource_produces_no_flag(self, tmp_path: Path) -> None:
         """Resource with no file or image (rock not built) emits no flag."""
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             "version: 1\ncharms:\n- name: c\n  charmcraft-yaml: charmcraft.yaml\n"
             "  output:\n  - arch: amd64\n    path: ./c_ubuntu-22.04-amd64.charm\n"
             "    base: ubuntu@22.04\n"
@@ -181,7 +181,7 @@ class TestAssemblePytestArgs:
     def test_image_takes_priority_over_file_when_both_set(self, tmp_path: Path) -> None:
         """After provision load, image ref is preferred over local file path."""
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             "version: 1\n"
             "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
             "  output:\n  - arch: amd64\n    file: ./rock_dir/myrock.rock\n"
@@ -206,7 +206,7 @@ class TestAssemblePytestArgs:
         ``--expressjs-app-image=...``, not ``--app-image=...``.
         """
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             "version: 1\n"
             "rocks:\n- name: expressjs-app\n  rockcraft-yaml: rockcraft.yaml\n"
             "  output:\n  - arch: amd64\n    file: ./expressjs-app_1.0_amd64.rock\n"
@@ -231,7 +231,7 @@ class TestAssemblePytestArgs:
         iterating rocks directly, no explicit rock: annotation required.
         """
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             "version: 1\n"
             "rocks:\n"
             "- name: expressjs-app\n  rockcraft-yaml: rockcraft.yaml\n"
@@ -252,7 +252,7 @@ class TestAssemblePytestArgs:
     def test_resource_without_rock_link_produces_no_flag(self, tmp_path: Path) -> None:
         """Resources not linked to a rock (no rock: field) produce no image flag."""
         _write(
-            tmp_path / "artifacts-generated.yaml",
+            tmp_path / "artifacts.build.yaml",
             "version: 1\ncharms:\n- name: mycharm\n"
             "  charmcraft-yaml: charmcraft.yaml\n"
             "  output:\n  - arch: amd64\n"
@@ -271,7 +271,7 @@ class TestAssembleToxArgv:
     """Tests for assemble_tox_argv()."""
 
     def test_no_flags_no_extra_omits_separator(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
+        _write(tmp_path / "artifacts.build.yaml", "version: 1\n")
 
         argv = assemble_tox_argv(tmp_path)
 
@@ -279,7 +279,7 @@ class TestAssembleToxArgv:
         assert "--" not in argv
 
     def test_assembled_flags_include_separator(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_LOCAL)
+        _write(tmp_path / "artifacts.build.yaml", _GENERATED_LOCAL)
 
         argv = assemble_tox_argv(tmp_path)
 
@@ -288,7 +288,7 @@ class TestAssembleToxArgv:
         assert "--charm-file=./mycharm_ubuntu-22.04-amd64.charm" in argv
 
     def test_extra_args_only_include_separator(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
+        _write(tmp_path / "artifacts.build.yaml", "version: 1\n")
 
         argv = assemble_tox_argv(tmp_path, extra_args=["-k", "test_foo"])
 
@@ -297,14 +297,14 @@ class TestAssembleToxArgv:
         assert "test_foo" in argv
 
     def test_custom_tox_env(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", "version: 1\n")
+        _write(tmp_path / "artifacts.build.yaml", "version: 1\n")
 
         argv = assemble_tox_argv(tmp_path, tox_env="e2e")
 
         assert argv[2] == "e2e"
 
     def test_extra_args_appended_after_assembled(self, tmp_path: Path) -> None:
-        _write(tmp_path / "artifacts-generated.yaml", _GENERATED_LOCAL)
+        _write(tmp_path / "artifacts.build.yaml", _GENERATED_LOCAL)
 
         argv = assemble_tox_argv(tmp_path, extra_args=["-v", "-k", "test_charm"])
 

@@ -140,7 +140,7 @@ variables (`GITHUB_RUN_ID`, `GITHUB_REPOSITORY_OWNER`, `GITHUB_REPOSITORY`,
 
 ---
 
-## 6. `artifacts-generated.yaml` output paths are repo-relative
+## 6. `artifacts.build.yaml` output paths are repo-relative
 
 **Spec:** Does not explicitly specify whether `output.file` paths are absolute
 or relative.
@@ -151,7 +151,7 @@ Building an artifact whose output lands outside the repository root is an
 error.
 
 **Rationale:** Spread rsyncs the repository into a VM at a different absolute
-path than on the host machine. Absolute paths in `artifacts-generated.yaml`
+path than on the host machine. Absolute paths in `artifacts.build.yaml`
 would be wrong inside the VM; relative paths remain valid after rsync.
 
 ---
@@ -309,7 +309,7 @@ artifact types.
 
 ## 12. Multi-base charm output — flat list with `arch`+`path`+`base` per entry
 
-**Spec:** The `artifacts-generated.yaml` schema shows a single `output.file`
+**Spec:** The `artifacts.build.yaml` schema shows a single `output.file`
 path for each charm entry:
 
 ```yaml
@@ -365,14 +365,14 @@ its fields at the same level.
 
 ---
 
-## 13. `opcli provision load` writes back rock image refs to `artifacts-generated.yaml`
+## 13. `opcli provision load` writes back rock image refs to `artifacts.build.yaml`
 
 **Spec:** `opcli provision load` loads rock images into the local registry.
-The spec does not describe any modification of `artifacts-generated.yaml`.
+The spec does not describe any modification of `artifacts.build.yaml`.
 
 **Implementation:** After successfully pushing each rock image,
 `opcli provision load` updates the corresponding arch build entry's `image`
-field in `artifacts-generated.yaml` with the pushed image reference (e.g.
+field in `artifacts.build.yaml` with the pushed image reference (e.g.
 `localhost:32000/myrock:amd64`).
 
 This means that after running `opcli provision load`, `opcli pytest expand`
@@ -382,7 +382,7 @@ pytest-args resolves image refs by looking up the rock — not by reading a
 separate field on the resource.
 
 **Rationale:** Without the writeback, users would have to manually update
-`artifacts-generated.yaml` after each `provision load`. Writing back makes the
+`artifacts.build.yaml` after each `provision load`. Writing back makes the
 `provision load → pytest expand` pipeline seamless.
 
 ---
@@ -430,15 +430,15 @@ downside.
   specs. Workflow usage: `runs-on: ${{ fromJSON(matrix.runner) }}`.
 
 - **`opcli artifacts collect <partial1> <partial2> ...`** reads multiple partial
-  `artifacts-generated.yaml` files (one per parallel build job) and merges them
-  into a single `artifacts-generated.yaml`. Each artifact can appear in multiple
+  `artifacts.build.yaml` files (one per parallel build job) and merges them
+  into a single `artifacts.build.yaml`. Each artifact can appear in multiple
   partials as long as no two partials contain the same `(name, arch)` pair — this
   enables multi-arch builds where each runner produces a partial for its arch and
   the collect step merges the output lists. It also validates that every rock
   referenced by a charm resource is present in the collected set.
 
 **Rationale:** Each parallel build job produces its own partial
-`artifacts-generated.yaml`. The collect step merges them into the single file
+`artifacts.build.yaml`. The collect step merges them into the single file
 that downstream workflows consume. The matrix step decouples the artifact list
 from the workflow YAML — adding a new charm or rock to `artifacts.yaml`
 automatically adds a build job without touching the workflow file.
@@ -466,7 +466,7 @@ environment-agnostic.
 
 ## 17. Rock images are not duplicated on charm resources
 
-**Spec:** The CI-format `artifacts-generated.yaml` example in the spec shows
+**Spec:** The CI-format `artifacts.build.yaml` example in the spec shows
 `image:` fields on both `rocks[].output` and `charms[].resources[]`.
 
 **Implementation:** The `GeneratedResource` model has no `image` field. Rock
@@ -528,9 +528,9 @@ The workflow implements three jobs:
    Actions matrix (one entry per rock/charm/snap).
 2. **build** (parallel matrix) — for each artifact, installs the appropriate
    tool, runs `opcli artifacts build --<type> <name>`, pushes rocks to GHCR,
-   and uploads a partial `artifacts-generated.yaml`.
+   and uploads a partial `artifacts.build.yaml`.
 3. **collect** — downloads all partials and runs `opcli artifacts collect` to
-   produce the final merged `artifacts-generated.yaml` artifact.
+   produce the final merged `artifacts.build.yaml` artifact.
 
 **opcli self-pinning:** `opcli` is installed using the ref extracted from
 `github.workflow_ref` (the ref portion of
@@ -548,7 +548,7 @@ pull-request test-merge commit).
 
 **Implementation:** `opcli artifacts localize` scans the current directory
 tree for built artifact files (`.charm`, `.rock`, `.snap`) and writes their
-relative paths back into `artifacts-generated.yaml` in-place.
+relative paths back into `artifacts.build.yaml` in-place.
 
 This is used in the CI `Test Integration` workflow after downloading
 charm artifacts from GitHub Actions. The downloaded files land flat in the

@@ -189,8 +189,8 @@ class TestSpreadExpand:
         # spread installed if not already present
         assert "command -v spread" in prepare
         assert "loginctl enable-linger ubuntu" in prepare
-        # artifacts-generated check uses SPREAD_PATH
-        assert "${SPREAD_PATH}/artifacts-generated.yaml" in prepare
+        # artifacts-build check uses SPREAD_PATH
+        assert "${SPREAD_PATH}/artifacts.build.yaml" in prepare
 
         # Systems should have username: ubuntu injected
         systems = local["systems"]
@@ -228,7 +228,7 @@ class TestSpreadExpand:
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in ci["prepare"]
         # CI prepare downloads build artifacts via opcli artifacts fetch
         assert "opcli artifacts fetch" in ci["prepare"]
-        assert "artifacts-generated" not in ci["prepare"]  # no manual gh download
+        assert "artifacts-build" not in ci["prepare"]  # no manual gh download
         assert "built-charm-*" not in ci["prepare"]  # handled by fetch
         assert "GH_TOKEN" in ci["prepare"]
         assert "GITHUB_RUN_ID" in ci["prepare"]
@@ -379,7 +379,7 @@ suites:
         prepare = parsed["backends"]["integration-test-local"]["prepare"]
 
         assert '[ -f "$CONCIERGE" ]' in prepare
-        assert '[ -f "${SPREAD_PATH}/artifacts-generated.yaml" ]' in prepare
+        assert '[ -f "${SPREAD_PATH}/artifacts.build.yaml" ]' in prepare
 
     def test_ci_prepare_conditional(self, tmp_path: Path) -> None:
         """CI prepare gates concierge on file existence."""

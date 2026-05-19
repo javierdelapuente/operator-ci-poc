@@ -1,4 +1,4 @@
-"""Pydantic models for artifacts-generated.yaml.
+"""Pydantic models for artifacts.build.yaml.
 
 Extends the build plan with paths/references of the built artifacts.
 
@@ -6,7 +6,7 @@ Schema version: 1
 - Each artifact carries an explicit path to its craft YAML file
   (``rockcraft-yaml``, ``charmcraft-yaml``, ``snapcraft-yaml``).
 - Charm entries include a ``resources`` mapping with resolved output paths
-  (image reference), making ``artifacts-generated.yaml`` self-contained for
+  (image reference), making ``artifacts.build.yaml`` self-contained for
   pytest flag assembly without needing to also read ``artifacts.yaml``.
 - ``output`` is always a **flat list of per-file build entries** (:class:`RockOutput`,
   :class:`CharmOutput`, or :class:`SnapOutput`).
@@ -143,7 +143,7 @@ class GeneratedSnap(BaseModel):
 
 
 class ArtifactsGenerated(BaseModel):
-    """Top-level schema for ``artifacts-generated.yaml`` (schema version 1)."""
+    """Top-level schema for ``artifacts.build.yaml`` (schema version 1)."""
 
     model_config = ConfigDict(extra="forbid")
 
