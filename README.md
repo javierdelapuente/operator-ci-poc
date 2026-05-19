@@ -65,6 +65,19 @@ eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
 | `fetch` | Download CI artifacts and rewrite to local paths. `--run-id`, `--repo`, `--wait`. |
 | `localize` | Rewrite CI artifact refs to local paths (after manual download). |
 
+### `opcli install`
+
+| Command | Description |
+|---|---|
+| `spread` | Install the spread test runner (no-op if already present). |
+| `tox` | Install tox with tox-uv for running integration tests. |
+
+### `opcli concierge`
+
+| Command | Description |
+|---|---|
+| `prepare` | Install concierge snap and run `concierge prepare`. No-op if no config file. `-c` for path. |
+
 ### `opcli provision`
 
 | Command | Description |

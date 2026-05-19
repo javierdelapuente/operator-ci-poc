@@ -280,22 +280,12 @@ else
       "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
       --quiet
 fi
-if ! command -v spread >/dev/null 2>&1; then
-  snap install go --classic
-  go install github.com/canonical/spread/cmd/spread@latest
-  ln -sf ~/go/bin/spread /usr/local/bin/spread
-fi
-UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/usr/local/share/uv-tools uv tool install tox --with tox-uv --quiet
-if [ -f "$CONCIERGE" ]; then
-  snap install concierge --classic || true
-  concierge prepare -c "$CONCIERGE"
-  runuser -l ubuntu -c \
-    "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
-fi
-if [ -f "${SPREAD_PATH}/artifacts.build.yaml" ] && \
-    curl -sf --max-time 5 http://localhost:32000/v2/ > /dev/null 2>&1; then
-  opcli provision load
-fi
+opcli install spread
+opcli install tox
+opcli concierge prepare -c "$CONCIERGE"
+runuser -l ubuntu -c \
+  "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
+opcli provision load
 """
 
 _LOCAL_PREPARE_AFTER_USER = """\
@@ -314,16 +304,9 @@ else
       "git+https://github.com/javierdelapuente/operator-ci-poc@${OPCLI_GIT_REF:-main}" \
       --quiet
 fi
-if ! command -v spread >/dev/null 2>&1; then
-  snap install go --classic
-  go install github.com/canonical/spread/cmd/spread@latest
-  ln -sf ~/go/bin/spread /usr/local/bin/spread
-fi
-runuser -l ubuntu -c "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox --with tox-uv --quiet"
-if [ -f "$CONCIERGE" ]; then
-  snap install concierge --classic || true
-  concierge prepare -c "$CONCIERGE"
-fi
+opcli install spread
+opcli install tox
+opcli concierge prepare -c "$CONCIERGE"
 """
 
 _CI_PREPARE_AFTER_USER = """\
@@ -333,8 +316,8 @@ if [ -n "${GITHUB_RUN_ID:-}" ]; then
     --run-id "${GITHUB_RUN_ID}" \
     --repo "${GITHUB_REPOSITORY}" \
     --wait
-  chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 fi
+chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
 _CI_ALLOCATE = """\

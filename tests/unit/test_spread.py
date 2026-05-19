@@ -176,10 +176,11 @@ class TestSpreadExpand:
         assert "SPREAD_PASSWORD" in local["allocate"]
         assert "lxc delete --force" in local["discard"]
         prepare = local["prepare"]
-        assert "concierge prepare" in prepare
+        assert "opcli concierge prepare" in prepare
         assert "opcli provision registry" in prepare
-        assert '[ -f "$CONCIERGE" ]' in prepare
         assert "opcli provision load" in prepare
+        assert "opcli install spread" in prepare
+        assert "opcli install tox" in prepare
         # Local uses uv (not pipx) with dev-mode detection, same as CI
         assert "pipx" not in prepare
         assert "uv tool install" in prepare
@@ -187,11 +188,7 @@ class TestSpreadExpand:
         assert "UV_TOOL_DIR=/usr/local/share/uv-tools" in prepare
         assert "pyproject.toml" in prepare
         assert "SPREAD_PATH" in prepare
-        # spread installed if not already present
-        assert "command -v spread" in prepare
         assert "loginctl enable-linger ubuntu" in prepare
-        # artifacts-build check uses SPREAD_PATH
-        assert "${SPREAD_PATH}/artifacts.build.yaml" in prepare
 
         # Systems should have username: ubuntu injected
         systems = local["systems"]
@@ -216,15 +213,12 @@ class TestSpreadExpand:
         # concierge runs as root but loginctl enable-linger ubuntu ensures
         # ubuntu's systemd session is active so snap cgroups work correctly
         assert 'runuser -l ubuntu -c "concierge prepare' not in ci["prepare"]
-        assert "tox" in ci["prepare"]
+        assert "opcli install tox" in ci["prepare"]
+        assert "opcli install spread" in ci["prepare"]
         assert "opcli" in ci["prepare"]
         assert "SPREAD_PATH" in ci["prepare"]
         assert "GITHUB_WORKSPACE" in ci["prepare"]
         assert "chown" in ci["prepare"]
-        # tox is installed for the ubuntu user via runuser with explicit bin dir
-        assert "runuser" in ci["prepare"]
-        assert "runuser -l ubuntu" in ci["prepare"]
-        assert "UV_TOOL_BIN_DIR=/usr/local/bin uv tool install tox" in ci["prepare"]
         assert "loginctl enable-linger ubuntu" in ci["prepare"]
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in ci["prepare"]
         # CI prepare downloads build artifacts via opcli artifacts fetch
@@ -249,8 +243,8 @@ class TestSpreadExpand:
         assert "pipx install" not in ci["prepare"]
         # uv installed in CI prepare (idempotent: already on runner but re-ensures)
         assert "astral-uv" in ci["prepare"]
-        # spread installed if not already present
-        assert "command -v spread" in ci["prepare"]
+        # spread installed via opcli install spread
+        assert "opcli install spread" in ci["prepare"]
         assert "discard" not in ci
         # CI injects username: root per-system for SSH access
         systems = ci["systems"]
@@ -448,26 +442,27 @@ suites:
         assert "PasswordAuthentication yes" in allocate
 
     def test_local_prepare_conditional(self, tmp_path: Path) -> None:
-        """Prepare script gates concierge and provision load on file existence."""
+        """Prepare script delegates conditionals to opcli subcommands."""
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         result = spread_expand(tmp_path, ci=False)
         parsed = _yaml.load(StringIO(result))
         prepare = parsed["backends"]["integration-test-local"]["prepare"]
 
-        assert '[ -f "$CONCIERGE" ]' in prepare
-        assert '[ -f "${SPREAD_PATH}/artifacts.build.yaml" ]' in prepare
+        # Conditionals are now internal to the opcli commands
+        assert "opcli concierge prepare" in prepare
+        assert "opcli provision load" in prepare
 
     def test_ci_prepare_conditional(self, tmp_path: Path) -> None:
-        """CI prepare gates concierge on file existence."""
+        """CI prepare delegates concierge to opcli subcommand."""
         _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
 
         result = spread_expand(tmp_path, ci=True)
         parsed = _yaml.load(StringIO(result))
         prepare = parsed["backends"]["integration-test-ci"]["prepare"]
 
-        assert '[ -f "$CONCIERGE" ]' in prepare
-        assert "tox" in prepare
+        assert "opcli concierge prepare" in prepare
+        assert "opcli install tox" in prepare
         assert "SPREAD_PATH" in prepare
         assert "pipx install" not in prepare
 

@@ -85,10 +85,15 @@ def provision_load(
     """
     gen_path = root / _ARTIFACTS_GENERATED_YAML
     if not gen_path.exists():
-        msg = (
-            f"{_ARTIFACTS_GENERATED_YAML} not found. Run 'opcli artifacts build' first."
+        logger.info("No %s found — nothing to load.", _ARTIFACTS_GENERATED_YAML)
+        return []
+
+    if not _is_port_open("localhost", _REGISTRY_PORT):
+        logger.info(
+            "Registry not reachable at localhost:%d — skipping load.",
+            _REGISTRY_PORT,
         )
-        raise ConfigurationError(msg)
+        return []
 
     generated = load_artifacts_build(gen_path)
     pushed: list[str] = []
