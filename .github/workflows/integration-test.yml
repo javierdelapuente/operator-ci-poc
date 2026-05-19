@@ -27,6 +27,27 @@ on:
         description: "Directory containing artifacts.yaml and spread.yaml (relative to workspace root)"
         type: string
         default: "."
+      test-secret-1-name:
+        description: "Name of secret #1 to pass to integration tests"
+        type: string
+        default: ""
+      test-secret-2-name:
+        description: "Name of secret #2 to pass to integration tests"
+        type: string
+        default: ""
+      test-secret-3-name:
+        description: "Name of secret #3 to pass to integration tests"
+        type: string
+        default: ""
+      test-secret-4-name:
+        description: "Name of secret #4 to pass to integration tests"
+        type: string
+        default: ""
+      test-secret-5-name:
+        description: "Name of secret #5 to pass to integration tests"
+        type: string
+        default: ""
+    secrets: inherit
 
 jobs:
   # ── Job 1: build all artifacts ──────────────────────────────────────────────
@@ -132,6 +153,33 @@ jobs:
           sudo snap install go --classic
           go install github.com/canonical/spread/cmd/spread@latest
           sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
+
+      # ── Export test secrets ─────────────────────────────────────────────
+      - name: Export test secrets
+        if: >-
+          inputs.test-secret-1-name != '' ||
+          inputs.test-secret-2-name != '' ||
+          inputs.test-secret-3-name != '' ||
+          inputs.test-secret-4-name != '' ||
+          inputs.test-secret-5-name != ''
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          for name in \
+            "${{ inputs.test-secret-1-name }}" \
+            "${{ inputs.test-secret-2-name }}" \
+            "${{ inputs.test-secret-3-name }}" \
+            "${{ inputs.test-secret-4-name }}" \
+            "${{ inputs.test-secret-5-name }}"; do
+            if [ -z "$name" ]; then continue; fi
+            value=$(echo "$ALL_SECRETS" | jq -r --arg k "$name" '.[$k] // empty')
+            if [ -z "$value" ]; then
+              echo "::warning::Secret '$name' not found or empty"
+              continue
+            fi
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
 
       # ── Run the spread task ───────────────────────────────────────────────
       # Artifact download happens inside spread _CI_PREPARE (after provisioning).

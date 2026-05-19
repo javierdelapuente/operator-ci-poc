@@ -65,6 +65,41 @@ execute: |
     pwd
 """
 
+_SECRETS_SPREAD_YAML = """\
+project: secrets-test
+
+path: /home/ubuntu/proj
+
+kill-timeout: 30m
+
+backends:
+  integration-test:
+    systems:
+      - ubuntu-24.04
+
+environment:
+  CONCIERGE: concierge.yaml
+  TEST_SECRET: '$(HOST: echo "${TEST_SECRET:-}")'
+
+exclude:
+  - .git
+
+suites:
+  tests/integration/:
+    summary: integration tests
+    environment:
+      MODULE/test_basic: test_basic
+"""
+
+_SECRETS_TASK_YAML = """\
+summary: verify secrets are forwarded
+
+execute: |
+    test -n "$TEST_SECRET" || { echo "TEST_SECRET empty"; exit 1; }
+    test "$TEST_SECRET" = "s3cr3t-value" || { echo "wrong value"; exit 1; }
+    echo "secret correctly forwarded"
+"""
+
 
 class TestSpreadLxdLocal:
     """End-to-end tests using the local (LXD VM) backend."""
@@ -99,6 +134,23 @@ class TestSpreadLxdLocal:
         # After successful run, VM count should be same as before
         after = _count_spread_vms()
         assert after == before
+
+    def test_secrets_env_forwarded_to_vm(
+        self, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        """Secrets from .secrets.env are available inside the spread VM."""
+        spread_path = tmp_path / "spread.yaml"  # type: ignore[operator]
+        spread_path.write_text(_SECRETS_SPREAD_YAML)
+
+        task_dir = tmp_path / "tests" / "integration" / "run"  # type: ignore[operator]
+        task_dir.mkdir(parents=True)
+        (task_dir / "task.yaml").write_text(_SECRETS_TASK_YAML)
+
+        secrets_path = tmp_path / ".secrets.env"  # type: ignore[operator]
+        secrets_path.write_text("TEST_SECRET=s3cr3t-value\n")
+
+        # Should succeed — spread picks up the secret via $(HOST: echo ...)
+        spread_run(tmp_path, ci=False)  # type: ignore[arg-type]
 
 
 def _count_spread_vms() -> int:

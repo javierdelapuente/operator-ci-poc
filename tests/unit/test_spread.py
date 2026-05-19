@@ -13,6 +13,7 @@ from ruamel.yaml import YAML
 from opcli.core.exceptions import ConfigurationError, SubprocessError, ValidationError
 from opcli.core.spread import (
     _arch_from_runner,
+    _load_secrets_env,
     _virtual_runner_map,
     spread_expand,
     spread_init,
@@ -988,6 +989,75 @@ class TestSpreadRun:
     def test_missing_spread_yaml_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ConfigurationError, match="not found"):
             spread_run(tmp_path)
+
+
+class TestLoadSecretsEnv:
+    """Tests for _load_secrets_env() — loading .secrets.env files."""
+
+    def test_returns_empty_when_file_missing(self, tmp_path: Path) -> None:
+        assert _load_secrets_env(tmp_path) == {}
+
+    def test_loads_key_value_pairs(self, tmp_path: Path) -> None:
+        (tmp_path / ".secrets.env").write_text("FOO=bar\nBAZ=qux\n")
+        assert _load_secrets_env(tmp_path) == {"FOO": "bar", "BAZ": "qux"}
+
+    def test_ignores_comments_and_blank_lines(self, tmp_path: Path) -> None:
+        content = "# a comment\n\nKEY=val\n   \n# another\n"
+        (tmp_path / ".secrets.env").write_text(content)
+        assert _load_secrets_env(tmp_path) == {"KEY": "val"}
+
+    def test_strips_double_quotes(self, tmp_path: Path) -> None:
+        (tmp_path / ".secrets.env").write_text('SECRET="my value"\n')
+        assert _load_secrets_env(tmp_path) == {"SECRET": "my value"}
+
+    def test_strips_single_quotes(self, tmp_path: Path) -> None:
+        (tmp_path / ".secrets.env").write_text("SECRET='my value'\n")
+        assert _load_secrets_env(tmp_path) == {"SECRET": "my value"}
+
+    def test_preserves_equals_in_value(self, tmp_path: Path) -> None:
+        (tmp_path / ".secrets.env").write_text("URL=postgres://u:p@h/db?opt=1\n")
+        assert _load_secrets_env(tmp_path) == {"URL": "postgres://u:p@h/db?opt=1"}
+
+    def test_skips_malformed_lines(self, tmp_path: Path) -> None:
+        (tmp_path / ".secrets.env").write_text("GOOD=val\nno_equals_here\nALSO=ok\n")
+        result = _load_secrets_env(tmp_path)
+        assert result == {"GOOD": "val", "ALSO": "ok"}
+
+
+class TestSpreadRunSecrets:
+    """Tests for secrets env integration in spread_run()."""
+
+    def test_secrets_env_passed_in_local_mode(self, tmp_path: Path) -> None:
+        """In local mode, .secrets.env vars are passed to run_command."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+        (tmp_path / ".secrets.env").write_text("MY_SECRET=hunter2\n")
+
+        with patch("opcli.core.spread.run_command") as mock_run:
+            spread_run(tmp_path, ci=False)
+
+        kwargs = mock_run.call_args[1]
+        assert kwargs["env"] == {"MY_SECRET": "hunter2"}
+
+    def test_secrets_env_not_loaded_in_ci_mode(self, tmp_path: Path) -> None:
+        """In CI mode, .secrets.env is not loaded (vars come from environment)."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+        (tmp_path / ".secrets.env").write_text("MY_SECRET=hunter2\n")
+
+        with patch("opcli.core.spread.run_command") as mock_run:
+            spread_run(tmp_path, ci=True)
+
+        kwargs = mock_run.call_args[1]
+        assert kwargs.get("env") is None
+
+    def test_no_secrets_file_passes_none(self, tmp_path: Path) -> None:
+        """When .secrets.env doesn't exist, env=None is passed."""
+        _write(tmp_path / "spread.yaml", _MINIMAL_SPREAD)
+
+        with patch("opcli.core.spread.run_command") as mock_run:
+            spread_run(tmp_path, ci=False)
+
+        kwargs = mock_run.call_args[1]
+        assert kwargs.get("env") is None
 
 
 _MINIMAL_SPREAD_WITH_BOTH_BACKENDS = """\

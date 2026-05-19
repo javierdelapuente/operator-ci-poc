@@ -794,6 +794,51 @@ def spread_expand(
 # ---------------------------------------------------------------------------
 
 
+_SECRETS_ENV_FILE = ".secrets.env"
+
+
+def _load_secrets_env(root: Path) -> dict[str, str]:
+    """Load secrets from ``.secrets.env`` in the project root.
+
+    The file uses plain ``KEY=VALUE`` format (one per line).  Blank lines and
+    lines starting with ``#`` are ignored.  Values may be optionally quoted
+    with single or double quotes.
+
+    Returns an empty dict if the file does not exist.
+    """
+    secrets_path = root / _SECRETS_ENV_FILE
+    if not secrets_path.is_file():
+        return {}
+
+    env: dict[str, str] = {}
+    for lineno, raw_line in enumerate(secrets_path.read_text().splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            logger.warning(
+                "%s:%d: skipping malformed line (no '=' found)",
+                _SECRETS_ENV_FILE,
+                lineno,
+            )
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        # Strip optional surrounding quotes
+        if (
+            len(value) >= 2  # noqa: PLR2004
+            and value[0] == value[-1]
+            and value[0] in ("'", '"')
+        ):
+            value = value[1:-1]
+        env[key] = value
+
+    if env:
+        logger.info("Loaded %d secret(s) from %s", len(env), _SECRETS_ENV_FILE)
+    return env
+
+
 def spread_run(
     root: Path,
     *,
@@ -807,12 +852,24 @@ def spread_run(
     parent directory.  Spread is invoked from that subdirectory; the original
     ``spread.yaml`` is never modified.
 
+    In local mode, secrets from ``.secrets.env`` (if present) are loaded and
+    passed as environment variables to the spread subprocess.  In CI mode the
+    variables are expected to already be in the environment.
+
     Raises:
         ConfigurationError: If ``spread.yaml`` is missing or malformed.
         SubprocessError: If spread exits non-zero.
     """
+    is_ci = ci if ci is not None else _is_ci()
     expanded = _expand(root, ci=ci)
     expanded["reroot"] = _compose_reroot(expanded.get("reroot"))
+
+    # Load secrets env overlay for local runs only
+    secrets_env: dict[str, str] | None = None
+    if not is_ci:
+        loaded = _load_secrets_env(root)
+        if loaded:
+            secrets_env = loaded
 
     with tempfile.TemporaryDirectory(prefix=".spread-run-", dir=root) as tmp_dir:
         tmp_yaml = Path(tmp_dir) / _SPREAD_YAML
@@ -822,7 +879,7 @@ def spread_run(
         cmd = ["spread"]
         if extra_args:
             cmd.extend(extra_args)
-        run_command(cmd, cwd=tmp_dir, interactive=True)
+        run_command(cmd, cwd=tmp_dir, interactive=True, env=secrets_env)
 
 
 # ---------------------------------------------------------------------------
