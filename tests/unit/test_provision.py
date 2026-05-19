@@ -102,14 +102,17 @@ class TestProvisionRun:
 class TestProvisionLoad:
     """Tests for provision_load()."""
 
-    def test_missing_generated_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ConfigurationError, match="not found"):
-            provision_load(tmp_path)
+    def test_missing_generated_returns_empty(self, tmp_path: Path) -> None:
+        result = provision_load(tmp_path)
+        assert result == []
 
     def test_pushes_local_rocks(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts.build.yaml", _GENERATED_WITH_ROCKS)
 
-        with patch("opcli.core.provision.run_command") as mock_run:
+        with (
+            patch("opcli.core.provision.run_command") as mock_run,
+            patch("opcli.core.provision._is_port_open", return_value=True),
+        ):
             pushed = provision_load(tmp_path)
 
         # Only myrock has a file output; otherrock has image (CI) → skipped
@@ -122,7 +125,10 @@ class TestProvisionLoad:
     def test_custom_registry(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts.build.yaml", _GENERATED_WITH_ROCKS)
 
-        with patch("opcli.core.provision.run_command") as mock_run:
+        with (
+            patch("opcli.core.provision.run_command") as mock_run,
+            patch("opcli.core.provision._is_port_open", return_value=True),
+        ):
             pushed = provision_load(tmp_path, registry="myregistry:5000")
 
         assert "myregistry:5000" in pushed[0]
@@ -138,7 +144,10 @@ class TestProvisionLoad:
             "  output:\n  - arch: amd64\n    image: ghcr.io/r1:v1\n",
         )
 
-        with patch("opcli.core.provision.run_command") as mock_run:
+        with (
+            patch("opcli.core.provision.run_command") as mock_run,
+            patch("opcli.core.provision._is_port_open", return_value=True),
+        ):
             pushed = provision_load(tmp_path)
 
         assert pushed == []
@@ -147,7 +156,10 @@ class TestProvisionLoad:
     def test_empty_generated_returns_empty(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts.build.yaml", "version: 1\n")
 
-        with patch("opcli.core.provision.run_command") as mock_run:
+        with (
+            patch("opcli.core.provision.run_command") as mock_run,
+            patch("opcli.core.provision._is_port_open", return_value=True),
+        ):
             pushed = provision_load(tmp_path)
 
         assert pushed == []
@@ -156,7 +168,10 @@ class TestProvisionLoad:
     def test_skopeo_commands_correct(self, tmp_path: Path) -> None:
         _write(tmp_path / "artifacts.build.yaml", _GENERATED_WITH_ROCKS)
 
-        with patch("opcli.core.provision.run_command") as mock_run:
+        with (
+            patch("opcli.core.provision.run_command") as mock_run,
+            patch("opcli.core.provision._is_port_open", return_value=True),
+        ):
             provision_load(tmp_path)
 
         # Single call: direct oci-archive → registry (no docker-daemon step)
@@ -172,7 +187,10 @@ class TestProvisionLoad:
         """After pushing, rock.output.image is set and file is preserved."""
         _write(tmp_path / "artifacts.build.yaml", _GENERATED_WITH_ROCKS)
 
-        with patch("opcli.core.provision.run_command"):
+        with (
+            patch("opcli.core.provision.run_command"),
+            patch("opcli.core.provision._is_port_open", return_value=True),
+        ):
             provision_load(tmp_path)
 
         updated = load_artifacts_build(tmp_path / "artifacts.build.yaml")
@@ -187,7 +205,10 @@ class TestProvisionLoad:
             _GENERATED_WITH_ROCKS_AND_RESOURCES,
         )
 
-        with patch("opcli.core.provision.run_command"):
+        with (
+            patch("opcli.core.provision.run_command"),
+            patch("opcli.core.provision._is_port_open", return_value=True),
+        ):
             provision_load(tmp_path)
 
         updated = load_artifacts_build(tmp_path / "artifacts.build.yaml")
