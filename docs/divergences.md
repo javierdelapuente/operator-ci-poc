@@ -9,8 +9,11 @@ implementation evolves.
 
 ## 1. `opcli pytest` command family redesigned
 
-**Spec:** Two commands — `opcli pytest run` (runs tox) and
-`opcli pytest args` (prints assembled pytest flags).
+**Spec:** The original design described two commands — `opcli pytest run`
+(runs tox) and `opcli pytest args` (prints assembled pytest flags). The
+spec's command table was later updated to list `opcli pytest expand`, but
+prose references to `opcli pytest run` remain in the spec text (e.g. the
+local-testing description and `artifacts fetch` docs).
 
 **Implementation:** A single `opcli pytest expand` command that prints the
 full, shell-quoted tox invocation:
@@ -688,3 +691,35 @@ And `opcli spread tasks` produces entries like:
 ```
 
 The naming convention makes the origin of each backend immediately visible in selector strings and spread output, and avoids clashing with user-defined backends named `local` or `ci`.
+
+---
+
+## 24. `OPCLI_GIT_REF` environment variable for opcli version pinning in spread
+
+**Spec:** Does not describe how opcli is version-pinned inside the spread
+VM or runner beyond the general reproducibility objective.
+
+**Implementation:** The generated `spread.yaml` declares an `OPCLI_GIT_REF`
+environment variable at the root level:
+
+```yaml
+environment:
+  OPCLI_GIT_REF: '$(HOST: echo "${OPCLI_GIT_REF:-main}")'
+```
+
+This variable is consumed by the `_CI_PREPARE` and `_LOCAL_PREPARE` scripts
+(generated during spread expansion) to install opcli from a specific git ref:
+
+```bash
+uv tool install "git+https://github.com/...@${OPCLI_GIT_REF:-main}"
+```
+
+Developers can override the ref on the host (e.g.
+`OPCLI_GIT_REF=fix/my-branch opcli spread run`) to test with a feature
+branch of opcli inside the VM. The default is `main`.
+
+**Rationale:** Spread's `$(HOST: ...)` syntax evaluates the expression on
+the host and passes the result into the VM as an environment variable. This
+gives a single, overridable knob for controlling which opcli version runs
+inside the test environment — complementing divergence 22's
+`UV_TOOL_BIN_DIR` mechanism for *where* it is installed.
