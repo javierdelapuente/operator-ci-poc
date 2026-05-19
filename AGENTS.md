@@ -39,9 +39,10 @@ src/opcli/
   commands/    # CLI layer ONLY — parses args, calls core/. No business logic.
   core/        # All business logic lives here.
   models/      # Pydantic V2 models (artifacts.yaml, artifacts-generated.yaml)
+  data/        # Bundled static files (e.g. registry.yaml manifest)
 tests/
   unit/        # Fast tests — mock external processes
-  integration/ # Requires LXD/spread — not in standard test suite
+  integration/ # Requires LXD/spread — skip-guarded with @pytest.mark.integration
 docs/          # Spec + divergences
 ```
 
@@ -50,7 +51,7 @@ docs/          # Spec + divergences
 1. **`commands/` is presentation only.** Never put logic in Typer callbacks. Tests validate `core/` directly.
 2. **Subprocess rule.** All external binary calls go through `core/subprocess.py:run_command`. This is the mock boundary in tests.
 3. **Never overwrite `spread.yaml`.** Always produce a transformed copy in a temp file.
-4. **No `Any` type.** All signatures fully annotated. `mypy --strict` must pass.
+4. **Avoid `Any`.** Prefer specific types; `mypy --strict` must pass. Legacy `Any` in YAML-handling helpers is tolerated but should not spread.
 
 ---
 
@@ -60,7 +61,7 @@ docs/          # Spec + divergences
 |---|---|
 | Language | Python 3.12+, strict typing |
 | Packaging | `uv` |
-| CLI | `Typer` (with `typing.Annotated` for params) |
+| CLI | `Typer` |
 | Data models | `Pydantic V2` |
 | Lint/format | `Ruff` (rules: `E F W I UP B SIM PL RUF`) |
 | YAML (user files) | `ruamel.yaml` (preserves comments) |
@@ -136,7 +137,7 @@ git checkout -b fix/my-fix
 # make changes
 git push --set-upstream origin fix/my-fix
 gh pr create --title "..." --body "..."
-gh pr checks <number> --watch   # WAIT for green
+gh pr checks <number> --watch   # WAIT for green (CI + Test Integration workflows)
 gh pr merge <number> --squash
 ```
 

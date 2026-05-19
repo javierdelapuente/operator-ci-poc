@@ -121,7 +121,7 @@ snaps:
 Key fields:
 - **`*-yaml`**: explicit path to the craft YAML file (not a directory).
 - **`pack-dir`**: working directory for the build tool (defaults to the YAML's parent dir).
-- **`builds[].runner`**: GitHub Actions runner labels; defaults to `[ubuntu-latest]`.
+- **`builds[].runner`**: GitHub Actions runner labels (used by `opcli artifacts matrix`; defaults to `["ubuntu-latest"]` at matrix generation time when omitted).
 
 ## CI vs local
 
@@ -130,7 +130,16 @@ Key fields:
 | `CI` | Spread backend expansion | `*-local` (LXD VM) | `*-ci` (current runner) |
 | `GITHUB_ACTIONS` | Artifact output format | Local file paths | GHCR images + artifact refs |
 
-## GitHub Actions reusable workflow
+## GitHub Actions reusable workflows
+
+Two reusable workflows are available for operator repositories:
+
+| Workflow | Purpose |
+|---|---|
+| `build-artifacts.yml` | Build matrix generation, parallel artifact builds, merged `artifacts-generated.yaml` |
+| `integration-test.yml` | Download artifacts, generate spread task matrix, run integration tests |
+
+Example usage:
 
 ```yaml
 jobs:
