@@ -268,7 +268,7 @@ if [ -n "$instance_name" ]; then
 fi
 """
 
-_LOCAL_PREPARE = """\
+_LOCAL_PREPARE_BEFORE_USER = """\
 loginctl enable-linger ubuntu
 snap install astral-uv --classic
 export UV_TOOL_BIN_DIR=/usr/local/bin
@@ -296,10 +296,13 @@ if [ -f "${SPREAD_PATH}/artifacts.build.yaml" ] && \
     curl -sf --max-time 5 http://localhost:32000/v2/ > /dev/null 2>&1; then
   opcli provision load
 fi
+"""
+
+_LOCAL_PREPARE_AFTER_USER = """\
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 """
 
-_CI_PREPARE = """\
+_CI_PREPARE_BEFORE_USER = """\
 loginctl enable-linger ubuntu
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 snap install astral-uv --classic
@@ -321,6 +324,9 @@ if [ -f "$CONCIERGE" ]; then
   snap install concierge --classic || true
   concierge prepare -c "$CONCIERGE"
 fi
+"""
+
+_CI_PREPARE_AFTER_USER = """\
 if [ -n "${GITHUB_RUN_ID:-}" ]; then
   export GH_TOKEN="${GITHUB_TOKEN}"
   cd "${SPREAD_PATH}" && opcli artifacts fetch \
@@ -362,16 +368,21 @@ fi
 
 
 # Map each virtual backend type value to:
-#   (local_prepare, ci_prepare)
+#   (local_prepare_before, local_prepare_after, ci_prepare_before, ci_prepare_after)
 # Backends in spread.yaml declare their virtual type via the ``type:`` field
 # (e.g. ``type: integration-test``).  Concrete names are derived as
 # ``"{backend_name}-local"`` / ``"{backend_name}-ci"`` from the user-defined
 # backend name.
 # The CI prepare for tutorial is empty — workflows are expected to
 # install opcli before invoking spread.
-_BACKEND_CONFIGS: dict[str, tuple[str, str]] = {
-    _VIRTUAL_BACKEND: (_LOCAL_PREPARE, _CI_PREPARE),
-    _TUTORIAL_BACKEND: (_TUTORIAL_LOCAL_PREPARE, ""),
+_BACKEND_CONFIGS: dict[str, tuple[str, str, str, str]] = {
+    _VIRTUAL_BACKEND: (
+        _LOCAL_PREPARE_BEFORE_USER,
+        _LOCAL_PREPARE_AFTER_USER,
+        _CI_PREPARE_BEFORE_USER,
+        _CI_PREPARE_AFTER_USER,
+    ),
+    _TUTORIAL_BACKEND: (_TUTORIAL_LOCAL_PREPARE, "", "", ""),
 }
 
 # Keys in system entries that are opcli-specific and must be stripped before
@@ -515,21 +526,34 @@ def _build_concrete_backend(
     virtual: object,
     *,
     use_ci: bool,
-    local_prepare: str,
-    ci_prepare: str,
+    prepare_parts: tuple[str, str, str, str],
 ) -> dict[str, object]:
-    """Return a concrete adhoc backend dict built from a virtual backend entry."""
+    """Return a concrete adhoc backend dict built from a virtual backend entry.
+
+    *prepare_parts* is ``(local_before, local_after, ci_before, ci_after)``.
+    If the user's virtual backend contains a ``prepare`` key its content is
+    spliced between the *before* and *after* sections of the appropriate mode.
+    """
     backend_def: dict[str, object] = (
         deepcopy(virtual) if isinstance(virtual, dict) else {}
     )
     backend_def["type"] = "adhoc"
 
+    # Extract user-defined prepare before we overwrite it.
+    user_prepare = backend_def.pop("prepare", None)
+    user_prepare_str = str(user_prepare).rstrip("\n") + "\n" if user_prepare else ""
+
+    local_prepare_before, local_prepare_after, ci_prepare_before, ci_prepare_after = (
+        prepare_parts
+    )
+
     systems = backend_def.get("systems")
 
     if use_ci:
         backend_def["allocate"] = _CI_ALLOCATE
-        if ci_prepare:
-            backend_def["prepare"] = ci_prepare
+        prepare = ci_prepare_before + user_prepare_str + ci_prepare_after
+        if prepare:
+            backend_def["prepare"] = prepare
         # GitHub Actions vars are only needed for the CI backend so that
         # _CI_PREPARE can authenticate and download build artifacts via gh.
         # Scoping them here keeps the root spread.yaml clean for local runs.
@@ -568,8 +592,9 @@ def _build_concrete_backend(
             "SUDO_USER": "ubuntu",
             **existing_env,
         }
-        if local_prepare:
-            backend_def["prepare"] = local_prepare
+        prepare = local_prepare_before + user_prepare_str + local_prepare_after
+        if prepare:
+            backend_def["prepare"] = prepare
 
         if isinstance(systems, list):
             backend_def["systems"] = _transform_systems(
@@ -653,7 +678,7 @@ def _expand_backend(
             continue
         found_any = True
 
-        local_prepare, ci_prepare = _BACKEND_CONFIGS[backend_type]
+        prepare_parts = _BACKEND_CONFIGS[backend_type]
         # Strip the virtual type field; _build_concrete_backend sets type: adhoc
         virtual = {k: v for k, v in backend_entry.items() if k != "type"}
         del backends[backend_name]
@@ -669,8 +694,7 @@ def _expand_backend(
         backends[concrete_name] = _build_concrete_backend(
             virtual,
             use_ci=use_ci,
-            local_prepare=local_prepare,
-            ci_prepare=ci_prepare,
+            prepare_parts=prepare_parts,
         )
         _replace_suite_backend_name(data, backend_name, concrete_name)
 
