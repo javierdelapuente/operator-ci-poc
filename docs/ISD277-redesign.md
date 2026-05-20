@@ -343,7 +343,7 @@ The functionality for opcli is grouped into four command families:  artifacts , 
 | opcli spread init | Discovers integration tests and generates spread.yaml and tests/integration/run/task.yaml |  |
 | opcli spread run | Expands the virtual backend in spread.yaml and runs spread as a subprocess, passing the same arguments as received. | As in craft-application, the CI env var defines whether to run locally or in the pipeline. All arguments after -- are passed verbatim to the spread subprocess. |
 | opcli spread expand | Prints the fully expanded spread.yaml | As in craft-application, the CI env var defines whether to run locally or in the pipeline |
-| opcli spread tasks | Prints the list of spread tasks/variants discovered in spread.yaml. | |
+| opcli spread jobs | Prints the list of spread jobs/variants discovered in spread.yaml. | |
 
 ### **opcli pytest**
 

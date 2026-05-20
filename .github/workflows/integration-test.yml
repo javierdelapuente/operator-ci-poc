@@ -2,7 +2,7 @@ name: Integration Test
 
 # Reusable workflow that:
 #   1. Builds all artifacts (calls build-artifacts.yml)
-#   2. Generates a spread test matrix (opcli spread tasks)
+#   2. Generates a spread test matrix (opcli spread jobs)
 #   3. Runs each spread test task in a dedicated job
 #
 # Call from your operator repository:
@@ -104,7 +104,7 @@ jobs:
       - name: Generate spread task matrix
         id: tasks
         run: |
-          matrix=$(opcli spread tasks)
+          matrix=$(opcli spread jobs)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "Test matrix: $matrix"
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import typer
 
-from opcli.core.spread import spread_expand, spread_init, spread_run, spread_tasks
+from opcli.core.spread import spread_expand, spread_init, spread_jobs, spread_run
 
 app = typer.Typer(
     help="Generate, expand, and run spread-based integration tests.",
@@ -48,7 +48,7 @@ def expand() -> None:
 
 
 @app.command()
-def tasks() -> None:
-    """Print CI test task selectors as a JSON array for GitHub Actions matrix."""
-    entries = spread_tasks(Path.cwd())
+def jobs() -> None:
+    """Print CI test job selectors as a JSON array for GitHub Actions matrix."""
+    entries = spread_jobs(Path.cwd())
     typer.echo(json.dumps({"include": entries}))
