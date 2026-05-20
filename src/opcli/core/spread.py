@@ -29,6 +29,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from opcli.core.exceptions import ConfigurationError, ValidationError
+from opcli.core.progress import status
 from opcli.core.secrets import is_ci as _is_ci_impl
 from opcli.core.secrets import load_secrets_env as _load_secrets_env_impl
 from opcli.core.subprocess import run_command
@@ -831,6 +832,7 @@ def spread_run(
         cmd = ["spread"]
         if extra_args:
             cmd.extend(extra_args)
+        status(f"Running spread ({'CI' if is_ci else 'local'} mode)")
         run_command(cmd, cwd=tmp_dir, interactive=True, env=secrets_env)
 
 

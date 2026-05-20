@@ -23,6 +23,7 @@ import socket
 from pathlib import Path
 
 from opcli.core.exceptions import ConfigurationError
+from opcli.core.progress import status
 from opcli.core.subprocess import run_command
 from opcli.core.yaml_io import dump_artifacts_build, load_artifacts_build
 
@@ -61,7 +62,7 @@ def provision_prepare(
         ["concierge", "prepare", "-c", str(concierge_path)],
         cwd=str(root),
     )
-    logger.info("Provisioning complete via %s", concierge_file)
+    status("Provisioning complete")
 
 
 def provision_load(
@@ -111,6 +112,7 @@ def provision_load(
 
             # Push directly from .rock archive to registry in one step — no Docker
             # daemon needed (avoids failures in MicroK8s-only environments).
+            status(f"Pushing '{rock.name}' ({build.arch}) → {image_ref}")
             run_command(
                 [
                     "sudo",

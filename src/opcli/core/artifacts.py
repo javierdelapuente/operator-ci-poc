@@ -20,6 +20,7 @@ from pathlib import Path
 
 from opcli.core.discovery import discover_artifacts
 from opcli.core.exceptions import ConfigurationError, OpcliError, SubprocessError
+from opcli.core.progress import status, step
 from opcli.core.subprocess import run_command
 from opcli.core.yaml_io import (
     dump_artifacts_build,
@@ -160,16 +161,17 @@ def _push_rock_to_ghcr(
         raise OpcliError(msg)
 
     image_ref = f"ghcr.io/{ci.owner}/{ci.repo}/{rock.name}:{ci.sha}-{build.arch}"
-    run_command(
-        [
-            "skopeo",
-            "--insecure-policy",
-            "copy",
-            f"oci-archive:{rock_path}",
-            f"docker://{image_ref}",
-        ],
-        cwd=str(root),
-    )
+    with step(f"Pushing rock '{rock.name}' to GHCR"):
+        run_command(
+            [
+                "skopeo",
+                "--insecure-policy",
+                "copy",
+                f"oci-archive:{rock_path}",
+                f"docker://{image_ref}",
+            ],
+            cwd=str(root),
+        )
     logger.info("Pushed rock '%s' to %s", rock.name, image_ref)
     return GeneratedRock(
         name=rock.name,
@@ -535,7 +537,10 @@ def _build_rock(rock: RockArtifact, root: Path, attributed: set[str]) -> Generat
 
     symlink_path, symlink_created = _with_rock_symlink(yaml_path, pack_dir)
     try:
-        run_command([*_PACK_COMMANDS["rock"]], cwd=str(pack_dir), env=_ROCKCRAFT_ENV)
+        with step(f"Building rock '{rock.name}' (rockcraft pack)"):
+            run_command(
+                [*_PACK_COMMANDS["rock"]], cwd=str(pack_dir), env=_ROCKCRAFT_ENV
+            )
     finally:
         if symlink_created and symlink_path and symlink_path.is_symlink():
             symlink_path.unlink()
@@ -567,7 +572,8 @@ def _build_charm(
 
     symlink_path, symlink_created = _with_charm_symlink(yaml_path, pack_dir)
     try:
-        run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
+        with step(f"Building charm '{charm.name}' (charmcraft pack)"):
+            run_command([*_PACK_COMMANDS["charm"]], cwd=str(pack_dir))
     finally:
         if symlink_created and symlink_path and symlink_path.is_symlink():
             symlink_path.unlink()
@@ -611,7 +617,8 @@ def _build_snap(snap: SnapArtifact, root: Path, attributed: set[str]) -> Generat
         raise ConfigurationError(msg)
 
     before = _snapshot_outputs(pack_dir, "snap")
-    run_command([*_PACK_COMMANDS["snap"]], cwd=str(pack_dir))
+    with step(f"Building snap '{snap.name}' (snapcraft pack)"):
+        run_command([*_PACK_COMMANDS["snap"]], cwd=str(pack_dir))
     after = _snapshot_outputs(pack_dir, "snap")
     new_output = _pick_new_output(before, after, "snap", pack_dir, attributed)
     output_file = _relative_to_root(new_output, root)
@@ -662,6 +669,16 @@ def artifacts_build(
     rocks_to_build = _filter_by_name(plan.rocks, rock_names, "rock")
     charms_to_build = _filter_by_name(plan.charms, charm_names, "charm")
     snaps_to_build = _filter_by_name(plan.snaps, snap_names, "snap")
+
+    total = len(rocks_to_build) + len(charms_to_build) + len(snaps_to_build)
+    parts = []
+    if rocks_to_build:
+        parts.append(f"{len(rocks_to_build)} rock(s)")
+    if charms_to_build:
+        parts.append(f"{len(charms_to_build)} charm(s)")
+    if snaps_to_build:
+        parts.append(f"{len(snaps_to_build)} snap(s)")
+    status(f"Building {total} artifact(s): {', '.join(parts)}")
 
     # Track absolute output paths attributed to each artifact so far, to detect
     # collisions when multiple artifacts share a pack-dir.
@@ -1420,7 +1437,7 @@ def artifacts_fetch(
     for name in sorted(seen_artifacts):
         artifact_dir = root / name
         artifact_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("Downloading artifact '%s' into '%s'...", name, artifact_dir)
+        status(f"Downloading artifact '{name}'")
         run_command(
             [
                 "gh",
