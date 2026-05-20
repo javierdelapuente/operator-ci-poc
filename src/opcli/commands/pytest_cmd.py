@@ -5,12 +5,27 @@ from pathlib import Path
 
 import typer
 
-from opcli.core.pytest_args import assemble_tox_argv
+from opcli.core.pytest_args import assemble_tox_argv, pytest_run
 
 app = typer.Typer(
     help="Assemble pytest flags from build output and run integration tests.",
     no_args_is_help=True,
 )
+
+
+@app.command(
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def run(
+    ctx: typer.Context,
+    *,
+    tox_env: str = typer.Option("integration", "-e", help="Tox environment name."),
+) -> None:
+    """Assemble and execute the tox integration test command.
+
+    Extra args after -- are forwarded to tox/pytest.
+    """
+    pytest_run(Path.cwd(), tox_env=tox_env, extra_args=ctx.args or None)
 
 
 @app.command(
