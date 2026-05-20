@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import shutil
 
+from opcli.core.progress import status, step
 from opcli.core.subprocess import run_command
 
 
@@ -19,12 +20,14 @@ def install_spread() -> None:
     Installs Go via snap and builds spread from source.
     """
     if shutil.which("spread"):
+        status("spread already installed")
         return
-    run_command(["snap", "install", "go", "--classic"])
-    run_command(
-        ["go", "install", "github.com/canonical/spread/cmd/spread@latest"],
-    )
-    run_command(["ln", "-sf", "/root/go/bin/spread", "/usr/local/bin/spread"])
+    with step("Installing spread (Go + build from source)"):
+        run_command(["snap", "install", "go", "--classic"])
+        run_command(
+            ["go", "install", "github.com/canonical/spread/cmd/spread@latest"],
+        )
+        run_command(["ln", "-sf", "/root/go/bin/spread", "/usr/local/bin/spread"])
 
 
 def install_tox() -> None:
@@ -33,17 +36,20 @@ def install_tox() -> None:
     Uses /usr/local/bin as the tool bin directory so that tox is
     available system-wide.
     """
-    run_command(
-        ["uv", "tool", "install", "tox", "--with", "tox-uv", "--quiet"],
-        env={
-            "UV_TOOL_BIN_DIR": "/usr/local/bin",
-            "UV_TOOL_DIR": "/usr/local/share/uv-tools",
-        },
-    )
+    with step("Installing tox"):
+        run_command(
+            ["uv", "tool", "install", "tox", "--with", "tox-uv", "--quiet"],
+            env={
+                "UV_TOOL_BIN_DIR": "/usr/local/bin",
+                "UV_TOOL_DIR": "/usr/local/share/uv-tools",
+            },
+        )
 
 
 def install_concierge() -> None:
     """Install the concierge snap if not already on PATH."""
     if shutil.which("concierge"):
+        status("concierge already installed")
         return
-    run_command(["snap", "install", "concierge", "--classic"])
+    with step("Installing concierge"):
+        run_command(["snap", "install", "concierge", "--classic"])
