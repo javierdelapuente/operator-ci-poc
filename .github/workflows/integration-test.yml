@@ -180,6 +180,25 @@ jobs:
             echo "$name=$value" >> "$GITHUB_ENV"
           done
 
+      # ── Early bail-out if the build already failed ─────────────────────────
+      # The test job starts without waiting for the build (by design — provisioning
+      # runs in parallel).  However, if the build has already failed by the time we
+      # reach this point, there is no reason to continue.  The "Collect artifacts"
+      # job in the build workflow is skipped/failed/cancelled when a build fails,
+      # so we use its conclusion as the signal.
+      - name: Check build status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          conclusion=$(gh run view "${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --json jobs \
+            --jq '.jobs[] | select(.name | contains("Collect artifacts")) | .conclusion')
+          if [[ "$conclusion" =~ ^(skipped|failure|cancelled)$ ]]; then
+            echo "::error::Build failed — 'Collect artifacts' job conclusion is '$conclusion'. Skipping test."
+            exit 1
+          fi
+
       # ── Run the spread task ───────────────────────────────────────────────
       # Artifact download happens inside spread _CI_PREPARE (after provisioning).
       - name: Run spread task
