@@ -1,4 +1,4 @@
-"""Core logic for ``opcli provision run``, ``opcli provision load``,
+"""Core logic for ``opcli provision prepare``, ``opcli provision load``,
 and ``opcli provision registry``.
 
 ``run`` invokes concierge to provision the test environment.
@@ -38,12 +38,12 @@ _REGISTRY_DEPLOYMENT = "deployment/registry"
 _REGISTRY_NAMESPACE = "container-registry"
 
 
-def provision_run(
+def provision_prepare(
     root: Path,
     *,
     concierge_file: str = _CONCIERGE_YAML,
 ) -> None:
-    """Run ``sudo concierge prepare`` to provision the test environment.
+    """Run ``concierge prepare`` to provision the test environment.
 
     Raises:
         ConfigurationError: If the concierge file does not exist.
@@ -58,7 +58,7 @@ def provision_run(
         raise ConfigurationError(msg)
 
     run_command(
-        ["sudo", "concierge", "prepare", "-c", str(concierge_path)],
+        ["concierge", "prepare", "-c", str(concierge_path)],
         cwd=str(root),
     )
     logger.info("Provisioning complete via %s", concierge_file)

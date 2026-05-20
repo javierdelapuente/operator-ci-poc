@@ -176,7 +176,8 @@ class TestSpreadExpand:
         assert "SPREAD_PASSWORD" in local["allocate"]
         assert "lxc delete --force" in local["discard"]
         prepare = local["prepare"]
-        assert "opcli concierge prepare" in prepare
+        assert "opcli install concierge" in prepare
+        assert "opcli provision prepare" in prepare
         assert "opcli provision registry" in prepare
         assert "opcli provision load" in prepare
         assert "opcli install spread" in prepare
@@ -328,7 +329,7 @@ suites:
         assert 'echo "user setup step"' in prepare
         assert "apt-get install -y custom-pkg" in prepare
         # User prepare comes after concierge/provisioning
-        assert prepare.index("concierge prepare") < prepare.index("user setup step")
+        assert prepare.index("provision prepare") < prepare.index("user setup step")
         # User prepare comes before final chown
         assert prepare.index("user setup step") < prepare.index(
             'chown -R ubuntu:ubuntu "${SPREAD_PATH}"'
@@ -359,7 +360,7 @@ suites:
         # User prepare is present
         assert 'echo "user ci setup"' in prepare
         # User prepare comes after concierge provisioning
-        assert prepare.index("concierge prepare") < prepare.index("user ci setup")
+        assert prepare.index("provision prepare") < prepare.index("user ci setup")
         # User prepare comes before artifact fetch
         assert prepare.index("user ci setup") < prepare.index("opcli artifacts fetch")
 
@@ -372,7 +373,7 @@ suites:
         prepare = local["prepare"]
 
         # Standard parts are present
-        assert "concierge prepare" in prepare
+        assert "opcli provision prepare" in prepare
         assert 'chown -R ubuntu:ubuntu "${SPREAD_PATH}"' in prepare
         # No doubled newlines from empty user prepare
         assert "\n\n\n" not in prepare
@@ -450,7 +451,8 @@ suites:
         prepare = parsed["backends"]["integration-test-local"]["prepare"]
 
         # Conditionals are now internal to the opcli commands
-        assert "opcli concierge prepare" in prepare
+        assert "opcli install concierge" in prepare
+        assert "opcli provision prepare" in prepare
         assert "opcli provision load" in prepare
 
     def test_ci_prepare_conditional(self, tmp_path: Path) -> None:
@@ -461,7 +463,8 @@ suites:
         parsed = _yaml.load(StringIO(result))
         prepare = parsed["backends"]["integration-test-ci"]["prepare"]
 
-        assert "opcli concierge prepare" in prepare
+        assert "opcli install concierge" in prepare
+        assert "opcli provision prepare" in prepare
         assert "opcli install tox" in prepare
         assert "SPREAD_PATH" in prepare
         assert "pipx install" not in prepare

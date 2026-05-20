@@ -2,7 +2,7 @@
 
 import typer
 
-from opcli.core.install import install_spread, install_tox
+from opcli.core.install import install_concierge, install_spread, install_tox
 
 app = typer.Typer(
     help="Install tool dependencies for spread test environments.",
@@ -22,3 +22,10 @@ def tox() -> None:
     """Install tox with tox-uv for running integration tests."""
     install_tox()
     typer.echo("tox is available.")
+
+
+@app.command()
+def concierge() -> None:
+    """Install the concierge snap (no-op if already present)."""
+    install_concierge()
+    typer.echo("concierge is available.")

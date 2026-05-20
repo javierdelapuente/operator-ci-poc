@@ -1,4 +1,5 @@
-"""Core logic for ``opcli install spread`` and ``opcli install tox``.
+"""Core logic for ``opcli install spread``, ``opcli install tox``,
+and ``opcli install concierge``.
 
 These commands install tool dependencies needed by the spread test
 environment.  They are designed to be called from the spread ``prepare:``
@@ -39,3 +40,10 @@ def install_tox() -> None:
             "UV_TOOL_DIR": "/usr/local/share/uv-tools",
         },
     )
+
+
+def install_concierge() -> None:
+    """Install the concierge snap if not already on PATH."""
+    if shutil.which("concierge"):
+        return
+    run_command(["snap", "install", "concierge", "--classic"])
