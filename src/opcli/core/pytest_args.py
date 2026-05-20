@@ -1,4 +1,4 @@
-"""Core logic for ``opcli pytest expand``.
+"""Core logic for ``opcli pytest expand`` and ``opcli pytest run``.
 
 Reads ``artifacts.build.yaml`` (schema v1) and assembles the flags that
 tox/pytest need to locate built charms and their OCI-image resources.
@@ -31,6 +31,8 @@ from pathlib import Path
 from typing import overload
 
 from opcli.core.exceptions import ConfigurationError
+from opcli.core.secrets import is_ci, load_secrets_env
+from opcli.core.subprocess import run_command
 from opcli.core.yaml_io import load_artifacts_build
 from opcli.models.artifacts_build import (
     CharmOutput,
@@ -187,3 +189,32 @@ def assemble_tox_argv(
     if pytest_args:
         cmd += ["--", *pytest_args]
     return cmd
+
+
+def pytest_run(
+    root: Path,
+    *,
+    tox_env: str = "integration",
+    extra_args: list[str] | None = None,
+    ci: bool | None = None,
+) -> None:
+    """Assemble the tox command and execute it interactively.
+
+    In local mode, secrets from ``.secrets.env`` (if present) are loaded and
+    passed as environment variables to the tox subprocess.  In CI mode the
+    variables are expected to already be in the environment.
+
+    Raises:
+        ConfigurationError: If ``artifacts.build.yaml`` is missing.
+        SubprocessError: If tox exits non-zero.
+    """
+    cmd = assemble_tox_argv(root, tox_env=tox_env, extra_args=extra_args)
+
+    is_ci_env = ci if ci is not None else is_ci()
+    secrets_env: dict[str, str] | None = None
+    if not is_ci_env:
+        loaded = load_secrets_env(root)
+        if loaded:
+            secrets_env = loaded
+
+    run_command(cmd, cwd=str(root), interactive=True, env=secrets_env)
