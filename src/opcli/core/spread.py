@@ -284,7 +284,7 @@ opcli install spread
 opcli install tox
 opcli concierge prepare -c "$CONCIERGE"
 runuser -l ubuntu -c \
-  "cd \\"${SPREAD_PATH}\\" && opcli provision registry -c \\"$CONCIERGE\\""
+  "cd \\"${SPREAD_PATH}\\" && opcli provision registry"
 opcli provision load
 """
 
