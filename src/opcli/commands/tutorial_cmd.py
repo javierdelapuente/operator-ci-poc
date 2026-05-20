@@ -7,10 +7,11 @@ from typing import Annotated
 
 import typer
 
-from opcli.core.exceptions import OpcliError
 from opcli.core.tutorial import expand_tutorial
 
-app = typer.Typer(help="Tutorial testing commands.")
+app = typer.Typer(
+    help="Extract and run shell commands from tutorial documents (.md/.rst).",
+)
 
 
 @app.command()
@@ -32,9 +33,5 @@ def expand(
 
     Supports Markdown (.md) and reStructuredText (.rst) files.
     """
-    try:
-        script = expand_tutorial(tutorial_file)
-        typer.echo(script)
-    except OpcliError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(1) from exc
+    script = expand_tutorial(tutorial_file)
+    typer.echo(script)

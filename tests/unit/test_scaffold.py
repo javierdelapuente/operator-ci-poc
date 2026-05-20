@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from opcli.app import app
+from opcli.app import typer_app as app
 from opcli.core.exceptions import (
     ConfigurationError,
     DiscoveryError,
@@ -71,6 +71,65 @@ class TestExceptionHierarchy:
     )
     def test_all_exceptions_inherit_from_base(self, exc_cls: type) -> None:
         assert issubclass(exc_cls, OpcliError)
+
+    def test_hint_attribute_default_none(self) -> None:
+        err = OpcliError("something went wrong")
+        assert err.hint is None
+
+    def test_hint_attribute_set(self) -> None:
+        err = ConfigurationError(
+            "artifacts.build.yaml not found",
+            hint="Run 'opcli artifacts build' first.",
+        )
+        assert err.hint == "Run 'opcli artifacts build' first."
+
+
+class TestGlobalErrorHandler:
+    """Verify OpcliError produces friendly output without tracebacks."""
+
+    def test_opcli_error_shows_message_on_stderr(self) -> None:
+        with patch(
+            "opcli.commands.artifacts.artifacts_build",
+            side_effect=ConfigurationError("something went wrong"),
+        ):
+            result = runner.invoke(app, ["artifacts", "build"])
+            assert result.exit_code == 1
+            assert "error: something went wrong" in result.output
+
+    def test_opcli_error_shows_hint(self) -> None:
+        with patch(
+            "opcli.commands.artifacts.artifacts_build",
+            side_effect=ConfigurationError(
+                "artifacts.build.yaml not found",
+                hint="Run 'opcli artifacts build' first.",
+            ),
+        ):
+            result = runner.invoke(app, ["artifacts", "build"])
+            assert result.exit_code == 1
+            assert "hint:" in result.output
+            assert "opcli artifacts build" in result.output
+
+    def test_opcli_error_no_traceback(self) -> None:
+        with patch(
+            "opcli.commands.spread.spread_expand",
+            side_effect=ConfigurationError("spread.yaml not found"),
+        ):
+            result = runner.invoke(app, ["spread", "expand"])
+            assert result.exit_code == 1
+            assert "Traceback" not in result.output
+            assert "error: spread.yaml not found" in result.output
+
+    def test_subprocess_error_handled(self) -> None:
+        with patch(
+            "opcli.commands.spread.spread_run",
+            side_effect=SubprocessError(
+                cmd=["spread"], returncode=1, stderr="task failed"
+            ),
+        ):
+            result = runner.invoke(app, ["spread", "run"])
+            assert result.exit_code == 1
+            assert "error:" in result.output
+            assert "Traceback" not in result.output
 
 
 class TestSubprocessWrapper:
