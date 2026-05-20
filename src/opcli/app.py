@@ -4,7 +4,6 @@ import typer
 
 from opcli.commands import (
     artifacts,
-    concierge,
     install,
     provision,
     pytest_cmd,
@@ -19,7 +18,6 @@ app = typer.Typer(
 )
 
 app.add_typer(artifacts.app, name="artifacts")
-app.add_typer(concierge.app, name="concierge")
 app.add_typer(install.app, name="install")
 app.add_typer(provision.app, name="provision")
 app.add_typer(spread.app, name="spread")

@@ -1,4 +1,4 @@
-"""Tests for ``opcli provision run``, ``opcli provision load``,
+"""Tests for ``opcli provision prepare``, ``opcli provision load``,
 and ``opcli provision registry``."""
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from opcli.core.exceptions import ConfigurationError
-from opcli.core.provision import provision_load, provision_registry, provision_run
+from opcli.core.provision import provision_load, provision_prepare, provision_registry
 from opcli.core.yaml_io import load_artifacts_build
 
 
@@ -70,30 +70,31 @@ charms:
 """
 
 
-class TestProvisionRun:
-    """Tests for provision_run()."""
+class TestProvisionPrepare:
+    """Tests for provision_prepare()."""
 
     def test_runs_concierge(self, tmp_path: Path) -> None:
         _write(tmp_path / "concierge.yaml", "providers: {}\n")
 
         with patch("opcli.core.provision.run_command") as mock_run:
-            provision_run(tmp_path)
+            provision_prepare(tmp_path)
 
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
         assert "concierge" in cmd
         assert "prepare" in cmd
+        assert "sudo" not in cmd
         assert any("concierge.yaml" in arg for arg in cmd)
 
     def test_missing_concierge_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ConfigurationError, match="not found"):
-            provision_run(tmp_path)
+            provision_prepare(tmp_path)
 
     def test_custom_concierge_file(self, tmp_path: Path) -> None:
         _write(tmp_path / "concierge_juju4.yaml", "providers: {}\n")
 
         with patch("opcli.core.provision.run_command") as mock_run:
-            provision_run(tmp_path, concierge_file="concierge_juju4.yaml")
+            provision_prepare(tmp_path, concierge_file="concierge_juju4.yaml")
 
         cmd = mock_run.call_args[0][0]
         assert any("concierge_juju4.yaml" in arg for arg in cmd)

@@ -776,7 +776,7 @@ backends:
 
 ---
 
-## 26. `opcli install spread` / `opcli install tox` / `opcli concierge prepare` — extracted subcommands
+## 26. `opcli install spread` / `opcli install tox` / `opcli install concierge` / `opcli provision prepare` — extracted subcommands
 
 **Spec:** Does not describe how spread, tox, or concierge are installed
 inside the test VM. The spec mentions `concierge prepare` as a provisioning
@@ -790,7 +790,8 @@ opcli subcommands:
 |---|---|
 | `opcli install spread` | Installs Go via snap and builds spread from source. No-op if `spread` is already on `PATH`. |
 | `opcli install tox` | Installs tox + tox-uv via `uv tool install` into `/usr/local/bin`. |
-| `opcli concierge prepare -c <file>` | Installs the concierge snap and runs `concierge prepare`. No-op if the config file does not exist. |
+| `opcli install concierge` | Installs the concierge snap. No-op if `concierge` is already on `PATH`. |
+| `opcli provision prepare -c <file>` | Runs `concierge prepare` to provision the test environment. Raises if the config file does not exist. |
 
 The generated prepare scripts now call these commands instead of embedding
 the equivalent shell logic:
@@ -798,7 +799,8 @@ the equivalent shell logic:
 ```bash
 opcli install spread
 opcli install tox
-opcli concierge prepare -c "$CONCIERGE"
+opcli install concierge
+opcli provision prepare -c "$CONCIERGE"
 ```
 
 Additionally, `opcli provision load` is now a safe no-op when

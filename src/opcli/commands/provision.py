@@ -4,18 +4,28 @@ from pathlib import Path
 
 import typer
 
-from opcli.core.provision import provision_load, provision_registry, provision_run
+from opcli.core.provision import provision_load, provision_prepare, provision_registry
 
 app = typer.Typer(
     help="Provision test environments with concierge.",
     no_args_is_help=True,
 )
 
+_CONCIERGE_YAML = "concierge.yaml"
+
 
 @app.command()
-def run() -> None:
+def prepare(
+    *,
+    concierge_file: str = typer.Option(
+        _CONCIERGE_YAML,
+        "-c",
+        "--concierge",
+        help="Path to concierge.yaml (relative to the project root).",
+    ),
+) -> None:
     """Run concierge prepare to provision the test environment."""
-    provision_run(Path.cwd())
+    provision_prepare(Path.cwd(), concierge_file=concierge_file)
     typer.echo("Provisioning complete.")
 
 
