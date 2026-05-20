@@ -15,23 +15,23 @@ spec's command table was later updated to list `opcli pytest expand`, but
 prose references to `opcli pytest run` remain in the spec text (e.g. the
 local-testing description and `artifacts fetch` docs).
 
-**Implementation:** A single `opcli pytest expand` command that prints the
-full, shell-quoted tox invocation:
+**Implementation:** Two commands exist:
+
+- `opcli pytest run` — assembles and executes the tox integration test
+  command directly.
+- `opcli pytest expand` — prints the full, shell-quoted tox invocation
+  without executing it:
 
 ```
 tox -e integration -- --charm-file=./mycharm.charm --myrock-image=./myrock.rock
 ```
 
-`opcli pytest run` and `opcli pytest args` do not exist. To run tests, pipe
-the output to `eval`:
+`opcli pytest args` does not exist. The `expand` command replaces it by
+printing the complete tox invocation (not just the pytest flags).
 
-```bash
-eval "$(opcli pytest expand -- -k test_charm)"
-```
-
-**Rationale:** Printing rather than executing keeps opcli out of the
-subprocess wrapper for tox, avoids duplicating tox's output-streaming
-complexity, and makes the exact command trivially inspectable and debuggable.
+**Rationale:** Having both `run` (for convenience) and `expand` (for
+inspection/debugging and use in `eval`) covers both use cases from the
+original spec while keeping the interface minimal.
 
 ---
 
