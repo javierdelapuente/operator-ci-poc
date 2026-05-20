@@ -17,8 +17,8 @@ from opcli.core.spread import (
     _virtual_runner_map,
     spread_expand,
     spread_init,
+    spread_jobs,
     spread_run,
-    spread_tasks,
 )
 from opcli.core.subprocess import SubprocessResult
 
@@ -1472,7 +1472,7 @@ class TestArchFromRunner:
 
 
 class TestSpreadTasks:
-    """Tests for spread_tasks()."""
+    """Tests for spread_jobs()."""
 
     _SPREAD_LIST_TWO_VARIANTS = (
         "integration-test-ci:ubuntu-22.04:tests/integration/run:test_charm\n"
@@ -1496,7 +1496,7 @@ class TestSpreadTasks:
             "opcli.core.spread.run_command",
             return_value=self._mock_list(self._SPREAD_LIST_TWO_VARIANTS),
         ):
-            entries = spread_tasks(tmp_path)
+            entries = spread_jobs(tmp_path)
 
         names = [e["name"] for e in entries]
         assert (
@@ -1517,7 +1517,7 @@ class TestSpreadTasks:
             "opcli.core.spread.run_command",
             return_value=self._mock_list(raw_selector + "\n"),
         ):
-            entries = spread_tasks(tmp_path)
+            entries = spread_jobs(tmp_path)
 
         assert len(entries) == 1
         assert entries[0]["selector"] == raw_selector
@@ -1530,7 +1530,7 @@ class TestSpreadTasks:
             "opcli.core.spread.run_command",
             return_value=self._mock_list(self._SPREAD_LIST_TWO_VARIANTS),
         ):
-            entries = spread_tasks(tmp_path)
+            entries = spread_jobs(tmp_path)
 
         ubuntu_22_entries = [e for e in entries if "ubuntu-22.04" in e["selector"]]
         assert all(e["runs-on"] == '"ubuntu-22.04-runner"' for e in ubuntu_22_entries)
@@ -1543,7 +1543,7 @@ class TestSpreadTasks:
             "opcli.core.spread.run_command",
             return_value=self._mock_list(self._SPREAD_LIST_NO_VARIANT),
         ):
-            entries = spread_tasks(tmp_path)
+            entries = spread_jobs(tmp_path)
 
         assert len(entries) == 1
         assert (
@@ -1554,7 +1554,7 @@ class TestSpreadTasks:
     def test_missing_spread_yaml_raises(self, tmp_path: Path) -> None:
         """Raises ConfigurationError when spread.yaml is missing."""
         with pytest.raises(ConfigurationError):
-            spread_tasks(tmp_path)
+            spread_jobs(tmp_path)
 
     def test_spread_list_called_with_ci_backend_selectors(self, tmp_path: Path) -> None:
         """spread -list is invoked with one selector per virtual backend."""
@@ -1564,7 +1564,7 @@ class TestSpreadTasks:
             "opcli.core.spread.run_command",
             return_value=self._mock_list(self._SPREAD_LIST_ONE_VARIANT),
         ) as mock_run:
-            spread_tasks(tmp_path)
+            spread_jobs(tmp_path)
 
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "spread"
@@ -1596,7 +1596,7 @@ suites:
             "opcli.core.spread.run_command",
             return_value=self._mock_list(self._SPREAD_LIST_ONE_VARIANT),
         ) as mock_run:
-            spread_tasks(tmp_path)
+            spread_jobs(tmp_path)
 
         cmd = mock_run.call_args[0][0]
         assert "integration-test-ci:" in cmd
@@ -1692,7 +1692,7 @@ suites:
                 "integration-test-ci:ubuntu-24.04-arm64:tests/integration/run:test_charm\n"
             ),
         ):
-            entries = spread_tasks(tmp_path)
+            entries = spread_jobs(tmp_path)
 
         assert len(entries) == 1
         assert entries[0]["arch"] == "arm64"
@@ -1704,7 +1704,7 @@ suites:
             "opcli.core.spread.run_command",
             return_value=self._mock_list(self._SPREAD_LIST_ONE_VARIANT),
         ):
-            entries = spread_tasks(tmp_path)
+            entries = spread_jobs(tmp_path)
 
         assert all(e["arch"] == "amd64" for e in entries)
 
@@ -1733,7 +1733,7 @@ suites:
                 "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm\n"
             ),
         ):
-            entries = spread_tasks(tmp_path)
+            entries = spread_jobs(tmp_path)
 
         assert all(e["arch"] == "arm64" for e in entries)
 
@@ -1751,7 +1751,7 @@ suites:
             "opcli.core.spread.run_command",
             return_value=self._mock_list(list_output),
         ):
-            entries = spread_tasks(tmp_path)
+            entries = spread_jobs(tmp_path)
 
         selectors = [e["selector"] for e in entries]
         names = [e["name"] for e in entries]
@@ -1765,14 +1765,14 @@ suites:
         )
 
     def test_temp_dir_cleaned_up_after_tasks(self, tmp_path: Path) -> None:
-        """Temporary spread.yaml directory is removed after spread_tasks returns."""
+        """Temporary spread.yaml directory is removed after spread_jobs returns."""
         _write(tmp_path / "spread.yaml", _SPREAD_NO_RUNNER)
 
         with patch(
             "opcli.core.spread.run_command",
             return_value=self._mock_list(self._SPREAD_LIST_ONE_VARIANT),
         ):
-            spread_tasks(tmp_path)
+            spread_jobs(tmp_path)
 
-        leftover = list(tmp_path.glob(".spread-tasks-*"))
+        leftover = list(tmp_path.glob(".spread-jobs-*"))
         assert leftover == []

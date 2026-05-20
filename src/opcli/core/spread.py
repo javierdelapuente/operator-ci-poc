@@ -835,7 +835,7 @@ def spread_run(
 
 
 # ---------------------------------------------------------------------------
-#  spread tasks — enumerate CI test selectors for GitHub Actions matrix
+#  spread jobs — enumerate CI test selectors for GitHub Actions matrix
 # ---------------------------------------------------------------------------
 
 _DEFAULT_RUNNER = "ubuntu-latest"
@@ -909,7 +909,7 @@ def _virtual_runner_map(
     return runner_map, arch_map, ci_names
 
 
-def spread_tasks(root: Path) -> list[dict[str, str]]:
+def spread_jobs(root: Path) -> list[dict[str, str]]:
     """Return all CI spread task selectors as a list of GitHub Actions matrix entries.
 
     Calls ``spread -list`` on the expanded (CI-mode) ``spread.yaml``, restricted
@@ -939,7 +939,7 @@ def spread_tasks(root: Path) -> list[dict[str, str]]:
     expanded["reroot"] = _compose_reroot(expanded.get("reroot"))
 
     entries: list[dict[str, str]] = []
-    with tempfile.TemporaryDirectory(prefix=".spread-tasks-", dir=root) as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix=".spread-jobs-", dir=root) as tmp_dir:
         tmp_yaml = Path(tmp_dir) / _SPREAD_YAML
         with tmp_yaml.open("w") as fh:
             _yaml.dump(_literalize(expanded), fh)

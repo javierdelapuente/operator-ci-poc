@@ -191,7 +191,7 @@ backends:
 ```
 
 These fields are stripped before the YAML is passed to spread — they are
-opcli-only metadata. `runner` and `arch` are consumed by `opcli spread tasks`
+opcli-only metadata. `runner` and `arch` are consumed by `opcli spread jobs`
 from the raw (unexpanded) `spread.yaml` to build the CI matrix, then stripped
 in both local and CI expansion. During local expansion, `cpu`/`memory`/`disk`
 are injected into the `allocate` script as per-system `case` arms using
@@ -568,11 +568,11 @@ be unreachable after delivery.
 
 ---
 
-## 20. `opcli spread tasks` — new command for GitHub Actions test matrix
+## 20. `opcli spread jobs` — new command for GitHub Actions test matrix
 
 **Spec:** Does not describe this command.
 
-**Implementation:** `opcli spread tasks` reads `spread.yaml` (without expanding
+**Implementation:** `opcli spread jobs` reads `spread.yaml` (without expanding
 it), extracts all `MODULE/*` variants from the suites, and prints a JSON object
 suitable for use as a GitHub Actions `strategy.matrix`:
 
@@ -685,7 +685,7 @@ opcli spread run -- integration-test-local:ubuntu-24.04:tests/integration/run:te
 opcli spread run -- integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm
 ```
 
-And `opcli spread tasks` produces entries like:
+And `opcli spread jobs` produces entries like:
 
 ```json
 {"name": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm", "selector": "integration-test-ci:ubuntu-24.04:tests/integration/run:test_charm", "runs-on": ["self-hosted", "noble"]}
