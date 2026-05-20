@@ -143,6 +143,8 @@ gh pr merge <number> --squash
 
 **CI must be green before merging. No exceptions.**
 
+**If a CI check fails, fix it.** Never dismiss a failure as "pre-existing" or "unrelated to this PR". If a workflow is broken, investigate and fix it in the same PR (or a preceding one) before merging. The goal is to keep `main` green at all times.
+
 All commits must include:
 ```
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
