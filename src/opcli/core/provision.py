@@ -18,10 +18,9 @@ images are served from GHCR.
 from __future__ import annotations
 
 import logging
+import shutil
 import socket
 from pathlib import Path
-
-from ruamel.yaml import YAML
 
 from opcli.core.exceptions import ConfigurationError
 from opcli.core.subprocess import run_command
@@ -145,33 +144,40 @@ def _is_port_open(host: str, port: int, *, timeout: float = 2.0) -> bool:
         return False
 
 
+def _detect_kubectl() -> list[str] | None:
+    """Auto-detect the kubectl command based on installed k8s providers.
+
+    Detection order: microk8s → k8s → standalone kubectl.
+    Returns the command prefix (e.g. ``["sudo", "microk8s", "kubectl"]``)
+    or ``None`` if no k8s tooling is found.
+    """
+    if shutil.which("microk8s"):
+        return ["sudo", "microk8s", "kubectl"]
+    if shutil.which("k8s"):
+        return ["sudo", "k8s", "kubectl"]
+    if shutil.which("kubectl"):
+        return ["sudo", "kubectl"]
+    return None
+
+
 def provision_registry(
     root: Path,
-    *,
-    concierge_file: str = _CONCIERGE_YAML,
 ) -> str:
     """Deploy a local OCI registry at ``localhost:32000``.
 
-    Reads *concierge_file* to detect whether a k8s or MicroK8s provider is
-    present, then applies ``src/opcli/data/registry.yaml`` via ``kubectl``.
-    The same manifest works on both canonical k8s and MicroK8s.
+    Auto-detects the active k8s provider (microk8s, canonical k8s, or
+    standalone kubectl) and applies ``src/opcli/data/registry.yaml``.
+    The same manifest works on all providers.
 
     Returns:
         ``"deployed"``       — the registry was just provisioned.
         ``"already_running"``— a service is already listening on port 32000;
                                nothing was changed.
-        ``"skipped"``        — no k8s provider is configured; nothing to do.
+        ``"skipped"``        — no k8s provider found or no rocks to push.
 
     Raises:
-        ConfigurationError: If both microk8s and k8s providers are configured
-            simultaneously.
         SubprocessError: If the underlying kubectl command fails.
     """
-    concierge_path = root / concierge_file
-    if not concierge_path.exists():
-        logger.info("No %s found, skipping registry setup.", concierge_file)
-        return "skipped"
-
     # Skip if there are no rocks to push — the registry is only needed to serve
     # locally-built rock images.
     gen_path = root / _ARTIFACTS_GENERATED_YAML
@@ -188,46 +194,10 @@ def provision_registry(
         logger.info("Registry already running at localhost:%d.", _REGISTRY_PORT)
         return "already_running"
 
-    yaml = YAML()
-    with open(concierge_path) as fh:
-        data = yaml.load(fh)
-
-    providers_raw = data.get("providers", {}) if isinstance(data, dict) else {}
-    providers: dict[str, object] = (
-        providers_raw if isinstance(providers_raw, dict) else {}
-    )
-
-    def _provider_enabled(name: str) -> bool:
-        entry = providers.get(name)
-        if not isinstance(entry, dict):
-            return False
-        # A provider listed under providers: is enabled by default;
-        # an explicit enable: false can opt it out.
-        return bool(entry.get("enable", True))
-
-    microk8s_on = _provider_enabled("microk8s")
-    k8s_on = _provider_enabled("k8s")
-
-    if microk8s_on and k8s_on:
-        msg = (
-            "Both 'microk8s' and 'k8s' providers are enabled in "
-            f"{concierge_file}. Only one k8s provider is supported at a time."
-        )
-        raise ConfigurationError(msg)
-
-    if not microk8s_on and not k8s_on:
-        logger.info(
-            "No k8s provider enabled in %s, skipping registry setup.",
-            concierge_file,
-        )
+    kubectl = _detect_kubectl()
+    if kubectl is None:
+        logger.info("No k8s provider found on PATH, skipping registry setup.")
         return "skipped"
-
-    # Use the provider-specific kubectl — MicroK8s and canonical k8s both
-    # bundle their own kubectl rather than relying on a separate install.
-    # Both use snap confinement that requires sudo in non-interactive sessions.
-    kubectl = (
-        ["sudo", "microk8s", "kubectl"] if microk8s_on else ["sudo", "k8s", "kubectl"]
-    )
 
     # Wait for at least one node to be Ready before deploying — freshly
     # bootstrapped clusters (e.g. in nested LXD) can take a while.

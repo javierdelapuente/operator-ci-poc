@@ -334,7 +334,7 @@ The functionality for opcli is grouped into four command families:  artifacts , 
 | :---- | :---- | :---- |
 | opcli provision run | Runs concierge prepare to provision the test environment. |  |
 | opcli provision load | Loads OCI image artifacts (rocks) into a local image registry. | -r / --registry: target registry (default: localhost:32000) |
-| opcli provision registry | Deploys a local OCI registry at localhost:32000 for k8s/MicroK8s. Reads concierge.yaml to detect the active k8s provider. No-op if the registry is already running or no k8s provider is configured. | -c / --concierge: path to concierge.yaml (default: concierge.yaml) |
+| opcli provision registry | Deploys a local OCI registry at localhost:32000 for k8s/MicroK8s. Auto-detects the active k8s provider on PATH (microk8s → k8s → kubectl). No-op if the registry is already running or no k8s tooling is found. |  |
 
 ### **opcli spread**
 

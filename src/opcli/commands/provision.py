@@ -11,8 +11,6 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-_CONCIERGE_YAML = "concierge.yaml"
-
 
 @app.command()
 def run() -> None:
@@ -38,22 +36,13 @@ def load(
 
 
 @app.command()
-def registry(
-    *,
-    concierge_file: str = typer.Option(
-        _CONCIERGE_YAML,
-        "-c",
-        "--concierge",
-        help="Path to concierge.yaml (relative to the project root).",
-    ),
-) -> None:
+def registry() -> None:
     """Deploy a local OCI registry at localhost:32000 for k8s/MicroK8s.
 
-    Reads concierge.yaml to detect the active k8s provider and deploys
-    the registry accordingly.  No-op if the registry is already running
-    or if no k8s provider is configured.
+    Auto-detects the active k8s provider and deploys the registry.
+    No-op if the registry is already running or no k8s tooling is found.
     """
-    status = provision_registry(Path.cwd(), concierge_file=concierge_file)
+    status = provision_registry(Path.cwd())
     match status:
         case "deployed":
             typer.echo("Registry deployed at localhost:32000.")
