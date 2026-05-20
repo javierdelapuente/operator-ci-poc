@@ -11,6 +11,7 @@ A **local-first CLI tool** for Canonical operator developers to build charms, ro
 | [docs/ISD277-redesign.md](docs/ISD277-redesign.md) | Authoritative functional specification |
 | [docs/divergences.md](docs/divergences.md) | Where implementation differs from the spec |
 | [AGENTS.md](AGENTS.md) | Developer guide for AI coding agents |
+| [examples/](examples/) | Example project layout with `artifacts.yaml`, `spread.yaml`, and `concierge.yaml` |
 
 ## Installation
 
@@ -25,6 +26,14 @@ cd operator-ci-poc && uv tool install .
 # Verify
 opcli --help
 ```
+
+### Prerequisites
+
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) (package manager)
+- [LXD](https://canonical.com/lxd) (for local spread testing)
+- [spread](https://github.com/canonical/spread) (installed via `opcli install spread`)
+- [concierge](https://github.com/canonical/concierge/) (for environment provisioning)
 
 ## Quick start
 
@@ -46,7 +55,7 @@ opcli spread run -- integration-test-local:ubuntu-24.04:tests/integration/run:te
 ```bash
 opcli artifacts init
 opcli artifacts build
-opcli provision run          # provision with concierge
+opcli provision prepare      # provision with concierge
 opcli provision registry     # deploy local OCI registry (if k8s enabled)
 opcli provision load         # push rocks to registry
 eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
@@ -71,20 +80,15 @@ eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
 |---|---|
 | `spread` | Install the spread test runner (no-op if already present). |
 | `tox` | Install tox with tox-uv for running integration tests. |
-
-### `opcli concierge`
-
-| Command | Description |
-|---|---|
-| `prepare` | Install concierge snap and run `concierge prepare`. No-op if no config file. `-c` for path. |
+| `concierge` | Install the concierge snap (no-op if already present). |
 
 ### `opcli provision`
 
 | Command | Description |
 |---|---|
-| `run` | Run `concierge prepare` to provision the test environment. |
+| `prepare` | Run `concierge prepare` to provision the test environment. `-c` for concierge path. |
 | `load` | Push rock images to registry, update `artifacts.build.yaml`. `-r` for registry. |
-| `registry` | Deploy local OCI registry at `localhost:32000`. `-c` for concierge path. |
+| `registry` | Deploy local OCI registry at `localhost:32000` (auto-detects k8s provider). |
 
 ### `opcli spread`
 
@@ -93,19 +97,20 @@ eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
 | `init` | Generate `spread.yaml` + `tests/integration/run/task.yaml`. `--force` to overwrite. |
 | `expand` | Print fully expanded `spread.yaml` to stdout. |
 | `run` | Expand virtual backend and run spread. Args after `--` forwarded verbatim. |
-| `tasks` | Print CI matrix JSON (one entry per spread task). |
+| `jobs` | Print CI test matrix JSON (one entry per spread task/variant). |
 
 ### `opcli pytest`
 
 | Command | Description |
 |---|---|
+| `run` | Assemble and execute the tox integration test command. `-e` for env, `--` forwards args. |
 | `expand` | Print full `tox -e integration -- <flags>` command. `-e` for env, `--` forwards args. |
 
 ### `opcli tutorial`
 
 | Command | Description |
 |---|---|
-| `expand <file>` | Extract shell commands from a tutorial (`.md`/`.rst`) for `eval`. |
+| `expand <file>` | Extract shell commands from a tutorial (`.md`/`.rst`) and print as a shell script for `eval`. |
 
 ## `artifacts.yaml` schema
 
@@ -136,12 +141,34 @@ Key fields:
 - **`pack-dir`**: working directory for the build tool (defaults to the YAML's parent dir).
 - **`builds[].runner`**: GitHub Actions runner labels (used by `opcli artifacts matrix`; defaults to `["ubuntu-latest"]` at matrix generation time when omitted).
 
+## `spread.yaml` virtual backends
+
+opcli recognises virtual backend types (`integration-test`, `tutorial`) and expands them into concrete spread backends at runtime:
+
+```yaml
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04:
+          runner: [self-hosted, noble]   # CI runner labels
+          cpu: 4                         # local LXD VM vCPUs
+          memory: 8                      # local LXD VM RAM (GiB)
+          disk: 20                       # local LXD VM disk (GiB)
+```
+
+- Locally (`CI` unset): expands to `integration-test-local` with an LXD backend.
+- In CI (`CI=true`): expands to `integration-test-ci` with an adhoc backend targeting the current runner.
+
+The `runner`, `cpu`, `memory`, and `disk` fields are opcli-only metadata — they are stripped before spread sees the YAML.
+
 ## CI vs local
 
 | Env var | Controls | Local | CI |
 |---|---|---|---|
 | `CI` | Spread backend expansion | `*-local` (LXD VM) | `*-ci` (current runner) |
 | `GITHUB_ACTIONS` | Artifact output format | Local file paths | GHCR images + artifact refs |
+| `OPCLI_GIT_REF` | opcli version inside spread VM | defaults to `main` | set by workflow |
 
 ## GitHub Actions reusable workflows
 
@@ -162,6 +189,13 @@ jobs:
       contents: read
       packages: write
       actions: read
+    with:
+      working-directory: .
+
+  test:
+    needs: build
+    uses: javierdelapuente/operator-ci-poc/.github/workflows/integration-test.yml@main
+    secrets: inherit
     with:
       working-directory: .
 ```
@@ -228,6 +262,21 @@ uv run mypy src/                           # type check
 uv run pytest tests/unit/                  # unit tests
 ```
 
+### Project structure
+
+```
+src/opcli/
+  commands/    # CLI layer (Typer) — parses args, delegates to core/
+  core/        # All business logic
+  models/      # Pydantic V2 models (artifacts.yaml, artifacts.build.yaml)
+  data/        # Bundled static files (e.g. registry.yaml manifest)
+tests/
+  unit/        # Fast tests — mock external processes
+  integration/ # Requires LXD/spread — skip-guarded
+docs/          # Spec + divergences
+examples/      # Example project layout
+```
+
 ## License
 
-See [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE).
