@@ -27,6 +27,7 @@ jobs:
     uses: ./.github/workflows/integration-test.yml
     with:
       working-directory: examples
+    secrets: inherit
     permissions:
       packages: write
       contents: read

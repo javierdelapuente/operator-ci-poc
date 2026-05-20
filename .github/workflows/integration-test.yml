@@ -47,7 +47,6 @@ on:
         description: "Name of secret #5 to pass to integration tests"
         type: string
         default: ""
-    secrets: inherit
 
 jobs:
   # ── Job 1: build all artifacts ──────────────────────────────────────────────
