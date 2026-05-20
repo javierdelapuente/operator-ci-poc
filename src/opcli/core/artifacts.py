@@ -684,9 +684,37 @@ def artifacts_build(
     )
 
     dest = root / _ARTIFACTS_GENERATED_YAML
+
+    # When a filter is active and an existing build file exists, merge new
+    # entries into the previous results so unrelated artifacts are preserved.
+    if any_filter and dest.exists():
+        existing = load_artifacts_build(dest)
+        generated = _merge_generated(existing, generated)
+
     dump_artifacts_build(generated, dest)
     logger.info("Wrote %s", dest)
     return dest
+
+
+def _merge_generated(
+    existing: ArtifactsGenerated, new: ArtifactsGenerated
+) -> ArtifactsGenerated:
+    """Merge *new* build entries into *existing*, replacing by name."""
+
+    def _merge_by_name[T: (GeneratedRock, GeneratedCharm, GeneratedSnap)](
+        old_list: list[T], new_list: list[T]
+    ) -> list[T]:
+        new_names = {item.name for item in new_list}
+        # Keep existing entries whose name was NOT rebuilt, then append new.
+        merged = [item for item in old_list if item.name not in new_names]
+        merged.extend(new_list)
+        return merged
+
+    return ArtifactsGenerated(
+        rocks=_merge_by_name(existing.rocks, new.rocks),
+        charms=_merge_by_name(existing.charms, new.charms),
+        snaps=_merge_by_name(existing.snaps, new.snaps),
+    )
 
 
 def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:

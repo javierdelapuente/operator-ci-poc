@@ -819,6 +819,84 @@ class TestArtifactsBuild:
         assert (tmp_path / "charmcraft.yaml").exists()
         assert not (tmp_path / "charmcraft.yaml").is_symlink()
 
+    def test_filtered_build_merges_into_existing(self, tmp_path: Path) -> None:
+        """Filtered build preserves previously built artifacts in the file."""
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\n"
+            "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
+            "charms:\n- name: mycharm\n  charmcraft-yaml: charmcraft.yaml\n",
+        )
+        (tmp_path / "rock_dir").mkdir()
+        _write(tmp_path / "rock_dir" / "rockcraft.yaml", "name: myrock\n")
+        _write(tmp_path / "rock_dir" / "myrock_1.0_amd64.rock", "fake")
+        _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "fake")
+
+        # First: build everything (creates artifacts.build.yaml with rock + charm)
+        with patch("opcli.core.artifacts.run_command"):
+            artifacts_build(tmp_path)
+
+        # Second: rebuild only the charm with a filter
+        with patch("opcli.core.artifacts.run_command"):
+            result = artifacts_build(tmp_path, charm_names=["mycharm"])
+
+        gen = load_artifacts_build(result)
+        # Rock from previous build must still be present
+        assert len(gen.rocks) == 1
+        assert gen.rocks[0].name == "myrock"
+        # Charm must be the freshly rebuilt one
+        assert len(gen.charms) == 1
+        assert gen.charms[0].name == "mycharm"
+
+    def test_filtered_build_replaces_same_name_entry(self, tmp_path: Path) -> None:
+        """Rebuilding an artifact replaces its entry, not duplicates it."""
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\n"
+            "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n",
+        )
+        (tmp_path / "rock_dir").mkdir()
+        _write(tmp_path / "rock_dir" / "rockcraft.yaml", "name: myrock\n")
+        _write(tmp_path / "rock_dir" / "myrock_1.0_amd64.rock", "fake")
+
+        # Build the rock once
+        with patch("opcli.core.artifacts.run_command"):
+            artifacts_build(tmp_path)
+
+        # Rebuild same rock with filter — should replace, not duplicate
+        with patch("opcli.core.artifacts.run_command"):
+            result = artifacts_build(tmp_path, rock_names=["myrock"])
+
+        gen = load_artifacts_build(result)
+        assert len(gen.rocks) == 1
+        assert gen.rocks[0].name == "myrock"
+
+    def test_unfiltered_build_does_not_merge(self, tmp_path: Path) -> None:
+        """Without filters, the build file is overwritten (no merge)."""
+        _write(
+            tmp_path / "artifacts.yaml",
+            "version: 1\n"
+            "charms:\n- name: mycharm\n  charmcraft-yaml: charmcraft.yaml\n",
+        )
+        _write(tmp_path / "charmcraft.yaml", "name: mycharm\n")
+        _write(tmp_path / "mycharm_ubuntu-22.04-amd64.charm", "fake")
+
+        # Manually seed a build file with a rock entry that shouldn't survive
+        _write(
+            tmp_path / "artifacts.build.yaml",
+            "version: 1\nrocks:\n- name: leftover\n  rockcraft-yaml: x.yaml\n"
+            "  output:\n  - arch: amd64\n    file: ./x.rock\n",
+        )
+
+        with patch("opcli.core.artifacts.run_command"):
+            result = artifacts_build(tmp_path)
+
+        gen = load_artifacts_build(result)
+        # Unfiltered build should overwrite entirely — no leftover rock
+        assert len(gen.rocks) == 0
+        assert len(gen.charms) == 1
+
 
 class TestArtifactsMatrix:
     """Tests for artifacts_matrix()."""
