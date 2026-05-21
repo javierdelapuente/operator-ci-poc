@@ -77,7 +77,7 @@ Spread **always** runs prepare/execute/restore scripts as root, regardless of th
 - **Local backend** (`username: ubuntu`): spread SSHes as ubuntu, then uses passwordless sudo to run scripts as root. `SUDO_USER=ubuntu` is set by the sudo mechanism.
 - **CI backend** (`ADDRESS localhost`): spread runs natively as root. No sudo involved, so `SUDO_USER` comes from the backend `environment:` block in spread.yaml.
 
-Concierge respects `SUDO_USER` (via its `realUser()` function) to write configs (kubeconfig, juju data) to the correct user's home directory and set proper ownership. Do NOT wrap `opcli provision prepare` in `runuser` or similar — it fights spread's design.
+Concierge respects `SUDO_USER` (via its `realUser()` function) to write configs (kubeconfig, juju data) to the correct user's home directory and set proper ownership. Do NOT wrap `opcli env provision` in `runuser` or similar — it fights spread's design.
 
 ---
 

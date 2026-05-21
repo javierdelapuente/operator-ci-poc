@@ -106,7 +106,7 @@ opcli artifacts init
 opcli artifacts build
 
 # Runs `sudo concierge prepare -c concierge.yaml`, puts image artifacts in the image registries...
-opcli provision prepare
+opcli env provision
 # If spread.yaml or task.yaml was modified manually, that prepare section should be executed here.
 # Runs "tox -e integration -- --charm-file=... ..."
 opcli pytest expand -- -k test_charm | bash
@@ -291,7 +291,7 @@ suites:
 
 “opcli spread expand “ can be used to preview the fully expanded file without running it.
 
-Users can customize the full  spread.yaml  (adding backends, suites, environment variables, etc.), but if the changes diverge significantly from the conventions, bypassing spread with  “opcli provision prepare”  \+  “opcli pytest run”  may no longer replicate the same behavior.
+Users can customize the full  spread.yaml  (adding backends, suites, environment variables, etc.), but if the changes diverge significantly from the conventions, bypassing spread with  "opcli env provision"  \+  "opcli pytest run"  may no longer replicate the same behavior.
 
 ### **Task.yaml**
 
@@ -315,7 +315,7 @@ The  MODULE  environment variable is set by the spread variant (defined in  spre
 
 A CLI tool called  opcli  facilitates auto-generation of configuration files, building artifacts, provisioning and running tests. It abstracts the differences between local and CI execution.
 
-The functionality for opcli is grouped into four command families:  artifacts , provision ,  spread  and  pytest . Additional commands and subcommands can  be added as needed.
+The functionality for opcli is grouped into four command families:  artifacts , env ,  spread  and  pytest . Additional commands and subcommands can  be added as needed.
 
 ### **opcli artifacts**
 
@@ -327,14 +327,14 @@ The functionality for opcli is grouped into four command families:  artifacts , 
 | opcli artifacts collect \<partial…\> | Merges partial artifacts.build.yaml files produced by parallel CI build jobs into a single file. | |
 | opcli artifacts fetch | Downloads artifacts.build.yaml and all built charm/snap archives from a CI run, then rewrites paths to local files so that opcli pytest run and opcli spread run work without a local build. Rock artifacts are GHCR images and require no download. | --run-id \<id\>: GitHub Actions workflow run ID (required). --repo \<owner/name\>: GitHub repository (default: current git remote). --wait/--no-wait: retry until artifacts-build appears, for use when the build job may still be running. |
 | opcli artifacts localize | Rewrites artifacts.build.yaml to replace CI artifact references with local .charm file paths after the charm archives have been manually downloaded. (Prefer opcli artifacts fetch for the full workflow.) | |
+| opcli artifacts push-images | Loads OCI image artifacts (rocks) into a local image registry. | -r / --registry: target registry (default: localhost:32000) |
 
-### **opcli provision**
+### **opcli env**
 
 | Command | Description | Extra options |
 | :---- | :---- | :---- |
-| opcli provision prepare | Runs concierge prepare to provision the test environment. |  |
-| opcli provision load | Loads OCI image artifacts (rocks) into a local image registry. | -r / --registry: target registry (default: localhost:32000) |
-| opcli provision registry | Deploys a local OCI registry at localhost:32000 for k8s/MicroK8s. Auto-detects the active k8s provider on PATH (microk8s → k8s → kubectl). No-op if the registry is already running or no k8s tooling is found. |  |
+| opcli env provision | Runs concierge prepare to provision the test environment. | -c \<concierge yaml file\> |
+| opcli env deploy-registry | Deploys a local OCI registry at localhost:32000 for k8s/MicroK8s. Auto-detects the active k8s provider on PATH (microk8s → k8s → kubectl). No-op if the registry is already running or no k8s tooling is found. |  |
 
 ### **opcli spread**
 
@@ -396,7 +396,7 @@ Spread is gaining adoption in Canonical, and is already used in a similar way by
 | :---- | :---- |
 | Modularity | Each phase (build, provision, test, publish) is an independent stage with file-based interfaces ( artifacts.yaml  →  artifacts.build.yaml  → spread). Stages can be used separately or composed. |
 | Extensibility | Concierge presets, spread  prepare / prepare-each  hooks, the  CONCIERGE  variant, and the stable  artifacts.build.yaml  interface allow users to extend behavior at well-defined points. |
-| Local testing | Every  opcli  command runs locally.  “opcli spread run“ and  “opcli provision prepare”  \+  “opcli pytest run” give two paths to run the full test cycle on a developer machine. |
+| Local testing | Every  opcli  command runs locally.  "opcli spread run" and  "opcli env provision"  \+  "opcli pytest run" give two paths to run the full test cycle on a developer machine. |
 | Performance | All of the current optimizations In GitHub can be run with the new design (matrix build of artifacts, matrix run of tests, running provisioning in parallel to the building of artifacts…) |
 | Debuggability | Developers can reproduce any CI job locally with the same  opcli  commands. Intermediate files ( artifacts.yaml ,  artifacts.build.yaml ,  concierge.yaml ) are inspectable.  “opcli spread expand”  previews the full spread configuration. |
 | Convention over configuration | Standard layouts work with auto-generated files ( opcli artifacts init ,  opcli spread init ). Non-standard layouts override only the files that differ. |

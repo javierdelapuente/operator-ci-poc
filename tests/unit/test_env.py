@@ -1,5 +1,5 @@
-"""Tests for ``opcli provision prepare``, ``opcli provision load``,
-and ``opcli provision registry``."""
+"""Tests for ``opcli env provision``, ``opcli artifacts push-images``,
+and ``opcli env deploy-registry``."""
 
 from __future__ import annotations
 

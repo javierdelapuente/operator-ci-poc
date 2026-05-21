@@ -33,8 +33,8 @@ class TestCLIEntryPoint:
         assert result.exit_code == 0
         assert "artifacts" in result.output.lower()
 
-    def test_provision_help(self) -> None:
-        result = runner.invoke(app, ["provision", "--help"])
+    def test_env_help(self) -> None:
+        result = runner.invoke(app, ["env", "--help"])
         assert result.exit_code == 0
 
     def test_spread_help(self) -> None:

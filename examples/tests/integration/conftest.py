@@ -70,7 +70,7 @@ def k8s_rock_image(request: pytest.FixtureRequest) -> str:
     if not image:
         pytest.fail(
             "--k8s-rock-image was not provided. "
-            "Run 'opcli provision load' before running tests locally, "
+            "Run 'opcli artifacts push-images' before running tests locally, "
             "or ensure the build workflow has pushed the rock to GHCR."
         )
     return image

@@ -14,6 +14,7 @@ from opcli.core.artifacts import (
     artifacts_localize,
     artifacts_matrix,
 )
+from opcli.core.provision import provision_load
 
 app = typer.Typer(
     help="Discover and build charms, rocks, and snaps.",
@@ -133,3 +134,19 @@ def localize() -> None:
         typer.echo(f"Localised {updated} charm(s) in artifacts.build.yaml.")
     else:
         typer.echo("No CI artifact references found; artifacts.build.yaml unchanged.")
+
+
+@app.command("push-images")
+def push_images(
+    *,
+    registry: str = typer.Option(
+        "localhost:32000", "-r", "--registry", help="Target image registry."
+    ),
+) -> None:
+    """Load OCI image artifacts (rocks) into a local image registry."""
+    pushed = provision_load(Path.cwd(), registry=registry)
+    if pushed:
+        for ref in pushed:
+            typer.echo(f"Pushed {ref}")
+    else:
+        typer.echo("No rock images to push.")
