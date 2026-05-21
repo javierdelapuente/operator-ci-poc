@@ -211,9 +211,10 @@ class TestSpreadExpand:
         assert "PasswordAuthentication yes" in ci["allocate"]
         assert "password" not in ci
         assert "concierge" in ci["prepare"]
-        # concierge runs as root but loginctl enable-linger ubuntu ensures
-        # ubuntu's systemd session is active so snap cgroups work correctly
-        assert 'runuser -l ubuntu -c "concierge prepare' not in ci["prepare"]
+        # provision prepare runs as root (spread always elevates) with
+        # HOME=/home/ubuntu so credentials land in the ubuntu user's home.
+        assert "export HOME=/home/ubuntu" in ci["prepare"]
+        assert "opcli provision prepare" in ci["prepare"]
         assert "opcli install tox" in ci["prepare"]
         assert "opcli install spread" in ci["prepare"]
         assert "opcli" in ci["prepare"]
@@ -222,6 +223,7 @@ class TestSpreadExpand:
         assert "chown" in ci["prepare"]
         assert "loginctl enable-linger ubuntu" in ci["prepare"]
         assert "UV_TOOL_BIN_DIR=/usr/local/bin" in ci["prepare"]
+        assert "UV_TOOL_DIR=/usr/local/share/uv-tools" in ci["prepare"]
         # CI prepare downloads build artifacts via opcli artifacts fetch
         assert "opcli artifacts fetch" in ci["prepare"]
         assert "artifacts-build" not in ci["prepare"]  # no manual gh download

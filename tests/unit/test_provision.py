@@ -81,10 +81,7 @@ class TestProvisionPrepare:
 
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert "concierge" in cmd
-        assert "prepare" in cmd
-        assert "sudo" not in cmd
-        assert any("concierge.yaml" in arg for arg in cmd)
+        assert cmd == ["concierge", "prepare", "-c", str(tmp_path / "concierge.yaml")]
 
     def test_missing_concierge_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ConfigurationError, match="not found"):
