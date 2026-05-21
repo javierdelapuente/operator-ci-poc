@@ -185,6 +185,8 @@ jobs:
             echo "::add-mask::$value"
             echo "$name=$value" >> "$GITHUB_ENV"
           done
+          # Defensive: step-level env: vars don't persist to later steps, but
+          # explicitly unset to minimize in-process exposure window.
           unset ALL_SECRETS
 
       # ── Early bail-out if the build already failed ─────────────────────────

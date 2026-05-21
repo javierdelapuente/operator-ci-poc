@@ -2027,3 +2027,13 @@ class TestSafeArtifactDir:
         """Artifact name '.' resolves to root itself (edge case)."""
         result = _artifacts_mod._safe_artifact_dir(tmp_path, ".")
         assert result == tmp_path.resolve()
+
+    def test_symlink_escape_rejected(self, tmp_path: Path) -> None:
+        """Symlink pointing outside root is rejected."""
+        outside = tmp_path.parent / "outside"
+        outside.mkdir()
+        symlink_path = tmp_path / "innocent-artifact"
+        symlink_path.symlink_to(outside)
+
+        with pytest.raises(ConfigurationError, match="resolves outside"):
+            _artifacts_mod._safe_artifact_dir(tmp_path, "innocent-artifact")
