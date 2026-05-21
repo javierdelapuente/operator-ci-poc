@@ -61,20 +61,21 @@ jobs:
 
   # ── Job 2: generate the spread test matrix ──────────────────────────────────
   # Runs in parallel with the build job — only needs spread.yaml from the repo.
-  test-plan:
-    name: Generate test matrix
+  test-matrix:
+    name: Test matrix
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
     outputs:
-      matrix: ${{ steps.tasks.outputs.matrix }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
       opcli-sha: ${{ steps.workflow-version.outputs.sha }}
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Get workflow version
         id: workflow-version
@@ -101,34 +102,35 @@ jobs:
           go install github.com/canonical/spread/cmd/spread@latest
           sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
 
-      - name: Generate spread task matrix
-        id: tasks
+      - name: Generate test matrix
+        id: matrix
         run: |
           matrix=$(opcli spread jobs)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "Test matrix: $matrix"
 
   # ── Job 3: run each spread task ─────────────────────────────────────────────
-  # Starts as soon as test-plan finishes — does NOT wait for the build job.
+  # Starts as soon as test-matrix finishes — does NOT wait for the build job.
   # Provisioning runs in parallel with the build.  The spread _CI_PREPARE script
   # waits for and downloads the build artifacts before executing tests.
   test:
     name: "${{ matrix.name }}"
-    needs: [test-plan]
+    needs: [test-matrix]
     runs-on: ${{ fromJSON(matrix.runs-on) }}
     permissions:
       contents: read
       actions: read
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.test-plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.test-matrix.outputs.matrix) }}
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Setup tmate session
+      - name: Set up tmate session
         if: runner.debug == 1
         uses: mxschmitt/action-tmate@v3
         with:
@@ -143,7 +145,7 @@ jobs:
           if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
             uv tool install "${GITHUB_WORKSPACE}"
           else
-            uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.test-plan.outputs.opcli-sha }}"
+            uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.test-matrix.outputs.opcli-sha }}"
           fi
 
       # ── Install spread ────────────────────────────────────────────────────
@@ -186,7 +188,7 @@ jobs:
       # reach this point, there is no reason to continue.  The "Collect artifacts"
       # job in the build workflow is skipped/failed/cancelled when a build fails,
       # so we use its conclusion as the signal.
-      - name: Check build status
+      - name: Abort if build failed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
