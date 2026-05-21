@@ -732,7 +732,7 @@ def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:
     GitHub runner label strings.
 
     Rocks come first, then charms, then snaps.  Within each kind, entries are
-    ordered by artifact declaration order, then by ``builds`` order.
+    ordered by artifact declaration order, then by ``platforms`` order.
 
     The result is JSON-serialisable and suitable for use as a GitHub Actions
     ``strategy.matrix`` value via ``$GITHUB_OUTPUT``.
@@ -748,7 +748,7 @@ def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:
     plan = load_artifacts_plan(plan_path)
     include: list[dict[str, object]] = []
     for rock in plan.rocks:
-        for build in rock.builds:
+        for build in rock.platforms:
             include.append(
                 {
                     "name": rock.name,
@@ -758,7 +758,7 @@ def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:
                 }
             )
     for charm in plan.charms:
-        for build in charm.builds:
+        for build in charm.platforms:
             include.append(
                 {
                     "name": charm.name,
@@ -768,7 +768,7 @@ def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:
                 }
             )
     for snap in plan.snaps:
-        for build in snap.builds:
+        for build in snap.platforms:
             include.append(
                 {
                     "name": snap.name,

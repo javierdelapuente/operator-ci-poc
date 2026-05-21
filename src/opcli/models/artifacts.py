@@ -10,8 +10,8 @@ Schema version: 1
 - An optional ``pack-dir`` field controls the working directory for the build
   tool (e.g. run ``rockcraft pack`` from the repo root when ``go.mod`` lives
   there but ``rockcraft.yaml`` is in a subdirectory).
-- An optional ``builds`` list declares the target architectures and GitHub
-  runner labels for each artifact.  Defaults to a single amd64 build.
+- An optional ``platforms`` list declares the target architectures and GitHub
+  runner labels for each artifact.  Defaults to a single amd64 platform.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ class BuildTarget(BaseModel):
     runner: list[str] | None = None
 
 
-def _default_builds() -> list[BuildTarget]:
+def _default_platforms() -> list[BuildTarget]:
     return [BuildTarget(arch="amd64")]
 
 
@@ -52,7 +52,9 @@ class CharmArtifact(BaseModel):
     charmcraft_yaml: str = Field(alias="charmcraft-yaml")
     pack_dir: str | None = Field(default=None, alias="pack-dir")
     resources: dict[str, ArtifactResource] = {}
-    builds: list[BuildTarget] = Field(default_factory=_default_builds)
+    platforms: list[BuildTarget] = Field(
+        default_factory=_default_platforms, alias="platforms"
+    )
 
 
 class RockArtifact(BaseModel):
@@ -63,7 +65,9 @@ class RockArtifact(BaseModel):
     name: str
     rockcraft_yaml: str = Field(alias="rockcraft-yaml")
     pack_dir: str | None = Field(default=None, alias="pack-dir")
-    builds: list[BuildTarget] = Field(default_factory=_default_builds)
+    platforms: list[BuildTarget] = Field(
+        default_factory=_default_platforms, alias="platforms"
+    )
 
 
 class SnapArtifact(BaseModel):
@@ -74,7 +78,9 @@ class SnapArtifact(BaseModel):
     name: str
     snapcraft_yaml: str = Field(alias="snapcraft-yaml")
     pack_dir: str | None = Field(default=None, alias="pack-dir")
-    builds: list[BuildTarget] = Field(default_factory=_default_builds)
+    platforms: list[BuildTarget] = Field(
+        default_factory=_default_platforms, alias="platforms"
+    )
 
 
 class ArtifactsPlan(BaseModel):

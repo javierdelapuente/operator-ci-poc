@@ -415,7 +415,7 @@ downside.
 
 - **`opcli artifacts matrix`** reads `artifacts.yaml` and prints a JSON object
   suitable for use as a GitHub Actions `strategy.matrix`. Each matrix entry is
-  expanded per `builds:` target (one entry per `{artifact, arch}` pair) and
+  expanded per `platforms:` target (one entry per `{artifact, arch}` pair) and
   includes `name`, `type`, `arch`, and `runner` fields:
   ```json
   {"include": [
