@@ -301,6 +301,7 @@ loginctl enable-linger ubuntu
 chown -R ubuntu:ubuntu "${SPREAD_PATH}"
 snap install astral-uv --classic
 export UV_TOOL_BIN_DIR=/usr/local/bin
+export UV_TOOL_DIR=/usr/local/share/uv-tools
 if grep -q 'name = "opcli"' "${GITHUB_WORKSPACE}/pyproject.toml" 2>/dev/null; then
   uv tool install "${GITHUB_WORKSPACE}" --quiet
 else
@@ -311,8 +312,9 @@ fi
 opcli install spread
 opcli install tox
 opcli install concierge
-opcli provision prepare -c "$CONCIERGE"
 usermod -aG lxd ubuntu || true
+export HOME=/home/ubuntu
+opcli provision prepare -c "$CONCIERGE"
 """
 
 _CI_PREPARE_AFTER_USER = """\
