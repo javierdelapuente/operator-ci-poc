@@ -10,8 +10,8 @@ Instructions for AI coding agents working on this repository.
 
 - **Spec:** [`docs/ISD277-redesign.md`](docs/ISD277-redesign.md) — read before implementing new features.
 - **Divergences:** [`docs/divergences.md`](docs/divergences.md) — where implementation differs from spec.
-- **opcli owns:** file-based contracts, artifact discovery, subprocess execution, YAML transforms.
-- **opcli does NOT own:** GitHub workflow orchestration, artifact upload/download, runner selection, GitHub API calls.
+- **opcli owns:** file-based contracts, artifact discovery, subprocess execution, YAML transforms, artifact download (`gh run download`), CI job status queries (`gh api`).
+- **opcli does NOT own:** GitHub workflow orchestration, artifact upload, runner selection.
 
 ---
 
@@ -44,6 +44,7 @@ tests/
   unit/        # Fast tests — mock external processes
   integration/ # Requires LXD/spread — skip-guarded with @pytest.mark.integration
 docs/          # Spec + divergences
+examples/      # Example project layout (artifacts.yaml, spread.yaml, concierge.yaml)
 ```
 
 ### Key constraints
@@ -64,9 +65,9 @@ docs/          # Spec + divergences
 | Packaging | `uv` |
 | CLI | `Typer` |
 | Data models | `Pydantic V2` |
-| Lint/format | `Ruff` (rules: `E F W I UP B SIM PL RUF`) |
+| Lint/format | `Ruff` (rules: `E F W I UP B SIM PL RUF`; ignores: `B008` globally, `E501` in `spread.py`) |
 | YAML (user files) | `ruamel.yaml` (preserves comments) |
-| Testing | `pytest` + `pytest-mock` + `syrupy` |
+| Testing | `pytest` + `pytest-mock` |
 
 ---
 
@@ -113,7 +114,7 @@ These encode hard-won correctness lessons — do not violate.
 
 3. **`after - before` for output detection.** Never use `sorted(after)` alone. The set difference identifies files produced by *this* specific build invocation.
 
-4. **CI artifact download.** `artifacts_fetch` downloads to `root/{artifact-name}/` subdirectories to prevent filename collisions.
+4. **CI artifact download.** `artifacts_fetch` downloads to `root/{artifact-name}/` subdirectories to prevent filename collisions. All artifact names are validated via `_safe_artifact_dir()` to ensure they resolve under the project root (path traversal prevention).
 
 ---
 
@@ -135,7 +136,6 @@ All Typer callbacks catch `OpcliError` and emit user-friendly messages. No raw t
 
 - **TDD:** write unit tests before implementation for non-trivial features.
 - **Mock boundary:** mock at `run_command`. Never run real charmcraft/rockcraft/spread in unit tests.
-- **Snapshot testing:** `syrupy` for CLI output assertions.
 - **`pre_existing_before/after` pattern:** simulate build tool output by writing files inside the `fake_run` side-effect, not before it.
 
 ---
@@ -149,7 +149,7 @@ git checkout -b fix/my-fix
 # make changes
 git push --set-upstream origin fix/my-fix
 gh pr create --title "..." --body "..."
-gh pr checks <number> --watch   # WAIT for green (CI + Test Integration workflows)
+gh pr checks <number> --watch   # WAIT for CI workflow green
 gh pr merge <number> --squash
 ```
 
