@@ -41,7 +41,8 @@ jobs:
       run:
         working-directory: ${{ inputs.working-directory }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Get workflow version
         id: workflow-version
@@ -84,7 +85,8 @@ jobs:
       run:
         working-directory: ${{ inputs.working-directory }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install uv
         run: sudo snap install astral-uv --classic
@@ -134,7 +136,7 @@ jobs:
       - name: Build ${{ matrix.type }} ${{ matrix.name }}
         run: opcli artifacts build --${{ matrix.type }} ${{ matrix.name }}
 
-      - name: Upload built ${{ matrix.type }}
+      - name: Upload ${{ matrix.type }} ${{ matrix.name }}
         if: matrix.type != 'rock'
         uses: actions/upload-artifact@v4
         with:
@@ -142,7 +144,7 @@ jobs:
           path: ${{ inputs.working-directory }}/**/*.${{ matrix.type }}
           if-no-files-found: error
 
-      - name: Upload partial artifacts.build.yaml
+      - name: Upload partial build manifest
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-build-${{ matrix.type }}-${{ matrix.name }}-${{ matrix.arch }}
@@ -158,7 +160,8 @@ jobs:
       run:
         working-directory: ${{ inputs.working-directory }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install uv
         run: sudo snap install astral-uv --classic
@@ -171,18 +174,18 @@ jobs:
             uv tool install "git+https://github.com/javierdelapuente/operator-ci-poc.git@${{ needs.build-matrix.outputs.opcli-sha }}"
           fi
 
-      - name: Download all partial artifacts.build.yaml files
+      - name: Download build partials
         uses: actions/download-artifact@v4
         with:
           pattern: artifacts-build-*
           path: ${{ inputs.working-directory }}/partial-artifacts/
 
-      - name: Merge partials
+      - name: Merge build manifests
         run: |
           opcli artifacts collect \
             $(find ./partial-artifacts -name "artifacts.build.yaml" | sort | tr '\n' ' ')
 
-      - name: Upload merged artifacts.build.yaml
+      - name: Upload build manifest
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-build
