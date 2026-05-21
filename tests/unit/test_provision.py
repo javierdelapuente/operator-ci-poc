@@ -23,18 +23,18 @@ version: 1
 rocks:
 - name: myrock
   rockcraft-yaml: rock_dir/rockcraft.yaml
-  output:
+  builds:
   - arch: amd64
     file: ./rock_dir/myrock.rock
 - name: otherrock
   rockcraft-yaml: other/rockcraft.yaml
-  output:
+  builds:
   - arch: amd64
     image: ghcr.io/canonical/otherrock:abc
 charms:
 - name: mycharm
   charmcraft-yaml: charmcraft.yaml
-  output:
+  builds:
   - arch: amd64
     path: ./mycharm_ubuntu-22.04-amd64.charm
     base: ubuntu@22.04
@@ -45,18 +45,18 @@ version: 1
 rocks:
 - name: myrock
   rockcraft-yaml: rock_dir/rockcraft.yaml
-  output:
+  builds:
   - arch: amd64
     file: ./rock_dir/myrock.rock
 - name: otherrock
   rockcraft-yaml: other_dir/rockcraft.yaml
-  output:
+  builds:
   - arch: amd64
     image: ghcr.io/canonical/otherrock:abc
 charms:
 - name: mycharm
   charmcraft-yaml: charmcraft.yaml
-  output:
+  builds:
   - arch: amd64
     path: ./mycharm_ubuntu-22.04-amd64.charm
     base: ubuntu@22.04
@@ -139,7 +139,7 @@ class TestProvisionLoad:
             tmp_path / "artifacts.build.yaml",
             "version: 1\n"
             "rocks:\n- name: r1\n  rockcraft-yaml: rd/rockcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    image: ghcr.io/r1:v1\n",
+            "  builds:\n  - arch: amd64\n    image: ghcr.io/r1:v1\n",
         )
 
         with (
@@ -182,7 +182,7 @@ class TestProvisionLoad:
         assert "--dest-tls-verify=false" in cmd
 
     def test_updates_artifacts_build_with_image_ref(self, tmp_path: Path) -> None:
-        """After pushing, rock.output.image is set and file is preserved."""
+        """After pushing, rock.builds.image is set and file is preserved."""
         _write(tmp_path / "artifacts.build.yaml", _GENERATED_WITH_ROCKS)
 
         with (
@@ -193,8 +193,8 @@ class TestProvisionLoad:
 
         updated = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         myrock = next(r for r in updated.rocks if r.name == "myrock")
-        assert myrock.output[0].image == "localhost:32000/myrock:amd64"
-        assert myrock.output[0].file == "./rock_dir/myrock.rock"
+        assert myrock.builds[0].image == "localhost:32000/myrock:amd64"
+        assert myrock.builds[0].file == "./rock_dir/myrock.rock"
 
     def test_updates_charm_resources_for_pushed_rock(self, tmp_path: Path) -> None:
         """provision_load pushes rocks; charm resources reference via rock: field."""
@@ -212,7 +212,7 @@ class TestProvisionLoad:
         updated = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         # Rock output.image is updated after push
         myrock = next(r for r in updated.rocks if r.name == "myrock")
-        assert myrock.output[0].image == "localhost:32000/myrock:amd64"
+        assert myrock.builds[0].image == "localhost:32000/myrock:amd64"
         # Charm resources still only carry the rock reference, not a duplicated image
         charm = updated.charms[0]
         assert charm.resources is not None
@@ -225,7 +225,7 @@ class TestProvisionLoad:
             tmp_path / "artifacts.build.yaml",
             "version: 1\n"
             "rocks:\n- name: myrock\n  rockcraft-yaml: rock_dir/rockcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    file: ./rock_dir/myrock.rock\n"
+            "  builds:\n  - arch: amd64\n    file: ./rock_dir/myrock.rock\n"
             "    image: localhost:32000/myrock:amd64\n",
         )
 
@@ -370,7 +370,7 @@ class TestProvisionRegistry:
         content = (
             "version: 1\nrocks: []\ncharms:\n"
             "- name: c\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n"
+            "  builds:\n  - arch: amd64\n"
             "    path: ./c.charm\n    base: ubuntu@22.04\n"
         )
         _write(tmp_path / "artifacts.build.yaml", content)

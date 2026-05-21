@@ -119,7 +119,7 @@ version: 1
 rocks:
   - name: my-rock
     rockcraft-yaml: rocks/my-rock/rockcraft.yaml
-    builds:
+    platforms:
       - arch: amd64
       - arch: arm64
         runner: [self-hosted, arm64]
@@ -139,7 +139,7 @@ snaps:
 Key fields:
 - **`*-yaml`**: explicit path to the craft YAML file (not a directory).
 - **`pack-dir`**: working directory for the build tool (defaults to the YAML's parent dir).
-- **`builds[].runner`**: GitHub Actions runner labels (used by `opcli artifacts matrix`; defaults to `["ubuntu-latest"]` at matrix generation time when omitted).
+- **`platforms[].runner`**: GitHub Actions runner labels (used by `opcli artifacts matrix`; defaults to `["ubuntu-latest"]` at matrix generation time when omitted).
 
 ## `spread.yaml` virtual backends
 

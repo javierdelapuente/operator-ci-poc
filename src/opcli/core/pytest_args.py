@@ -126,7 +126,7 @@ def assemble_pytest_args(
     # This runs unconditionally so no rock: annotation is needed on charm resources.
     rock_flag_names: set[str] = set()
     for rock in generated.rocks:
-        rock_builds = _select_arch_builds(rock.output, arch, rock.name)
+        rock_builds = _select_arch_builds(rock.builds, arch, rock.name)
         for rock_build in rock_builds:
             value = rock_build.image or rock_build.file
             if value:
@@ -135,7 +135,7 @@ def assemble_pytest_args(
                 args.append(f"--{flag_name}={value}")
 
     for charm in generated.charms:
-        charm_builds = _select_arch_builds(charm.output, arch, charm.name)
+        charm_builds = _select_arch_builds(charm.builds, arch, charm.name)
         for charm_build in charm_builds:
             if charm_build.path:
                 args.append(f"--charm-file={charm_build.path}")

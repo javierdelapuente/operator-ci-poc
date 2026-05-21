@@ -8,7 +8,7 @@ Schema version: 1
 - Charm entries include a ``resources`` mapping with resolved output paths
   (image reference), making ``artifacts.build.yaml`` self-contained for
   pytest flag assembly without needing to also read ``artifacts.yaml``.
-- ``output`` is always a **flat list of per-file build entries** (:class:`RockOutput`,
+- ``builds`` is always a **flat list of per-file build entries** (:class:`RockOutput`,
   :class:`CharmOutput`, or :class:`SnapOutput`).
   Rocks and snaps have one entry per built arch.
   Charms have one entry per produced ``.charm`` file (one per base per arch for local
@@ -118,7 +118,7 @@ class GeneratedRock(BaseModel):
 
     name: str
     rockcraft_yaml: str = Field(alias="rockcraft-yaml")
-    output: list[RockOutput]
+    builds: list[RockOutput]
 
 
 class GeneratedCharm(BaseModel):
@@ -128,7 +128,7 @@ class GeneratedCharm(BaseModel):
 
     name: str
     charmcraft_yaml: str = Field(alias="charmcraft-yaml")
-    output: list[CharmOutput]
+    builds: list[CharmOutput]
     resources: dict[str, GeneratedResource] | None = None
 
 
@@ -139,7 +139,7 @@ class GeneratedSnap(BaseModel):
 
     name: str
     snapcraft_yaml: str = Field(alias="snapcraft-yaml")
-    output: list[SnapOutput]
+    builds: list[SnapOutput]
 
 
 class ArtifactsGenerated(BaseModel):
