@@ -177,9 +177,9 @@ class TestSpreadExpand:
         assert "lxc delete --force" in local["discard"]
         prepare = local["prepare"]
         assert "opcli install concierge" in prepare
-        assert "opcli provision prepare" in prepare
-        assert "opcli provision registry" in prepare
-        assert "opcli provision load" in prepare
+        assert "opcli env provision" in prepare
+        assert "opcli env deploy-registry" in prepare
+        assert "opcli artifacts push-images" in prepare
         assert "opcli install spread" in prepare
         assert "opcli install tox" in prepare
         # Local uses uv (not pipx) with dev-mode detection, same as CI
@@ -214,7 +214,7 @@ class TestSpreadExpand:
         # provision prepare runs as root (spread always elevates) with
         # HOME=/home/ubuntu so credentials land in the ubuntu user's home.
         assert "export HOME=/home/ubuntu" in ci["prepare"]
-        assert "opcli provision prepare" in ci["prepare"]
+        assert "opcli env provision" in ci["prepare"]
         assert "opcli install tox" in ci["prepare"]
         assert "opcli install spread" in ci["prepare"]
         assert "opcli" in ci["prepare"]
@@ -331,7 +331,7 @@ suites:
         assert 'echo "user setup step"' in prepare
         assert "apt-get install -y custom-pkg" in prepare
         # User prepare comes after concierge/provisioning
-        assert prepare.index("provision prepare") < prepare.index("user setup step")
+        assert prepare.index("env provision") < prepare.index("user setup step")
         # User prepare comes before final chown
         assert prepare.index("user setup step") < prepare.index(
             'chown -R ubuntu:ubuntu "${SPREAD_PATH}"'
@@ -362,7 +362,7 @@ suites:
         # User prepare is present
         assert 'echo "user ci setup"' in prepare
         # User prepare comes after concierge provisioning
-        assert prepare.index("provision prepare") < prepare.index("user ci setup")
+        assert prepare.index("env provision") < prepare.index("user ci setup")
         # User prepare comes before artifact fetch
         assert prepare.index("user ci setup") < prepare.index("opcli artifacts fetch")
 
@@ -375,7 +375,7 @@ suites:
         prepare = local["prepare"]
 
         # Standard parts are present
-        assert "opcli provision prepare" in prepare
+        assert "opcli env provision" in prepare
         assert 'chown -R ubuntu:ubuntu "${SPREAD_PATH}"' in prepare
         # No doubled newlines from empty user prepare
         assert "\n\n\n" not in prepare
@@ -454,8 +454,8 @@ suites:
 
         # Conditionals are now internal to the opcli commands
         assert "opcli install concierge" in prepare
-        assert "opcli provision prepare" in prepare
-        assert "opcli provision load" in prepare
+        assert "opcli env provision" in prepare
+        assert "opcli artifacts push-images" in prepare
 
     def test_ci_prepare_conditional(self, tmp_path: Path) -> None:
         """CI prepare delegates concierge to opcli subcommand."""
@@ -466,7 +466,7 @@ suites:
         prepare = parsed["backends"]["integration-test-ci"]["prepare"]
 
         assert "opcli install concierge" in prepare
-        assert "opcli provision prepare" in prepare
+        assert "opcli env provision" in prepare
         assert "opcli install tox" in prepare
         assert "SPREAD_PATH" in prepare
         assert "pipx install" not in prepare
@@ -1122,7 +1122,7 @@ suites:
         assert "operator-ci-poc" in backend["prepare"]
         # No concierge/provision in tutorial prepare
         assert "concierge" not in backend["prepare"]
-        assert "opcli provision load" not in backend["prepare"]
+        assert "opcli artifacts push-images" not in backend["prepare"]
 
     def test_expand_tutorial_ci(self, tmp_path: Path) -> None:
         """tutorial-test CI expansion has no prepare."""

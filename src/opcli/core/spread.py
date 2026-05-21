@@ -285,11 +285,11 @@ fi
 opcli install spread
 opcli install tox
 opcli install concierge
-opcli provision prepare -c "$CONCIERGE"
+opcli env provision -c "$CONCIERGE"
 usermod -aG lxd ubuntu || true
 runuser -l ubuntu -c \
-  "cd \\"${SPREAD_PATH}\\" && opcli provision registry"
-opcli provision load
+  "cd \\"${SPREAD_PATH}\\" && opcli env deploy-registry"
+opcli artifacts push-images
 """
 
 _LOCAL_PREPARE_AFTER_USER = """\
@@ -314,7 +314,7 @@ opcli install tox
 opcli install concierge
 usermod -aG lxd ubuntu || true
 export HOME=/home/ubuntu
-opcli provision prepare -c "$CONCIERGE"
+opcli env provision -c "$CONCIERGE"
 """
 
 _CI_PREPARE_AFTER_USER = """\

@@ -55,9 +55,9 @@ opcli spread run -- integration-test-local:ubuntu-24.04:tests/integration/run:te
 ```bash
 opcli artifacts init
 opcli artifacts build
-opcli provision prepare      # provision with concierge
-opcli provision registry     # deploy local OCI registry (if k8s enabled)
-opcli provision load         # push rocks to registry
+opcli env provision            # provision with concierge
+opcli env deploy-registry      # deploy local OCI registry (if k8s enabled)
+opcli artifacts push-images    # push rocks to registry
 eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
 ```
 
@@ -73,6 +73,7 @@ eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
 | `collect <partial>...` | Merge partial `artifacts.build.yaml` from parallel jobs. |
 | `fetch` | Download CI artifacts and rewrite to local paths. `--run-id`, `--repo`, `--wait`. |
 | `localize` | Rewrite CI artifact refs to local paths (after manual download). |
+| `push-images` | Load rock OCI images into a local registry. `-r` for registry (default: `localhost:32000`). |
 
 ### `opcli install`
 
@@ -82,13 +83,12 @@ eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
 | `tox` | Install tox with tox-uv for running integration tests. |
 | `concierge` | Install the concierge snap (no-op if already present). |
 
-### `opcli provision`
+### `opcli env`
 
 | Command | Description |
 |---|---|
-| `prepare` | Run `concierge prepare` to provision the test environment. `-c` for concierge path. |
-| `load` | Push rock images to registry, update `artifacts.build.yaml`. `-r` for registry. |
-| `registry` | Deploy local OCI registry at `localhost:32000` (auto-detects k8s provider). |
+| `provision` | Run `concierge prepare` to provision the test environment. `-c` for concierge path. |
+| `deploy-registry` | Deploy local OCI registry at `localhost:32000` (auto-detects k8s provider). |
 
 ### `opcli spread`
 
