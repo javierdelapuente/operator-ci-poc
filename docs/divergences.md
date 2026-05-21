@@ -113,24 +113,24 @@ is **not** auto-generated and must be created manually if needed.
 
 ## 5. `opcli artifacts build` produces CI-format output when run in GitHub Actions
 
-**Spec:** Describes `output.file` paths for all artifact types. The spec
+**Spec:** Describes `builds.file` paths for all artifact types. The spec
 mentions GHCR image refs and GitHub artifact refs in the CI-format YAML but
 does not explicitly specify how they are produced.
 
 **Implementation:** When `GITHUB_ACTIONS=true`, `opcli artifacts build`:
 
 - **Rocks**: pushes the built `.rock` image to GHCR via `skopeo` and writes
-  `output: [{arch: <arch>, image: ghcr.io/<owner-lowercased>/<repo>/<rock>:<sha7>-<arch>}]`
-  (no `output[*].file`).
-- **Charms / Snaps**: writes `output: [{arch: <arch>, artifact: built-<type>-<name>-<arch>, run-id: <GITHUB_RUN_ID>}]`
-  (no `output[*].files`).
+  `builds: [{arch: <arch>, image: ghcr.io/<owner-lowercased>/<repo>/<rock>:<sha7>-<arch>}]`
+  (no `builds[*].file`).
+- **Charms / Snaps**: writes `builds: [{arch: <arch>, artifact: built-<type>-<name>-<arch>, run-id: <GITHUB_RUN_ID>}]`
+  (no `builds[*].files`).
 
 A companion command `opcli artifacts collect` (also not in the spec — see below)
 merges the per-artifact partial files from parallel build jobs.
 
-`opcli pytest expand` emits rock image flags from `rocks[].output.image` for
+`opcli pytest expand` emits rock image flags from `rocks[].builds.image` for
 CI-format files. It logs a warning and skips `--charm-file=` for charms whose
-output is `artifact: + run-id:` (CI-built charms), because charm download
+builds entry is `artifact: + run-id:` (CI-built charms), because charm download
 belongs in the test workflow, not inside opcli.
 
 **Rationale:** Detecting `GITHUB_ACTIONS=true` rather than generic `CI` is
@@ -140,12 +140,12 @@ variables (`GITHUB_RUN_ID`, `GITHUB_REPOSITORY_OWNER`, `GITHUB_REPOSITORY`,
 
 ---
 
-## 6. `artifacts.build.yaml` output paths are repo-relative
+## 6. `artifacts.build.yaml` build paths are repo-relative
 
-**Spec:** Does not explicitly specify whether `output.file` paths are absolute
+**Spec:** Does not explicitly specify whether `builds.file` paths are absolute
 or relative.
 
-**Implementation:** `opcli artifacts build` always writes `output.file` as a
+**Implementation:** `opcli artifacts build` always writes `builds.file` as a
 path relative to the repository root (e.g. `./mycharm/mycharm_amd64.charm`).
 Building an artifact whose output lands outside the repository root is an
 error.
@@ -308,19 +308,19 @@ artifact types.
 
 ---
 
-## 12. Multi-base charm output — flat list with `arch`+`path`+`base` per entry
+## 12. Multi-base charm builds — flat list with `arch`+`path`+`base` per entry
 
-**Spec:** The `artifacts.build.yaml` schema shows a single `output.file`
+**Spec:** The `artifacts.build.yaml` schema shows a single `builds.file`
 path for each charm entry:
 
 ```yaml
 charms:
   - name: indico
-    output:
+    builds:
       file: ./indico_ubuntu-22.04-amd64.charm
 ```
 
-**Implementation:** The `output:` field is a **flat list** (`list[CharmOutput]`).
+**Implementation:** The `builds:` field is a **flat list** (`list[CharmOutput]`).
 Each entry has `arch`, `path`, and optional `base` fields. Because `charmcraft pack`
 produces **one `.charm` file per declared base** in a single invocation
 (e.g. ubuntu@20.04, ubuntu@22.04, ubuntu@24.04 each produce a separate file),
@@ -329,7 +329,7 @@ each file becomes its own top-level entry in the list:
 ```yaml
 charms:
   - name: aproxy
-    output:
+    builds:
       - arch: amd64
         path: ./aproxy_ubuntu-20.04-amd64.charm
         base: ubuntu@20.04
@@ -354,7 +354,7 @@ For CI-built charms, `artifact` and `run-id` replace `path` in the entry
 ```yaml
 charms:
   - name: aproxy
-    output:
+    builds:
       - arch: amd64
         artifact: built-charm-aproxy-amd64
         run-id: "1234567890"
@@ -415,7 +415,7 @@ downside.
 
 - **`opcli artifacts matrix`** reads `artifacts.yaml` and prints a JSON object
   suitable for use as a GitHub Actions `strategy.matrix`. Each matrix entry is
-  expanded per `builds:` target (one entry per `{artifact, arch}` pair) and
+  expanded per `platforms:` target (one entry per `{artifact, arch}` pair) and
   includes `name`, `type`, `arch`, and `runner` fields:
   ```json
   {"include": [
@@ -435,7 +435,7 @@ downside.
   into a single `artifacts.build.yaml`. Each artifact can appear in multiple
   partials as long as no two partials contain the same `(name, arch)` pair — this
   enables multi-arch builds where each runner produces a partial for its arch and
-  the collect step merges the output lists. It also validates that every rock
+  the collect step merges the builds lists. It also validates that every rock
   referenced by a charm resource is present in the collected set.
 
 **Rationale:** Each parallel build job produces its own partial
@@ -468,17 +468,17 @@ environment-agnostic.
 ## 17. Rock images are not duplicated on charm resources
 
 **Spec:** The CI-format `artifacts.build.yaml` example in the spec shows
-`image:` fields on both `rocks[].output` and `charms[].resources[]`.
+`image:` fields on both `rocks[].builds` and `charms[].resources[]`.
 
 **Implementation:** The `GeneratedResource` model has no `image` field. Rock
-images live exclusively on `rocks[].output.image`. Charm resources only carry
+images live exclusively on `rocks[].builds.image`. Charm resources only carry
 `type: oci-image` and `rock: <rock-name>`.
 
 ```yaml
 # Implemented schema (single source of truth)
 rocks:
   - name: my-rock
-    output:
+    builds:
       - arch: amd64
         image: ghcr.io/owner/repo/my-rock:abc1234-amd64   # ← image lives here only
 charms:
@@ -490,12 +490,12 @@ charms:
 ```
 
 Any consumer that needs the image for `my-rock-image` looks up `my-rock` in
-the `rocks` list and reads `output.image` from there.
+the `rocks` list and reads `builds.image` from there.
 
 **Affected consumers:**
 - `opcli pytest expand` — already iterates `rocks` for image flags; charm resource
   entries for rock-backed resources are skipped (the rock flag covers them).
-- `opcli provision load` — updates only `rock.output.image`; no charm resource
+- `opcli provision load` — updates only `rock.builds.image`; no charm resource
   fields to update.
 
 **Rationale:** Duplicating the image ref creates two sources of truth that can
@@ -555,7 +555,7 @@ This is used in the CI `Test Integration` workflow after downloading
 charm artifacts from GitHub Actions. The downloaded files land flat in the
 working directory (e.g. `./k8s-charm_ubuntu-24.04-amd64.charm`). Running
 `opcli artifacts localize` discovers those files and replaces the CI-only
-`output[*].artifact` entries with flat `CharmOutput` entries carrying `path`
+`builds[*].artifact` entries with flat `CharmOutput` entries carrying `path`
 and `base` (one entry per discovered `.charm` file).
 Downstream, `opcli pytest expand` reads these paths and passes them as
 `--charm-file=` arguments to pytest.

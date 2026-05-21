@@ -213,7 +213,7 @@ class TestYamlIO:
                 GeneratedRock(
                     name="r1",
                     rockcraft_yaml="rd/rockcraft.yaml",
-                    output=[RockOutput(arch="amd64", file="./r1.rock")],
+                    builds=[RockOutput(arch="amd64", file="./r1.rock")],
                 )
             ],
         )
@@ -228,7 +228,7 @@ class TestYamlIO:
                 GeneratedCharm(
                     name="c1",
                     charmcraft_yaml="charmcraft.yaml",
-                    output=[CharmOutput(arch="amd64", artifact="a1", run_id="42")],
+                    builds=[CharmOutput(arch="amd64", artifact="a1", run_id="42")],
                 )
             ],
         )
@@ -237,7 +237,7 @@ class TestYamlIO:
         raw = path.read_text()
         assert "run-id" in raw
         loaded = load_artifacts_build(path)
-        assert loaded.charms[0].output[0].run_id == "42"
+        assert loaded.charms[0].builds[0].run_id == "42"
 
     def test_load_invalid_yaml_raises(self, tmp_path: Path) -> None:
         path = tmp_path / "bad.yaml"

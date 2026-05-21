@@ -94,9 +94,9 @@ class TestArtifactsBuild:
         gen = load_artifacts_build(result)
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "mycharm"
-        assert len(gen.charms[0].output) == 1
-        assert gen.charms[0].output[0].path.startswith("./")
-        assert gen.charms[0].output[0].path.endswith(".charm")
+        assert len(gen.charms[0].builds) == 1
+        assert gen.charms[0].builds[0].path.startswith("./")
+        assert gen.charms[0].builds[0].path.endswith(".charm")
 
     def test_build_multi_base_charm(self, tmp_path: Path) -> None:
         """Multi-base charm: all produced files appear as flat output entries."""
@@ -114,7 +114,7 @@ class TestArtifactsBuild:
             result = artifacts_build(tmp_path)
 
         gen = load_artifacts_build(result)
-        outputs = gen.charms[0].output
+        outputs = gen.charms[0].builds
         expected_count = 3
         assert len(outputs) == expected_count
         paths = {o.path for o in outputs}
@@ -147,7 +147,7 @@ class TestArtifactsBuild:
             result = artifacts_build(tmp_path)
 
         gen = load_artifacts_build(result)
-        outputs = gen.charms[0].output
+        outputs = gen.charms[0].builds
         expected_count = 2
         assert len(outputs) == expected_count
         paths = {o.path for o in outputs}
@@ -172,8 +172,8 @@ class TestArtifactsBuild:
         assert "rockcraft" in mock_run.call_args[0][0]
         gen = load_artifacts_build(result)
         assert len(gen.rocks) == 1
-        assert gen.rocks[0].output[0].file is not None
-        assert gen.rocks[0].output[0].file.startswith("./")
+        assert gen.rocks[0].builds[0].file is not None
+        assert gen.rocks[0].builds[0].file.startswith("./")
 
     def test_build_rock_sets_experimental_extensions_env(self, tmp_path: Path) -> None:
         """rockcraft pack must always pass ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS."""
@@ -351,7 +351,7 @@ class TestArtifactsBuild:
         _write(
             tmp_path / "artifacts.build.yaml",
             "version: 1\ncharms:\n- name: c\n  source: .\n"
-            "  output:\n    file: ./c.charm\n",
+            "  builds:\n    file: ./c.charm\n",
         )
         with pytest.raises(Exception, match="validation error"):
             load_artifacts_build(tmp_path / "artifacts.build.yaml")
@@ -386,7 +386,7 @@ class TestArtifactsBuild:
         # Symlink must be removed after build
         assert not (tmp_path / "rockcraft.yaml").exists()
         gen = load_artifacts_build(result)
-        assert gen.rocks[0].output[0].file is not None
+        assert gen.rocks[0].builds[0].file is not None
 
     def test_build_rock_pack_dir_real_file_raises(self, tmp_path: Path) -> None:
         """A real rockcraft.yaml with different content at pack-dir raises."""
@@ -438,7 +438,7 @@ class TestArtifactsBuild:
 
         assert symlink_created == [False], "no symlink when content is identical"
         gen = load_artifacts_build(result)
-        assert gen.rocks[0].output[0].file is not None
+        assert gen.rocks[0].builds[0].file is not None
 
     def test_build_rock_pack_dir_existing_symlink_replaced(
         self, tmp_path: Path
@@ -467,7 +467,7 @@ class TestArtifactsBuild:
         # Symlink removed after build
         assert not existing_symlink.exists()
         gen = load_artifacts_build(result)
-        assert gen.rocks[0].output[0].file is not None
+        assert gen.rocks[0].builds[0].file is not None
 
     def test_build_rock_nonstandard_yaml_name_creates_symlink(
         self, tmp_path: Path
@@ -506,7 +506,7 @@ class TestArtifactsBuild:
         )
         assert not (tmp_path / "rockcraft.yaml").exists(), "symlink removed after build"
         gen = load_artifacts_build(result)
-        assert gen.rocks[0].output[0].file is not None
+        assert gen.rocks[0].builds[0].file is not None
 
     def test_build_rock_standard_yaml_name_no_symlink(self, tmp_path: Path) -> None:
         """When yaml is already named rockcraft.yaml in pack-dir, no symlink needed."""
@@ -716,8 +716,8 @@ class TestArtifactsBuild:
         charm_a = next(c for c in gen.charms if c.name == "charm-a")
         charm_b = next(c for c in gen.charms if c.name == "charm-b")
 
-        a_paths = {o.path for o in charm_a.output}
-        b_paths = {o.path for o in charm_b.output}
+        a_paths = {o.path for o in charm_a.builds}
+        b_paths = {o.path for o in charm_b.builds}
 
         assert a_paths == {
             "./charm-a_ubuntu-22.04-amd64.charm",
@@ -751,7 +751,7 @@ class TestArtifactsBuild:
             result = artifacts_build(tmp_path)
 
         gen = load_artifacts_build(result)
-        outputs = gen.charms[0].output
+        outputs = gen.charms[0].builds
         expected_count = 2
         assert len(outputs) == expected_count
         paths = {o.path for o in outputs}
@@ -785,8 +785,8 @@ class TestArtifactsBuild:
         gen = load_artifacts_build(result)
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "indico"
-        assert len(gen.charms[0].output) == 1
-        assert "indico_ubuntu-20.04-amd64.charm" in gen.charms[0].output[0].path
+        assert len(gen.charms[0].builds) == 1
+        assert "indico_ubuntu-20.04-amd64.charm" in gen.charms[0].builds[0].path
 
     def test_symlink_not_removed_if_replaced_by_real_file(self, tmp_path: Path) -> None:
         """If pack replaces the symlink with a real file, cleanup does not delete it.
@@ -885,7 +885,7 @@ class TestArtifactsBuild:
         _write(
             tmp_path / "artifacts.build.yaml",
             "version: 1\nrocks:\n- name: leftover\n  rockcraft-yaml: x.yaml\n"
-            "  output:\n  - arch: amd64\n    file: ./x.rock\n",
+            "  builds:\n  - arch: amd64\n    file: ./x.rock\n",
         )
 
         with patch("opcli.core.artifacts.run_command"):
@@ -998,14 +998,14 @@ class TestArtifactsCollect:
             "rock-job",
             "version: 1\n"
             "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    file: ./my-rock_1.0_amd64.rock\n",
+            "  builds:\n  - arch: amd64\n    file: ./my-rock_1.0_amd64.rock\n",
         )
         charm_partial = self._partial(
             tmp_path,
             "charm-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n"
+            "  builds:\n  - arch: amd64\n"
             "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
             "    base: ubuntu@24.04\n",
         )
@@ -1026,14 +1026,14 @@ class TestArtifactsCollect:
             "rock-job",
             "version: 1\n"
             "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    file: ./my-rock_1.0_amd64.rock\n",
+            "  builds:\n  - arch: amd64\n    file: ./my-rock_1.0_amd64.rock\n",
         )
         charm_partial = self._partial(
             tmp_path,
             "charm-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n"
+            "  builds:\n  - arch: amd64\n"
             "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
             "    base: ubuntu@24.04\n"
             "  resources:\n"
@@ -1046,7 +1046,7 @@ class TestArtifactsCollect:
 
         gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         # Image lives on the rock, not on the resource
-        assert gen.rocks[0].output[0].file == "./my-rock_1.0_amd64.rock"
+        assert gen.rocks[0].builds[0].file == "./my-rock_1.0_amd64.rock"
         resource = gen.charms[0].resources["my-rock-image"]  # type: ignore[index]
         assert resource.rock == "my-rock"
 
@@ -1056,14 +1056,14 @@ class TestArtifactsCollect:
             "rock1-job",
             "version: 1\n"
             "rocks:\n- name: rock-a\n  rockcraft-yaml: rock-a/rockcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    file: ./rock-a_1.0_amd64.rock\n",
+            "  builds:\n  - arch: amd64\n    file: ./rock-a_1.0_amd64.rock\n",
         )
         rock2 = self._partial(
             tmp_path,
             "rock2-job",
             "version: 1\n"
             "rocks:\n- name: rock-b\n  rockcraft-yaml: rock-b/rockcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    file: ./rock-b_1.0_amd64.rock\n",
+            "  builds:\n  - arch: amd64\n    file: ./rock-b_1.0_amd64.rock\n",
         )
 
         artifacts_collect(tmp_path, [rock1, rock2])
@@ -1089,7 +1089,7 @@ class TestArtifactsCollect:
             "charm-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n"
+            "  builds:\n  - arch: amd64\n"
             "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
             "    base: ubuntu@24.04\n"
             "  resources:\n"
@@ -1108,14 +1108,14 @@ class TestArtifactsCollect:
             "rock-job-1",
             "version: 1\n"
             "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    file: ./my-rock_1.0_amd64.rock\n",
+            "  builds:\n  - arch: amd64\n    file: ./my-rock_1.0_amd64.rock\n",
         )
         rock2 = self._partial(
             tmp_path,
             "rock-job-2",
             "version: 1\n"
             "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    file: ./my-rock_2.0_amd64.rock\n",
+            "  builds:\n  - arch: amd64\n    file: ./my-rock_2.0_amd64.rock\n",
         )
 
         with pytest.raises(ConfigurationError, match="my-rock"):
@@ -1128,14 +1128,14 @@ class TestArtifactsCollect:
             "rock-amd64-job",
             "version: 1\n"
             "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    file: ./my-rock_1.0_amd64.rock\n",
+            "  builds:\n  - arch: amd64\n    file: ./my-rock_1.0_amd64.rock\n",
         )
         rock_arm64 = self._partial(
             tmp_path,
             "rock-arm64-job",
             "version: 1\n"
             "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n  - arch: arm64\n    file: ./my-rock_1.0_arm64.rock\n",
+            "  builds:\n  - arch: arm64\n    file: ./my-rock_1.0_arm64.rock\n",
         )
 
         artifacts_collect(tmp_path, [rock_amd64, rock_arm64])
@@ -1144,8 +1144,8 @@ class TestArtifactsCollect:
         assert len(gen.rocks) == 1
         assert gen.rocks[0].name == "my-rock"
         expected_arch_count = 2
-        assert len(gen.rocks[0].output) == expected_arch_count
-        arches = {b.arch for b in gen.rocks[0].output}
+        assert len(gen.rocks[0].builds) == expected_arch_count
+        arches = {b.arch for b in gen.rocks[0].builds}
         assert arches == {"amd64", "arm64"}
 
     def test_merges_same_charm_different_arches(self, tmp_path: Path) -> None:
@@ -1155,7 +1155,7 @@ class TestArtifactsCollect:
             "charm-amd64-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n"
+            "  builds:\n  - arch: amd64\n"
             "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
             "    base: ubuntu@24.04\n",
         )
@@ -1164,7 +1164,7 @@ class TestArtifactsCollect:
             "charm-arm64-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: arm64\n"
+            "  builds:\n  - arch: arm64\n"
             "    path: ./my-charm_ubuntu-24.04-arm64.charm\n"
             "    base: ubuntu@24.04\n",
         )
@@ -1175,8 +1175,8 @@ class TestArtifactsCollect:
         assert len(gen.charms) == 1
         assert gen.charms[0].name == "my-charm"
         expected_arch_count = 2
-        assert len(gen.charms[0].output) == expected_arch_count
-        arches = {b.arch for b in gen.charms[0].output}
+        assert len(gen.charms[0].builds) == expected_arch_count
+        arches = {b.arch for b in gen.charms[0].builds}
         assert arches == {"amd64", "arm64"}
 
     def test_merges_same_snap_different_arches(self, tmp_path: Path) -> None:
@@ -1186,14 +1186,14 @@ class TestArtifactsCollect:
             "snap-amd64-job",
             "version: 1\n"
             "snaps:\n- name: my-snap\n  snapcraft-yaml: snap/snapcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    file: ./my-snap_1.0_amd64.snap\n",
+            "  builds:\n  - arch: amd64\n    file: ./my-snap_1.0_amd64.snap\n",
         )
         snap_arm64 = self._partial(
             tmp_path,
             "snap-arm64-job",
             "version: 1\n"
             "snaps:\n- name: my-snap\n  snapcraft-yaml: snap/snapcraft.yaml\n"
-            "  output:\n  - arch: arm64\n    file: ./my-snap_1.0_arm64.snap\n",
+            "  builds:\n  - arch: arm64\n    file: ./my-snap_1.0_arm64.snap\n",
         )
 
         artifacts_collect(tmp_path, [snap_amd64, snap_arm64])
@@ -1202,8 +1202,8 @@ class TestArtifactsCollect:
         assert len(gen.snaps) == 1
         assert gen.snaps[0].name == "my-snap"
         expected_arch_count = 2
-        assert len(gen.snaps[0].output) == expected_arch_count
-        arches = {b.arch for b in gen.snaps[0].output}
+        assert len(gen.snaps[0].builds) == expected_arch_count
+        arches = {b.arch for b in gen.snaps[0].builds}
         assert arches == {"amd64", "arm64"}
 
 
@@ -1239,7 +1239,7 @@ class TestArtifactsBuildCIMode:
 
         gen = load_artifacts_build(result)
         assert len(gen.rocks) == 1
-        rock_out = gen.rocks[0].output
+        rock_out = gen.rocks[0].builds
         assert rock_out[0].file is None
         assert rock_out[0].image == "ghcr.io/myorg/my-repo/my-rock:abc1234-amd64"
 
@@ -1272,7 +1272,7 @@ class TestArtifactsBuildCIMode:
 
         gen = load_artifacts_build(result)
         assert len(gen.charms) == 1
-        charm_out = gen.charms[0].output
+        charm_out = gen.charms[0].builds
         assert charm_out[0].path is None
         assert charm_out[0].artifact == "built-charm-my-charm-amd64"
         assert charm_out[0].run_id == "9876543210"
@@ -1296,7 +1296,7 @@ class TestArtifactsBuildCIMode:
 
         gen = load_artifacts_build(result)
         assert len(gen.snaps) == 1
-        snap_out = gen.snaps[0].output
+        snap_out = gen.snaps[0].builds
         assert snap_out[0].file is None
         assert snap_out[0].artifact == "built-snap-my-snap-amd64"
         assert snap_out[0].run_id == "9876543210"
@@ -1321,7 +1321,7 @@ class TestArtifactsBuildCIMode:
             result = artifacts_build(tmp_path, charm_names=["my-charm"])
 
         gen = load_artifacts_build(result)
-        charm_out = gen.charms[0].output
+        charm_out = gen.charms[0].builds
         assert charm_out[0].artifact is None
         assert len(charm_out) == 1
         assert "my-charm_ubuntu-24.04-amd64.charm" in charm_out[0].path
@@ -1374,9 +1374,9 @@ class TestArtifactsBuildCIMode:
             result = artifacts_build(tmp_path, rock_names=["my-rock"])
 
         gen = load_artifacts_build(result)
-        assert gen.rocks[0].output[0].image is not None
-        assert "MyOrg" not in gen.rocks[0].output[0].image
-        assert "myorg" in gen.rocks[0].output[0].image
+        assert gen.rocks[0].builds[0].image is not None
+        assert "MyOrg" not in gen.rocks[0].builds[0].image
+        assert "myorg" in gen.rocks[0].builds[0].image
 
 
 class TestArtifactsCollectCIMode:
@@ -1397,7 +1397,7 @@ class TestArtifactsCollectCIMode:
             "rock-job",
             "version: 1\n"
             "rocks:\n- name: my-rock\n  rockcraft-yaml: rockcraft.yaml\n"
-            "  output:\n  - arch: amd64\n"
+            "  builds:\n  - arch: amd64\n"
             "    image: ghcr.io/myorg/my-repo/my-rock:abc1234\n",
         )
         charm_partial = self._partial(
@@ -1405,7 +1405,7 @@ class TestArtifactsCollectCIMode:
             "charm-job",
             "version: 1\n"
             "charms:\n- name: my-charm\n  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n  - arch: amd64\n    artifact: built-charm-my-charm\n"
+            "  builds:\n  - arch: amd64\n    artifact: built-charm-my-charm\n"
             "    run-id: '9876543210'\n"
             "  resources:\n"
             "    my-rock-image:\n"
@@ -1416,13 +1416,13 @@ class TestArtifactsCollectCIMode:
         artifacts_collect(tmp_path, [rock_partial, charm_partial])
 
         gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
-        assert gen.rocks[0].output[0].image == "ghcr.io/myorg/my-repo/my-rock:abc1234"
+        assert gen.rocks[0].builds[0].image == "ghcr.io/myorg/my-repo/my-rock:abc1234"
         resource = gen.charms[0].resources["my-rock-image"]  # type: ignore[index]
-        # Resource carries the rock reference; image resolved from rock.output.image
+        # Resource carries the rock reference; image resolved from rock.builds.image
         assert resource.rock == "my-rock"
         # Charm itself still has artifact ref
-        assert gen.charms[0].output[0].artifact == "built-charm-my-charm"
-        assert gen.charms[0].output[0].run_id == "9876543210"
+        assert gen.charms[0].builds[0].artifact == "built-charm-my-charm"
+        assert gen.charms[0].builds[0].run_id == "9876543210"
 
 
 class TestArtifactsLocalize:
@@ -1433,7 +1433,7 @@ class TestArtifactsLocalize:
         "charms:\n"
         "- name: my-charm\n"
         "  charmcraft-yaml: charmcraft.yaml\n"
-        "  output:\n"
+        "  builds:\n"
         "  - arch: amd64\n"
         "    artifact: built-charm-my-charm\n"
         "    run-id: '9876543210'\n"
@@ -1450,8 +1450,8 @@ class TestArtifactsLocalize:
 
         assert count == 1
         gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
-        assert len(gen.charms[0].output) == 1
-        path = gen.charms[0].output[0].path
+        assert len(gen.charms[0].builds) == 1
+        path = gen.charms[0].builds[0].path
         assert path is not None
         assert path.endswith(".charm")
         assert path.startswith("./"), f"Expected relative path, got: {path}"
@@ -1465,7 +1465,7 @@ class TestArtifactsLocalize:
             "charms:\n"
             "- name: my-charm\n"
             "  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n"
+            "  builds:\n"
             "  - arch: amd64\n"
             "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
         )
@@ -1499,7 +1499,7 @@ class TestArtifactsLocalize:
             "charms:\n"
             "- name: my-charm\n"
             "  charmcraft-yaml: charmcraft.yaml\n"
-            "  output:\n"
+            "  builds:\n"
             "  - arch: amd64\n"
             "    path: ./my-charm_ubuntu-24.04-amd64.charm\n"
         )
@@ -1532,11 +1532,11 @@ class TestArtifactsLocalize:
 
         gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         charm = gen.charms[0]
-        assert len(charm.output) == 2  # noqa: PLR2004
-        paths = {o.path for o in charm.output}
+        assert len(charm.builds) == 2  # noqa: PLR2004
+        paths = {o.path for o in charm.builds}
         assert any("22.04" in p for p in paths)
         assert any("24.04" in p for p in paths)
-        bases = {o.base for o in charm.output}
+        bases = {o.base for o in charm.builds}
         assert "ubuntu@22.04" in bases
         assert "ubuntu@24.04" in bases
 
@@ -1549,26 +1549,26 @@ class TestArtifactsFetch:
         "rocks:\n"
         "- name: my-rock\n"
         "  rockcraft-yaml: rock/rockcraft.yaml\n"
-        "  output:\n"
+        "  builds:\n"
         "  - arch: amd64\n"
         "    image: ghcr.io/owner/repo/my-rock:abc1234-amd64\n"
         "charms:\n"
         "- name: my-charm\n"
         "  charmcraft-yaml: charmcraft.yaml\n"
-        "  output:\n"
+        "  builds:\n"
         "  - arch: amd64\n"
         "    artifact: built-charm-my-charm-amd64\n"
         "    run-id: '99887766'\n"
         "- name: other-charm\n"
         "  charmcraft-yaml: other/charmcraft.yaml\n"
-        "  output:\n"
+        "  builds:\n"
         "  - arch: amd64\n"
         "    artifact: built-charm-other-charm-amd64\n"
         "    run-id: '99887766'\n"
         "snaps:\n"
         "- name: my-snap\n"
         "  snapcraft-yaml: snap/snapcraft.yaml\n"
-        "  output:\n"
+        "  builds:\n"
         "  - arch: amd64\n"
         "    artifact: built-snap-my-snap-amd64\n"
         "    run-id: '99887766'\n"
@@ -1722,12 +1722,12 @@ class TestArtifactsFetch:
 
         gen = load_artifacts_build(tmp_path / "artifacts.build.yaml")
         for charm in gen.charms:
-            charm_paths = [o.path for o in charm.output if o.path]
+            charm_paths = [o.path for o in charm.builds if o.path]
             assert charm_paths, f"Charm '{charm.name}' was not localised"
             assert charm_paths[0].endswith(".charm")
         for snap in gen.snaps:
-            assert snap.output[0].file, f"Snap '{snap.name}' was not localised"
-            assert snap.output[0].file.endswith(".snap")
+            assert snap.builds[0].file, f"Snap '{snap.name}' was not localised"
+            assert snap.builds[0].file.endswith(".snap")
 
     def test_wait_retries_until_artifact_appears(self, tmp_path: Path) -> None:
         """With wait=True, retries the initial download and succeeds on 2nd attempt."""
@@ -1786,7 +1786,7 @@ class TestArtifactsFetch:
             "rocks:\n"
             "- name: my-rock\n"
             "  rockcraft-yaml: rock/rockcraft.yaml\n"
-            "  output:\n"
+            "  builds:\n"
             "  - arch: amd64\n"
             "    image: ghcr.io/owner/repo/my-rock:abc1234\n"
         )
@@ -1821,7 +1821,7 @@ class TestArtifactsFetch:
             "rocks:\n"
             "- name: my-rock\n"
             "  rockcraft-yaml: rock/rockcraft.yaml\n"
-            "  output:\n"
+            "  builds:\n"
             "  - arch: amd64\n"
             "    image: ghcr.io/owner/repo/my-rock:abc1234\n"
         )

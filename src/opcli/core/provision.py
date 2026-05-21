@@ -99,7 +99,7 @@ def provision_load(
     pushed: list[str] = []
 
     for rock in generated.rocks:
-        for build in rock.output:
+        for build in rock.builds:
             if not build.file:
                 continue
 

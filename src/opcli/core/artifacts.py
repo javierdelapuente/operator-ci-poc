@@ -137,17 +137,17 @@ def _push_rock_to_ghcr(
 
     The rock ``.rock`` file is pushed to
     ``ghcr.io/<owner>/<repo>/<name>:<sha7>-<arch>`` using ``skopeo copy``.
-    The returned object has its ``output`` rewritten to a single
+    The returned object has its ``builds`` rewritten to a single
     :class:`RockArchBuild` with ``image`` set and no ``file``.
 
     Raises:
         OpcliError: If the rock output list is empty or has no local file.
         SubprocessError: If the skopeo push fails.
     """
-    if not rock.output:
+    if not rock.builds:
         msg = f"Rock '{rock.name}' has no build output to push to GHCR."
         raise OpcliError(msg)
-    build = rock.output[0]
+    build = rock.builds[0]
     if not build.file:
         msg = f"Rock '{rock.name}' has no local file to push to GHCR."
         raise OpcliError(msg)
@@ -175,7 +175,7 @@ def _push_rock_to_ghcr(
     return GeneratedRock(
         name=rock.name,
         **{"rockcraft-yaml": rock.rockcraft_yaml},
-        output=[RockOutput(arch=build.arch, image=image_ref)],
+        builds=[RockOutput(arch=build.arch, image=image_ref)],
     )
 
 
@@ -185,11 +185,11 @@ def _to_ci_charm(charm: GeneratedCharm, ci: _CIContext) -> GeneratedCharm:
     The artifact name includes the architecture so parallel multi-arch builds
     produce distinct artifact names (e.g. ``built-charm-my-charm-amd64``).
     """
-    arch = charm.output[0].arch if charm.output else _current_arch()
+    arch = charm.builds[0].arch if charm.builds else _current_arch()
     return GeneratedCharm(
         name=charm.name,
         **{"charmcraft-yaml": charm.charmcraft_yaml},
-        output=[
+        builds=[
             CharmOutput.model_validate(
                 {
                     "arch": arch,
@@ -208,11 +208,11 @@ def _to_ci_snap(snap: GeneratedSnap, ci: _CIContext) -> GeneratedSnap:
     The artifact name includes the architecture so parallel multi-arch builds
     produce distinct artifact names (e.g. ``built-snap-my-snap-amd64``).
     """
-    arch = snap.output[0].arch if snap.output else _current_arch()
+    arch = snap.builds[0].arch if snap.builds else _current_arch()
     return GeneratedSnap(
         name=snap.name,
         **{"snapcraft-yaml": snap.snapcraft_yaml},
-        output=[
+        builds=[
             SnapOutput.model_validate(
                 {
                     "arch": arch,
@@ -542,7 +542,7 @@ def _build_rock(rock: RockArtifact, root: Path, attributed: set[str]) -> Generat
     return GeneratedRock(
         name=rock.name,
         **{"rockcraft-yaml": rock.rockcraft_yaml},
-        output=[RockOutput(arch=_current_arch(), file=output_file)],
+        builds=[RockOutput(arch=_current_arch(), file=output_file)],
     )
 
 
@@ -590,7 +590,7 @@ def _build_charm(
     return GeneratedCharm(
         name=charm.name,
         **{"charmcraft-yaml": charm.charmcraft_yaml},
-        output=charm_outputs,
+        builds=charm_outputs,
         resources=resources if resources else None,
     )
 
@@ -615,7 +615,7 @@ def _build_snap(snap: SnapArtifact, root: Path, attributed: set[str]) -> Generat
     return GeneratedSnap(
         name=snap.name,
         **{"snapcraft-yaml": snap.snapcraft_yaml},
-        output=[SnapOutput(arch=_current_arch(), file=output_file)],
+        builds=[SnapOutput(arch=_current_arch(), file=output_file)],
     )
 
 
@@ -732,7 +732,7 @@ def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:
     GitHub runner label strings.
 
     Rocks come first, then charms, then snaps.  Within each kind, entries are
-    ordered by artifact declaration order, then by ``builds`` order.
+    ordered by artifact declaration order, then by ``platforms`` order.
 
     The result is JSON-serialisable and suitable for use as a GitHub Actions
     ``strategy.matrix`` value via ``$GITHUB_OUTPUT``.
@@ -748,7 +748,7 @@ def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:
     plan = load_artifacts_plan(plan_path)
     include: list[dict[str, object]] = []
     for rock in plan.rocks:
-        for build in rock.builds:
+        for build in rock.platforms:
             include.append(
                 {
                     "name": rock.name,
@@ -758,7 +758,7 @@ def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:
                 }
             )
     for charm in plan.charms:
-        for build in charm.builds:
+        for build in charm.platforms:
             include.append(
                 {
                     "name": charm.name,
@@ -768,7 +768,7 @@ def artifacts_matrix(root: Path) -> dict[str, list[dict[str, object]]]:
                 }
             )
     for snap in plan.snaps:
-        for build in snap.builds:
+        for build in snap.platforms:
             include.append(
                 {
                     "name": snap.name,
@@ -800,11 +800,11 @@ def _merge_artifact_outputs[T: (GeneratedRock, GeneratedCharm, GeneratedSnap)](
     items: list[T],
     kind: str,
 ) -> list[T]:
-    """Merge artifacts with the same name by combining their output lists.
+    """Merge artifacts with the same name by combining their builds lists.
 
     In a multi-arch CI build, each arch produces a separate partial file for
-    the same artifact but with a different arch entry in ``output``.  This
-    function groups them by name and concatenates the ``output`` lists so that
+    the same artifact but with a different arch entry in ``builds``.  This
+    function groups them by name and concatenates the ``builds`` lists so that
     the collected file holds all arches for each artifact.
 
     For rocks and snaps, raises :class:`ConfigurationError` if the same
@@ -818,8 +818,8 @@ def _merge_artifact_outputs[T: (GeneratedRock, GeneratedCharm, GeneratedSnap)](
             merged[item.name] = item
         else:
             existing = merged[item.name]
-            existing_keys = {_output_key(b) for b in existing.output}
-            for build in item.output:
+            existing_keys = {_output_key(b) for b in existing.builds}
+            for build in item.builds:
                 key = _output_key(build)
                 if key in existing_keys:
                     msg = (
@@ -828,7 +828,7 @@ def _merge_artifact_outputs[T: (GeneratedRock, GeneratedCharm, GeneratedSnap)](
                         "exactly one partial file."
                     )
                     raise ConfigurationError(msg)
-            existing.output.extend(item.output)
+            existing.builds.extend(item.builds)
     return list(merged.values())
 
 
@@ -1034,7 +1034,7 @@ def _localize_charm(
     new_entries: list[CharmOutput] = []
     localized = 0
 
-    for idx, build in enumerate(charm.output):
+    for idx, build in enumerate(charm.builds):
         if build.path or not build.artifact:
             continue
         artifact_dir = root / build.artifact
@@ -1073,8 +1073,8 @@ def _localize_charm(
 
     if indices_to_replace:
         replace_set = set(indices_to_replace)
-        charm.output = [
-            b for i, b in enumerate(charm.output) if i not in replace_set
+        charm.builds = [
+            b for i, b in enumerate(charm.builds) if i not in replace_set
         ] + new_entries
 
     return localized
@@ -1111,7 +1111,7 @@ def artifacts_localize(root: Path) -> int:
         updated += _localize_charm(charm, root, missing)
 
     for snap in generated.snaps:
-        for snap_build in snap.output:
+        for snap_build in snap.builds:
             if snap_build.file or not snap_build.artifact:
                 continue
             artifact_dir = root / snap_build.artifact
@@ -1415,11 +1415,11 @@ def artifacts_fetch(
     # Download each charm / snap artifact archive (deduplicated)
     seen_artifacts: set[str] = set()
     for charm in generated.charms:
-        for build in charm.output:
+        for build in charm.builds:
             if build.artifact:
                 seen_artifacts.add(build.artifact)
     for snap in generated.snaps:
-        for snap_build in snap.output:
+        for snap_build in snap.builds:
             if snap_build.artifact:
                 seen_artifacts.add(snap_build.artifact)
 

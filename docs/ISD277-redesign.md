@@ -176,12 +176,12 @@ version: 1
 rocks:
   - name: indico
     rockcraft-yaml: indico_rock/rockcraft.yaml
-    output:
+    builds:
       file: ./indico_rock/indico_1.0_amd64.rock
 charms:
   - name: indico
     charmcraft-yaml: charmcraft.yaml
-    output:
+    builds:
       files:
         - path: ./indico_ubuntu-22.04-amd64.charm
           base: ubuntu@22.04
@@ -194,7 +194,7 @@ charms:
 snaps:
   - name: my-snap
     snapcraft-yaml: snap/snapcraft.yaml
-    output:
+    builds:
       file: ./snap/my-snap_1.0_amd64.snap
 ```
 
@@ -205,12 +205,12 @@ version: 1
 rocks:
   - name: indico
     rockcraft-yaml: indico_rock/rockcraft.yaml
-    output:
+    builds:
       image: ghcr.io/canonical/indico:abc1234-22.04
 charms:
   - name: indico
     charmcraft-yaml: charmcraft.yaml
-    output:
+    builds:
       artifact: charm-indico
       run-id: "1234567890"
     resources:

@@ -185,14 +185,14 @@ class TestArtifactsGenerated:
                 GeneratedRock(
                     name="indico",
                     rockcraft_yaml="indico_rock/rockcraft.yaml",
-                    output=[RockOutput(arch="amd64", file="./indico.rock")],
+                    builds=[RockOutput(arch="amd64", file="./indico.rock")],
                 )
             ],
             charms=[
                 GeneratedCharm(
                     name="indico",
                     charmcraft_yaml="charmcraft.yaml",
-                    output=[
+                    builds=[
                         CharmOutput(
                             arch="amd64",
                             path="./indico.charm",
@@ -202,8 +202,8 @@ class TestArtifactsGenerated:
                 )
             ],
         )
-        assert gen.rocks[0].output[0].file == "./indico.rock"
-        assert gen.charms[0].output[0].path == "./indico.charm"
+        assert gen.rocks[0].builds[0].file == "./indico.rock"
+        assert gen.charms[0].builds[0].path == "./indico.charm"
 
     def test_generated_extra_fields_rejected(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs"):
@@ -215,7 +215,7 @@ class TestArtifactsGenerated:
                 GeneratedSnap(
                     name="mysnap",
                     snapcraft_yaml="snap/snapcraft.yaml",
-                    output=[SnapOutput(arch="amd64", file="./mysnap.snap")],
+                    builds=[SnapOutput(arch="amd64", file="./mysnap.snap")],
                 )
             ],
         )
