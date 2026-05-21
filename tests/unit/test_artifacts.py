@@ -758,36 +758,35 @@ class TestArtifactsBuild:
         assert "./mycharm_ubuntu-22.04-amd64.charm" in paths
         assert "./mycharm_ubuntu-24.04-amd64.charm" in paths
 
-    def test_two_charms_same_output_filename_raises(self, tmp_path: Path) -> None:
-        """Two charms that produce the same output filename raise an error.
+    def test_charm_name_from_artifacts_yaml_not_charmcraft_yaml(
+        self, tmp_path: Path
+    ) -> None:
+        """Output matching uses charm.name from artifacts.yaml, not charmcraft.yaml.
 
-        If both charmcraft yamls declare the same internal name (e.g. 'any-charm'),
-        charmcraft produces identically-named .charm files. The second build
-        overwrites the first and the attribution would be silently wrong.
-        opcli must detect this and raise rather than silently recording stale data.
+        This covers the legacy split-format case where charmcraft.yaml has no
+        'name' field (name lives in metadata.yaml).  Previously opcli tried to
+        read the name from charmcraft.yaml and raised ConfigurationError; now it
+        relies on the name declared in artifacts.yaml.
         """
-        _write(tmp_path / "charmcraft-a.yaml", "name: same-charm\n")
-        _write(tmp_path / "charmcraft-b.yaml", "name: same-charm\n")
+        # charmcraft.yaml has no 'name' field (split format)
+        _write(tmp_path / "charmcraft.yaml", "type: charm\n")
 
         _write(
             tmp_path / "artifacts.yaml",
-            "version: 1\ncharms:\n"
-            "- name: charm-a\n  charmcraft-yaml: charmcraft-a.yaml\n"
-            "- name: charm-b\n  charmcraft-yaml: charmcraft-b.yaml\n",
+            "version: 1\ncharms:\n- name: indico\n  charmcraft-yaml: charmcraft.yaml\n",
         )
 
-        call_count = [0]
-
         def fake_run(cmd: list[str], **kwargs: object) -> None:
-            call_count[0] += 1
-            # Both builds produce the same filename (overwrite-in-place for #2)
-            _write(tmp_path / "same-charm_ubuntu-22.04-amd64.charm", "charm")
+            _write(tmp_path / "indico_ubuntu-20.04-amd64.charm", "charm")
 
-        with (
-            patch("opcli.core.artifacts.run_command", side_effect=fake_run),
-            pytest.raises(OpcliError, match="already produced by another artifact"),
-        ):
-            artifacts_build(tmp_path)
+        with patch("opcli.core.artifacts.run_command", side_effect=fake_run):
+            result = artifacts_build(tmp_path)
+
+        gen = load_artifacts_build(result)
+        assert len(gen.charms) == 1
+        assert gen.charms[0].name == "indico"
+        assert len(gen.charms[0].output) == 1
+        assert "indico_ubuntu-20.04-amd64.charm" in gen.charms[0].output[0].path
 
     def test_symlink_not_removed_if_replaced_by_real_file(self, tmp_path: Path) -> None:
         """If pack replaces the symlink with a real file, cleanup does not delete it.
