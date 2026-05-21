@@ -27,7 +27,6 @@ from opcli.core.yaml_io import (
     dump_artifacts_plan,
     load_artifacts_build,
     load_artifacts_plan,
-    load_yaml,
 )
 from opcli.models.artifacts import (
     CharmArtifact,
@@ -374,16 +373,6 @@ def _parse_arch_from_snap_path(path: str) -> str | None:
     return m.group("arch") if m else None
 
 
-def _read_charm_name(yaml_path: Path) -> str:
-    """Return the ``name:`` field from a charmcraft YAML file."""
-    data = load_yaml(yaml_path)
-    name = data.get("name")
-    if not isinstance(name, str) or not name:
-        msg = f"Could not read 'name' from {yaml_path}"
-        raise ConfigurationError(msg)
-    return name
-
-
 def _pick_new_charm_outputs(
     after: set[str],
     pack_dir: Path,
@@ -410,7 +399,8 @@ def _pick_new_charm_outputs(
     if not matching:
         msg = (
             f"No *.charm files for charm '{charm_name}' found in {pack_dir}. "
-            "Ensure the 'name' field in the charmcraft YAML matches the packed output."
+            "Ensure the 'name' in artifacts.yaml matches the charm name produced "
+            "by charmcraft (from charmcraft.yaml or metadata.yaml for split format)."
         )
         raise OpcliError(msg)
 
@@ -578,8 +568,7 @@ def _build_charm(
         if symlink_created and symlink_path and symlink_path.is_symlink():
             symlink_path.unlink()
     after = _snapshot_outputs(pack_dir, "charm")
-    charm_name = _read_charm_name(yaml_path)
-    new_outputs = _pick_new_charm_outputs(after, pack_dir, charm_name, attributed)
+    new_outputs = _pick_new_charm_outputs(after, pack_dir, charm.name, attributed)
     attributed.update(new_outputs)
     arch = _current_arch()
     charm_outputs = [
