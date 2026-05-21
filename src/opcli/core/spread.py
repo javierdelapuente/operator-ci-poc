@@ -286,6 +286,7 @@ opcli install spread
 opcli install tox
 opcli install concierge
 opcli provision prepare -c "$CONCIERGE"
+usermod -aG lxd ubuntu || true
 runuser -l ubuntu -c \
   "cd \\"${SPREAD_PATH}\\" && opcli provision registry"
 opcli provision load
@@ -311,6 +312,7 @@ opcli install spread
 opcli install tox
 opcli install concierge
 opcli provision prepare -c "$CONCIERGE"
+usermod -aG lxd ubuntu || true
 """
 
 _CI_PREPARE_AFTER_USER = """\
