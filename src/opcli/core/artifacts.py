@@ -399,7 +399,8 @@ def _pick_new_charm_outputs(
     if not matching:
         msg = (
             f"No *.charm files for charm '{charm_name}' found in {pack_dir}. "
-            "Ensure the 'name' field in the charmcraft YAML matches the packed output."
+            "Ensure the 'name' in artifacts.yaml matches the charm name produced "
+            "by charmcraft (from charmcraft.yaml or metadata.yaml for split format)."
         )
         raise OpcliError(msg)
 
