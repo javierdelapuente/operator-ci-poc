@@ -8,7 +8,7 @@ A **local-first CLI tool** for Canonical operator developers to build charms, ro
 
 | Document | Purpose |
 |---|---|
-| [docs/ISD278.md](docs/ISD278.md) | Functional specification |
+| [docs/ISD283.md](docs/ISD283.md) | Functional specification |
 | [AGENTS.md](AGENTS.md) | Developer guide for AI coding agents |
 | [examples/](examples/) | Example project layout with `artifacts.yaml`, `spread.yaml`, and `concierge.yaml` |
 
