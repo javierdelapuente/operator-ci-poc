@@ -8,8 +8,7 @@ A **local-first CLI tool** for Canonical operator developers to build charms, ro
 
 | Document | Purpose |
 |---|---|
-| [docs/ISD277-redesign.md](docs/ISD277-redesign.md) | Authoritative functional specification |
-| [docs/divergences.md](docs/divergences.md) | Where implementation differs from the spec |
+| [docs/ISD278.md](docs/ISD278.md) | Functional specification |
 | [AGENTS.md](AGENTS.md) | Developer guide for AI coding agents |
 | [examples/](examples/) | Example project layout with `artifacts.yaml`, `spread.yaml`, and `concierge.yaml` |
 
@@ -274,7 +273,7 @@ src/opcli/
 tests/
   unit/        # Fast tests — mock external processes
   integration/ # Requires LXD/spread — skip-guarded
-docs/          # Spec + divergences
+docs/          # Spec
 examples/      # Example project layout
 ```
 

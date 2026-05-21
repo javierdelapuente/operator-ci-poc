@@ -8,8 +8,7 @@ Instructions for AI coding agents working on this repository.
 
 `opcli` — local-first CLI for Canonical operator developers to build charms/rocks/snaps, manage test environments, and run integration tests.
 
-- **Spec:** [`docs/ISD277-redesign.md`](docs/ISD277-redesign.md) — read before implementing new features.
-- **Divergences:** [`docs/divergences.md`](docs/divergences.md) — where implementation differs from spec.
+- **Spec:** [`docs/ISD278.md`](docs/ISD278.md) — read before implementing new features.
 - **opcli owns:** file-based contracts, artifact discovery, subprocess execution, YAML transforms, artifact download (`gh run download`), CI job status queries (`gh api`).
 - **opcli does NOT own:** GitHub workflow orchestration, artifact upload, runner selection.
 
