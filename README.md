@@ -42,7 +42,7 @@ opcli --help
 ```bash
 opcli artifacts init     # discover charms/rocks/snaps → artifacts.yaml
 opcli artifacts build    # build all → artifacts.build.yaml
-opcli spread init        # generate spread.yaml + task.yaml
+opcli spread init        # generate spread.yaml + tests/integration/run/task.yaml
 opcli spread expand      # preview expanded spread config
 opcli spread run         # run integration tests (LXD backend)
 
@@ -55,10 +55,11 @@ opcli spread run -- integration-test-local:ubuntu-24.04:tests/integration/run:te
 ```bash
 opcli artifacts init
 opcli artifacts build
+opcli install tox              # install tox + tox-uv (if not already present)
 opcli env provision            # provision with concierge
 opcli env deploy-registry      # deploy local OCI registry (if k8s enabled)
 opcli artifacts push-images    # push rocks to registry
-eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
+opcli pytest run -- -k test_charm   # run tests via tox
 ```
 
 ## Commands
@@ -71,7 +72,7 @@ eval "$(opcli pytest expand -- -k test_charm)"   # run tests via tox
 | `build` | Build artifacts → `artifacts.build.yaml`. Filter: `--charm`, `--rock`, `--snap`. |
 | `matrix` | Print JSON build matrix for GitHub Actions. |
 | `collect <partial>...` | Merge partial `artifacts.build.yaml` from parallel jobs. |
-| `fetch` | Download CI artifacts and rewrite to local paths. `--run-id`, `--repo`, `--wait`. |
+| `fetch` | Download CI artifacts and rewrite to local paths. `--run-id` (required), `--repo`, `--wait`. |
 | `localize` | Rewrite CI artifact refs to local paths (after manual download). |
 | `push-images` | Load rock OCI images into a local registry. `-r` for registry (default: `localhost:32000`). |
 
