@@ -27,6 +27,8 @@ uv run pytest tests/unit/                  # unit tests
 
 Never use `pip install`. All dependency management goes through `uv` and `pyproject.toml`.
 
+> **Note:** These commands mirror the CI workflow (`.github/workflows/ci.yml`). If you change one, update the other.
+
 ---
 
 ## Architecture rules
@@ -42,7 +44,7 @@ src/opcli/
 tests/
   unit/        # Fast tests — mock external processes
   integration/ # Requires LXD/spread — skip-guarded with @pytest.mark.integration
-docs/          # Spec + divergences
+docs/          # Spec (ISD283)
 examples/      # Example project layout (artifacts.yaml, spread.yaml, concierge.yaml)
 ```
 
@@ -139,6 +141,25 @@ All Typer callbacks catch `OpcliError` and emit user-friendly messages. No raw t
 
 ---
 
+## What CI enforces
+
+The table below distinguishes *mechanically enforced* rules from *advisory* ones. Enforced rules block merge (or will, once branch protection is enabled). Advisory rules depend on developer/agent discipline.
+
+| Rule | Enforcement | How |
+|---|---|---|
+| Lint (`ruff check`) | ✅ CI blocks | `ci.yml` step |
+| Format (`ruff format --check`) | ✅ CI blocks | `ci.yml` step |
+| Type safety (`mypy --strict`) | ✅ CI blocks | `ci.yml` step |
+| Unit tests pass | ✅ CI blocks | `ci.yml` step |
+| Coverage ≥ 85% | ✅ CI blocks | `pytest --cov-fail-under=85` |
+| No push to main | ⚠️ Advisory | Branch protection (enable on canonical/charm-ci) |
+| CI green before merge | ⚠️ Advisory | Branch protection (enable on canonical/charm-ci) |
+| Docs updated with code | ⚠️ Advisory | PR review discipline |
+| Mock at `run_command` only | ⚠️ Advisory | Code review |
+| Avoid `Any` | ✅ CI blocks | `mypy --strict` rejects new `Any` |
+
+---
+
 ## Git workflow
 
 **Never push to `main`.** Always: branch → PR → CI green → squash merge.
@@ -156,7 +177,7 @@ gh pr merge <number> --squash
 
 **If a CI check fails, fix it.** Never dismiss a failure as "pre-existing" or "unrelated to this PR". If a workflow is broken, investigate and fix it in the same PR (or a preceding one) before merging. The goal is to keep `main` green at all times.
 
-**Every PR must update docs.** If a PR changes CLI behavior, adds/removes commands, modifies flags, or alters workflows, the corresponding documentation must be updated in the same PR. This includes `docs/ISD277-redesign.md` (spec), `docs/divergences.md`, `README.md`, and `AGENTS.md` as applicable. No code-only PRs that leave docs stale.
+**Every PR must update docs.** If a PR changes CLI behavior, adds/removes commands, modifies flags, or alters workflows, the corresponding documentation must be updated in the same PR. This includes `docs/ISD283.md` (spec), `README.md`, and `AGENTS.md` as applicable. No code-only PRs that leave docs stale.
 
 All commits must include:
 ```
