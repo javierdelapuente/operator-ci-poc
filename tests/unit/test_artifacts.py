@@ -1993,3 +1993,37 @@ class TestCheckCollectJobConclusion:
                 "123", "owner/repo"
             )
         assert conclusion is None
+
+
+class TestSafeArtifactDir:
+    """Tests for _safe_artifact_dir path traversal prevention."""
+
+    def test_valid_subdir(self, tmp_path: Path) -> None:
+        """Normal artifact name resolves under root."""
+        result = _artifacts_mod._safe_artifact_dir(tmp_path, "my-artifact")
+        assert result == (tmp_path / "my-artifact").resolve()
+
+    def test_nested_subdir(self, tmp_path: Path) -> None:
+        """Nested artifact name resolves under root."""
+        result = _artifacts_mod._safe_artifact_dir(tmp_path, "built/charm-foo")
+        assert result == (tmp_path / "built" / "charm-foo").resolve()
+
+    def test_traversal_rejected(self, tmp_path: Path) -> None:
+        """Path traversal via .. is rejected."""
+        with pytest.raises(ConfigurationError, match="resolves outside"):
+            _artifacts_mod._safe_artifact_dir(tmp_path, "../../etc/evil")
+
+    def test_absolute_path_rejected(self, tmp_path: Path) -> None:
+        """Absolute path that escapes root is rejected."""
+        with pytest.raises(ConfigurationError, match="resolves outside"):
+            _artifacts_mod._safe_artifact_dir(tmp_path, "/tmp/evil")
+
+    def test_dot_dot_in_middle_rejected(self, tmp_path: Path) -> None:
+        """Traversal hidden in the middle of the path is rejected."""
+        with pytest.raises(ConfigurationError, match="resolves outside"):
+            _artifacts_mod._safe_artifact_dir(tmp_path, "legit/../../../etc/passwd")
+
+    def test_root_itself_allowed(self, tmp_path: Path) -> None:
+        """Artifact name '.' resolves to root itself (edge case)."""
+        result = _artifacts_mod._safe_artifact_dir(tmp_path, ".")
+        assert result == tmp_path.resolve()

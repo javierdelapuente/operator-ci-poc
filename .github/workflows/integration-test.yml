@@ -156,6 +156,9 @@ jobs:
           sudo ln -sf ~/go/bin/spread /usr/local/bin/spread
 
       # ── Export test secrets ─────────────────────────────────────────────
+      # Only the secrets named in test-secret-{1..5}-name inputs are extracted.
+      # ALL_SECRETS contains the full JSON so we can look up dynamic names, but
+      # only the explicitly requested values are exported to the environment.
       - name: Export test secrets
         if: >-
           inputs.test-secret-1-name != '' ||
@@ -166,6 +169,7 @@ jobs:
         env:
           ALL_SECRETS: ${{ toJSON(secrets) }}
         run: |
+          set -euo pipefail
           for name in \
             "${{ inputs.test-secret-1-name }}" \
             "${{ inputs.test-secret-2-name }}" \
@@ -181,6 +185,7 @@ jobs:
             echo "::add-mask::$value"
             echo "$name=$value" >> "$GITHUB_ENV"
           done
+          unset ALL_SECRETS
 
       # ── Early bail-out if the build already failed ─────────────────────────
       # The test job starts without waiting for the build (by design — provisioning

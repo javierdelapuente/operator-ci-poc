@@ -49,6 +49,26 @@ logger = logging.getLogger(__name__)
 _ARTIFACTS_YAML = "artifacts.yaml"
 _ARTIFACTS_GENERATED_YAML = "artifacts.build.yaml"
 
+
+def _safe_artifact_dir(root: Path, name: str) -> Path:
+    """Resolve an artifact name to a directory under root, preventing traversal.
+
+    Raises ConfigurationError if the resolved path escapes the root directory.
+    """
+    artifact_dir = (root / name).resolve()
+    root_resolved = root.resolve()
+    if not (
+        artifact_dir == root_resolved
+        or str(artifact_dir).startswith(str(root_resolved) + os.sep)
+    ):
+        msg = (
+            f"Artifact name {name!r} resolves outside the project root "
+            f"({root_resolved}). This may indicate a malicious artifacts.build.yaml."
+        )
+        raise ConfigurationError(msg)
+    return artifact_dir
+
+
 _PACK_COMMANDS: dict[str, list[str]] = {
     "charm": ["charmcraft", "pack", "--verbose"],
     "rock": ["rockcraft", "pack"],
@@ -111,7 +131,7 @@ def _get_ci_context() -> _CIContext | None:
 
     repo = repository.split("/", 1)[-1]
     if not repo.strip():
-        msg = "GITHUB_REPOSITORY must be in 'owner/repo' format, got: {repository!r}"
+        msg = f"GITHUB_REPOSITORY must be in 'owner/repo' format, got: {repository!r}"
         raise ConfigurationError(msg)
     return _CIContext(run_id=run_id, owner=owner, repo=repo, sha=sha[:7])
 
@@ -1037,7 +1057,7 @@ def _localize_charm(
     for idx, build in enumerate(charm.builds):
         if build.path or not build.artifact:
             continue
-        artifact_dir = root / build.artifact
+        artifact_dir = _safe_artifact_dir(root, build.artifact)
         if artifact_dir.is_dir():
             charm_files = _find_charm_files_in_dir(artifact_dir, root, build.arch)
         else:
@@ -1114,7 +1134,7 @@ def artifacts_localize(root: Path) -> int:
         for snap_build in snap.builds:
             if snap_build.file or not snap_build.artifact:
                 continue
-            artifact_dir = root / snap_build.artifact
+            artifact_dir = _safe_artifact_dir(root, snap_build.artifact)
             if artifact_dir.is_dir():
                 rel = _find_snap_file_in_dir(artifact_dir, root, snap_build.arch)
             else:
@@ -1424,7 +1444,7 @@ def artifacts_fetch(
                 seen_artifacts.add(snap_build.artifact)
 
     for name in sorted(seen_artifacts):
-        artifact_dir = root / name
+        artifact_dir = _safe_artifact_dir(root, name)
         artifact_dir.mkdir(parents=True, exist_ok=True)
         status(f"Downloading artifact '{name}'")
         run_command(
